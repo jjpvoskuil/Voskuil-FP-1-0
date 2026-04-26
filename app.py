@@ -8,7 +8,7 @@ st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 # 2. Data Ingestion Engine (The "Compustat" Layer)
 # We skip the first few header rows of the MS CSV to find the actual data [1, 3]
 try:
-    df = pd.read_csv('Current MS holdings - 042526.csv', skiprows=6)
+    df = pd.read_csv('Current MS holdings - 042526', skiprows=6)
     # Clean the column names and remove empty rows/columns common in MS exports [1]
     df = df.dropna(subset=['Symbol'])
 except:
