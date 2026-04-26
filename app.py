@@ -57,25 +57,50 @@ with col4:
 
 st.divider()
 
-# 4. HOLDINGS EXPLORER & SEC DRILL-DOWN [3]
-st.header("📋 Holdings Explorer & SEC Drill-Down")
-st.write("Click the links below to 'drill down' into raw SEC filings for your holdings.")
+# 4. UNIVERSAL DRILL-DOWN LOGIC
+# This function creates a search link for ANY ticker symbol automatically
+def make_dynamic_sec_link(symbol):
+    # This URL tells the SEC to search for the ticker directly
+    return f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}&action=getcompany"
 
-# Create the SEC Link column [3]
-df['SEC Link'] = df['Symbol'].apply(lambda x: f"https://www.sec.gov/edgar/browse/?CIK={x}")
+def make_market_research_link(symbol):
+    # This provides a dynamic link to external market data and charts
+    return f"https://finance.yahoo.com/quote/{symbol}"
 
-# Clean and display the core data
-# Note: Quantity and Market Value often come in with commas/quotes in MS files [4]
-display_df = df[['Symbol', 'Name', 'Quantity', 'Market Value ($)', 'SEC Link']]
+# 5. APPLYING LINKS TO THE FULL HOLDINGS LIST
+# This now applies to every symbol found in your MS CSV (e.g., ABBV, MSFT, NVDA, etc.)
+df['SEC Link'] = df['Symbol'].apply(make_dynamic_sec_link)
+df['Market Link'] = df['Symbol'].apply(make_market_research_link)
+
+# 6. THE DYNAMIC HOLDINGS EXPLORER
+st.header("📋 Dynamic Holdings Explorer")
+st.write("Every holding below now has live, dynamic links for institutional-grade research.")
+
+# Columns to display from your holdings [1, 2, 4-91]
+display_cols = ['Symbol', 'Name', 'Market Value ($)', 'SEC Link', 'Market Link']
 
 st.dataframe(
-    display_df,
-    column_config={"SEC Link": st.column_config.LinkColumn("Institutional Research")},
+    df[display_cols],
+    column_config={
+        "SEC Link": st.column_config.LinkColumn("SEC Filings", help="Raw Corporate Filings"),
+        "Market Link": st.column_config.LinkColumn("Market Analysis", help="Live Charts & News")
+    },
     hide_index=True,
     use_container_width=True
 )
 
-# 5. STRATEGY SIDEBAR
+# 7. DISCOVERY ENGINE (Future Goal)
+st.divider()
+st.subheader("🔎 Strategy-Matched Discovery")
+search_ticker = st.text_input("Enter any other Public Company Ticker to analyze against your strategy:")
+if search_ticker:
+    col_x, col_y = st.columns(2)
+    with col_x:
+        st.link_button(f"View {search_ticker} SEC Filings", make_dynamic_sec_link(search_ticker))
+    with col_y:
+        st.link_button(f"View {search_ticker} Market Data", make_market_research_link(search_ticker))
+
+# 8. STRATEGY SIDEBAR
 with st.sidebar:
     st.header("Philosophy Engine")
     st.info("Current Phase: Final Expedition")
