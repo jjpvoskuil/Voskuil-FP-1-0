@@ -96,4 +96,3 @@ with t2:
 st.header("📋 Institutional Holdings Explorer")
 # Simplified view for now to ensure page loads
 st.dataframe(df_holdings[['Symbol', 'Name', 'Quantity', 'Market Value ($)']], use_container_width=True)
-Why this fixes the issue:
