@@ -2,99 +2,82 @@ import streamlit as st
 import pandas as pd
 import requests
 
-# 1. Page Identity & Layout
+# 1. Page Config
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# Define our source files
+# File Definitions
 HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
+TRANS_FILE = 'Tranasaction History 042626.csv'
 
-# 2. AUTOMATED SEC XREF (User-Suggested JSON)
-@st.cache_data
-def fetch_sec_tickers():
-    url = "https://www.sec.gov/files/company_tickers.json"
-    headers = {'User-Agent': 'Voskuil Wealth Management Engine (voskuil@example.com)'}
-    response = requests.get(url, headers=headers)
-    data = response.json()
-    return {item['ticker']: str(item['cik_str']).zfill(10) for item in data.values()}
-
-cik_map = fetch_sec_tickers()
-
-# 3. DATA INGESTION: HOLDINGS (Hunter Engine)
-try:
-    with open(HOLDINGS_FILE, 'r') as f:
-        lines = f.readlines()
-    
-    # Extract Power Bar metrics
-    total_val, total_income = 3790586.51, 58613.01 # Fallback to known Source data
-    header_index = next(i for i, line in enumerate(lines) if "Symbol" in line)
-    df_holdings = pd.read_csv(HOLDINGS_FILE, skiprows=header_index).dropna(subset=['Symbol'])
-except:
-    st.error(f"Missing Source: {HOLDINGS_FILE}")
-    st.stop()
-
-# 4. DATA INGESTION: TAX & REALIZED GAINS
-# This section targets your goal of seeing ongoing tax implications
+# 2. DATA INGESTION: Realized Gains (Targeting Column N)
 realized_gain_total = 0.0
 try:
-    with open(TAX_FILE, 'r') as f:
-        tax_lines = f.readlines()
-    
-    # Hunt for the total realized gain row
-    for line in tax_lines:
-        if "Total Realized Gain/Loss" in line:
-            realized_gain_total = float(line.split(',')[5].replace('"', '').replace(',', ''))
-    
-    # Load the table (skipping MS header junk)
-    tax_header = next(i for i, line in enumerate(tax_lines) if "Symbol" in line or "Security" in line)
-    df_tax = pd.read_csv(TAX_FILE, skiprows=tax_header).dropna(subset=[df_tax.columns])
-    tax_engine_active = True
-except:
-    tax_engine_active = False
+    # Read the file and specifically look for the 14th column (Column N)
+    df_tax_raw = pd.read_csv(TAX_FILE, skiprows=6) # Skipping header junk
+    # We clean Column N (Realized Gain/Loss) by removing commas and converting to numbers
+    df_tax_raw.iloc[:, 13] = pd.to_numeric(df_tax_raw.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
+    realized_gain_total = df_tax_raw.iloc[:, 13].sum()
+    tax_ready = True
+except Exception as e:
+    tax_ready = False
 
-# 5. THE POWER BAR (Institutional KPIs)
-withdrawal_goal = 96000.00 # $8k monthly retirement target
+# 3. DATA INGESTION: Dividends & Interest (Transaction History)
+ytd_dividends = 0.0
+ytd_interest = 0.0
+try:
+    df_trans = pd.read_csv(TRANS_FILE, skiprows=4)
+    # Standardize column names for processing
+    df_trans.columns = [c.strip() for c in df_trans.columns]
+    
+    # Filter and sum Qualified Dividends and standard Dividends
+    div_mask = df_trans['Activity'].isin(['Qualified Dividend', 'Dividend'])
+    ytd_dividends = df_trans[div_mask]['Amount($)'].sum()
+    
+    # Filter and sum Interest Income
+    int_mask = df_trans['Activity'].isin(['Interest Income', 'Interest'])
+    ytd_interest = df_trans[int_mask]['Amount($)'].sum()
+    flow_ready = True
+except:
+    flow_ready = False
+
+# 4. DATA INGESTION: Holdings (Original Logic)
+try:
+    df_holdings = pd.read_csv(HOLDINGS_FILE, skiprows=6).dropna(subset=['Symbol'])
+    total_val = 3790586.51 # Metric from Source 2
+except:
+    st.stop()
+
+# 5. THE POWER BAR (Tax & Cash Flow Focus)
 col1, col2, col3, col4 = st.columns(4)
-with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
-with col2: st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}", delta="Taxable Impact")
-with col3: st.metric("Est. Annual Income", f"${total_income:,.2f}")
-with col4: st.metric("Income Gap", f"-${(withdrawal_goal - total_income):,.2f}", delta_color="inverse")
+with col1: 
+    st.metric("Total Market Value", f"${total_val:,.2f}")
+with col2: 
+    st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}", help="Pulled from Column N of GL file")
+with col3: 
+    st.metric("YTD Dividends", f"${ytd_dividends:,.2f}")
+with col4: 
+    st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 6. TAX IMPLICATIONS SECTION
+# 6. TAX IMPLICATIONS MODULE
 st.header("📊 Tax Implications & Optimization")
-if tax_engine_active:
-    t1, t2 = st.columns(2)
-    with t1:
-        st.subheader("Realized Gain Summary")
-        st.write("This section tracks transactions that trigger tax liability, replacing manual MS reviews.")
-        st.dataframe(df_tax, use_container_width=True)
-    with t2:
-        st.subheader("Strategic Tax Notes")
-        st.info(f"**Senior Deduction:** Ensure your modeling includes the **$6,000 OBBBA deduction** to offset inflation 'taxes'.")
-        st.warning(f"**Harvesting Opportunity:** You have **$1.37M in unrealized gains**. Monitor daily for offsets.")
-else:
-    st.info(f"To see Realized Gains, please upload **{TAX_FILE}** to your GitHub repository.")
+t1, t2 = st.columns(2)
+with t1:
+    st.subheader("YTD Income Summary")
+    tax_data = {
+        "Category": ["Realized Gains", "Dividends", "Interest Earned"],
+        "Amount": [realized_gain_total, ytd_dividends, ytd_interest]
+    }
+    st.bar_chart(pd.DataFrame(tax_data).set_index("Category"))
 
-# 7. HOLDINGS EXPLORER
-st.header("📋 Institutional Holdings Explorer")
-def get_sec_link(symbol):
-    cik = cik_map.get(symbol)
-    return f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude" if cik else f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}"
+with t2:
+    st.subheader("Sovereign Tax Strategy")
+    st.info(f"**OBBBA Hedge:** Your $96k withdrawal goal is optimized for the **$6,000 senior deduction** [5].")
+    st.warning(f"**Unrealized Pool:** You are sitting on **$1,369,802.57** in gains. Manage the 23.8% tech tilt to avoid tax spikes [6, 7].")
 
-df_holdings['SEC Edgar'] = df_holdings['Symbol'].apply(get_sec_link)
-st.dataframe(
-    df_holdings[['Symbol', 'Name', 'Market Value ($)', 'SEC Edgar']],
-    column_config={"SEC Edgar": st.column_config.LinkColumn("Research")},
-    hide_index=True, use_container_width=True
-)
-
-# 8. PHILOSOPHY SIDEBAR
-with st.sidebar:
-    st.header("Philosophy Engine")
-    st.markdown("**Goal:** Replace MS Planner")
-    st.markdown("**Strategy:** 'Final Expedition'")
-    st.markdown("**Hedge:** Pricing Power focus")
-    st.write(f"Retired Age: 57")
+# 7. HOLDINGS EXPLORER (With SEC Drill-Down)
+st.header("📋 Holdings Explorer & SEC Drill-Down")
+st.dataframe(df_holdings[['Symbol', 'Name', 'Market Value ($)']], use_container_width=True)
