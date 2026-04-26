@@ -1,25 +1,43 @@
 import streamlit as st
 import pandas as pd
+import os
 
-# 1. Setup and Project Identity
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# 2. Data Ingestion Engine (The "Compustat" Layer)
-# We skip the first few header rows of the MS CSV to find the actual data [1, 3]
+# 1. THE FILE SCANNER
+# This part looks at your GitHub folder to see exactly what files are there.
+st.sidebar.header("System Status")
+files_in_folder = os.listdir('.')
+st.sidebar.write("Files detected in cloud:", files_in_folder)
+
+FILENAME = 'Current MS holdings - 042526.csv'
+
+# 2. THE SMART INGESTION ENGINE
+# Instead of guessing, we search for the row that contains your actual stock data.
 try:
-    df = pd.read_csv('Current MS holdings - 042526', skiprows=6)
-    # Clean the column names and remove empty rows/columns common in MS exports [1]
+    # First, we read the file to find the header row
+    raw_data = pd.read_csv(FILENAME, header=None)
+    
+    # We look for the row that contains the word 'Symbol' [3]
+    header_row_index = raw_data[raw_data.apply(lambda r: r.astype(str).str.contains('Symbol').any(), axis=1)].index
+    
+    # Now we read it correctly starting from that row
+    df = pd.read_csv(FILENAME, skiprows=header_row_index)
     df = df.dropna(subset=['Symbol'])
-except:
-    st.error("Data Ingestion Error: Please ensure 'Current MS holdings - 042526.csv' is uploaded to GitHub.")
+    
+    st.sidebar.success("✅ Data Connection Established")
+
+except Exception as e:
+    st.error(f"⚠️ Technical Error: {e}")
+    st.info("Check the sidebar to see if the filename in GitHub matches 'Current MS holdings - 042526.csv' exactly.")
     st.stop()
 
-# 3. Institutional KPIs (Power Bar) [3, 4]
+# 3. INSTITUTIONAL KPIs (Using actual data from your MS Export [2, 4])
 total_value = 3790586.51
 unrealized_gain = 1369802.57
 est_income = 58613.01
-withdrawal_goal = 96000.00 # $8,000/mo [5]
+withdrawal_goal = 96000.00 
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
@@ -33,51 +51,20 @@ with col4:
 
 st.divider()
 
-# 4. Strategic Philosophy Input Page [2]
-with st.sidebar:
-    st.header("Philosophy Engine")
-    st.info("Currently retired at age 57. Strategy: 'Final Expedition' [2].")
-    
-    strategy = st.text_area("Investment Strategy Definition:", 
-                             value="Pettis-Dalio Framework: 15% Tech Cap, Pricing Power focus, 5-7.5% Real Assets [6-8].")
-    
-    st.markdown("### Legacy Machine Goals")
-    st.write("- Avoid 'Reverse Compounding' [5]")
-    st.write("- Hedge for 'Ugly Deleveraging' [7]")
-
-# 5. The Holdings Explorer with SEC Drill-Down [2]
+# 4. THE HOLDINGS EXPLORER (Drill-Down [5])
 st.header("📋 Holdings Explorer & SEC Drill-Down")
-st.write("This table replicates your Morgan Stanley view but adds one-click access to SEC filings.")
 
-# Create the SEC Link column [2]
+# Create the SEC Link column for institutional research
 df['SEC Link'] = df['Symbol'].apply(lambda x: f"https://www.sec.gov/edgar/browse/?CIK={x}")
 
-# Select and display the core columns you care about [2, 9]
-display_df = df[['Symbol', 'Name', 'Quantity', 'Market Value ($)', 'Unrealized Gain/Loss ($)', 'SEC Link']]
-
-# Display the data as an interactive table
+# Select the columns from your MS file to display [3, 6]
+display_cols = ['Symbol', 'Name', 'Quantity', 'Market Value ($)', 'Unrealized Gain/Loss ($)', 'SEC Link']
 st.dataframe(
-    display_df,
-    column_config={
-        "SEC Link": st.column_config.Link_Column("SEC Filing Data", help="Institutional Drill-Down [2]")
-    },
+    df[display_cols],
+    column_config={"SEC Link": st.column_config.Link_Column("SEC Filing Data")},
     hide_index=True,
     use_container_width=True
 )
 
-# 6. Concentration Analysis [6]
-st.header("🎯 Concentration Risk: The 'Lost Decade' Hedge")
-big_tech_symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META']
-current_tech_value = df[df['Symbol'].isin(big_tech_symbols)]['Market Value ($)'].str.replace(',', '').astype(float).sum()
-tech_pct = (current_tech_value / total_value) * 100
-
-col_a, col_b = st.columns(2)
-with col_a:
-    st.write(f"### Big Tech Exposure: {tech_pct:.1f}%")
-    st.progress(tech_pct / 100)
-    st.caption("Strategic Target: Trim from ~24% to 15% to increase Pricing Power [6, 8].")
-
-with col_b:
-    st.write("### Recommended Reallocation")
-    st.write("- 9% into **Dividend Aristocrats** (e.g., PG, ABBV) [6]")
-    st.write("- 5-7.5% into **Real Assets** (Gold/GSG) [7]")
+st.sidebar.markdown(f"**Retirement Age:** 57")
+st.sidebar.markdown(f"**Strategy:** Final Expedition")
