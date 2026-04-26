@@ -1,83 +1,70 @@
 import streamlit as st
 import pandas as pd
-import requests
+import os
 
-# 1. Page Config
+# 1. Page Configuration
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# File Definitions
+# Exact filenames from your Source list
 HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
 TRANS_FILE = 'Tranasaction History 042626.csv'
 
-# 2. DATA INGESTION: Realized Gains (Targeting Column N)
-realized_gain_total = 0.0
-try:
-    # Read the file and specifically look for the 14th column (Column N)
-    df_tax_raw = pd.read_csv(TAX_FILE, skiprows=6) # Skipping header junk
-    # We clean Column N (Realized Gain/Loss) by removing commas and converting to numbers
-    df_tax_raw.iloc[:, 13] = pd.to_numeric(df_tax_raw.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
-    realized_gain_total = df_tax_raw.iloc[:, 13].sum()
-    tax_ready = True
-except Exception as e:
-    tax_ready = False
+# 2. DEBUG SIDEBAR (To find the missing link)
+st.sidebar.header("📁 File System Check")
+files_present = os.listdir('.')
+for f in [HOLDINGS_FILE, TAX_FILE, TRANS_FILE]:
+    if f in files_present:
+        st.sidebar.success(f"Found: {f}")
+    else:
+        st.sidebar.error(f"Missing: {f}")
 
-# 3. DATA INGESTION: Dividends & Interest (Transaction History)
-ytd_dividends = 0.0
-ytd_interest = 0.0
-try:
-    df_trans = pd.read_csv(TRANS_FILE, skiprows=4)
-    # Standardize column names for processing
-    df_trans.columns = [c.strip() for c in df_trans.columns]
-    
-    # Filter and sum Qualified Dividends and standard Dividends
-    div_mask = df_trans['Activity'].isin(['Qualified Dividend', 'Dividend'])
-    ytd_dividends = df_trans[div_mask]['Amount($)'].sum()
-    
-    # Filter and sum Interest Income
-    int_mask = df_trans['Activity'].isin(['Interest Income', 'Interest'])
-    ytd_interest = df_trans[int_mask]['Amount($)'].sum()
-    flow_ready = True
-except:
-    flow_ready = False
-
-# 4. DATA INGESTION: Holdings (Original Logic)
+# 3. DATA INGESTION: HOLDINGS
 try:
     df_holdings = pd.read_csv(HOLDINGS_FILE, skiprows=6).dropna(subset=['Symbol'])
-    total_val = 3790586.51 # Metric from Source 2
+    total_val = 3790586.51 
 except:
+    st.warning("Holdings data not yet linked.")
     st.stop()
 
-# 5. THE POWER BAR (Tax & Cash Flow Focus)
+# 4. DATA INGESTION: TAX (Targeting Column N)
+realized_gain_total = 0.0
+try:
+    df_tax = pd.read_csv(TAX_FILE, skiprows=6)
+    # Column N is index 13. We clean and sum it.
+    gain_col = df_tax.iloc[:, 13]
+    realized_gain_total = pd.to_numeric(gain_col.astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce').sum()
+except Exception as e:
+    st.sidebar.info(f"Tax Data Note: {e}")
+
+# 5. DATA INGESTION: CASH FLOW (Dividends & Interest)
+ytd_dividends, ytd_interest = 0.0, 0.0
+try:
+    df_trans = pd.read_csv(TRANS_FILE, skiprows=4)
+    df_trans.columns = [c.strip() for c in df_trans.columns]
+    
+    # Summing activity types [Source 168, 185, 201]
+    ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False)]['Amount($)'].sum()
+    ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False)]['Amount($)'].sum()
+except Exception as e:
+    st.sidebar.info(f"Cash Flow Note: {e}")
+
+# 6. THE POWER BAR
+withdrawal_goal = 96000.00
 col1, col2, col3, col4 = st.columns(4)
-with col1: 
-    st.metric("Total Market Value", f"${total_val:,.2f}")
-with col2: 
-    st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}", help="Pulled from Column N of GL file")
-with col3: 
-    st.metric("YTD Dividends", f"${ytd_dividends:,.2f}")
-with col4: 
-    st.metric("YTD Interest", f"${ytd_interest:,.2f}")
+with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
+with col2: st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}")
+with col3: st.metric("YTD Dividends", f"${ytd_dividends:,.2f}")
+with col4: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 6. TAX IMPLICATIONS MODULE
+# 7. TAX & HOLDINGS VIEWS
 st.header("📊 Tax Implications & Optimization")
-t1, t2 = st.columns(2)
-with t1:
-    st.subheader("YTD Income Summary")
-    tax_data = {
-        "Category": ["Realized Gains", "Dividends", "Interest Earned"],
-        "Amount": [realized_gain_total, ytd_dividends, ytd_interest]
-    }
-    st.bar_chart(pd.DataFrame(tax_data).set_index("Category"))
+if not realized_gain_total == 0:
+    st.write(f"Tracking taxable events for your **$1,369,802.57** unrealized gain pool [Source 120].")
+    st.dataframe(df_tax.dropna(axis=1, how='all'), use_container_width=True)
 
-with t2:
-    st.subheader("Sovereign Tax Strategy")
-    st.info(f"**OBBBA Hedge:** Your $96k withdrawal goal is optimized for the **$6,000 senior deduction** [5].")
-    st.warning(f"**Unrealized Pool:** You are sitting on **$1,369,802.57** in gains. Manage the 23.8% tech tilt to avoid tax spikes [6, 7].")
-
-# 7. HOLDINGS EXPLORER (With SEC Drill-Down)
-st.header("📋 Holdings Explorer & SEC Drill-Down")
+st.header("📋 Institutional Holdings Explorer")
 st.dataframe(df_holdings[['Symbol', 'Name', 'Market Value ($)']], use_container_width=True)
