@@ -9,7 +9,7 @@ st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 # Exact filenames from your Source list
 HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
-TRANS_FILE = 'Tranasaction History 042626.csv'
+TRANS_FILE = 'Transaction History 042626.csv'
 
 # 2. DEBUG SIDEBAR (To find the missing link)
 st.sidebar.header("📁 File System Check")
