@@ -70,7 +70,7 @@ display_df = df[['Symbol', 'Name', 'Quantity', 'Market Value ($)', 'SEC Link']]
 
 st.dataframe(
     display_df,
-    column_config={"SEC Link": st.column_config.Link_Column("Institutional Research")},
+    column_config={"SEC Link": st.column_config.LinkColumn("Institutional Research")},
     hide_index=True,
     use_container_width=True
 )
