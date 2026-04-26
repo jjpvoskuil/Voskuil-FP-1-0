@@ -1,70 +1,83 @@
 import streamlit as st
 import pandas as pd
-import os
+import io
 
+# 1. Page Identity
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# 1. THE FILE SCANNER
-# This part looks at your GitHub folder to see exactly what files are there.
-st.sidebar.header("System Status")
-files_in_folder = os.listdir('.')
-st.sidebar.write("Files detected in cloud:", files_in_folder)
-
 FILENAME = 'Current MS holdings - 042526.csv'
 
-# 2. THE SMART INGESTION ENGINE
-# Instead of guessing, we search for the row that contains your actual stock data.
+# 2. THE HUNTER ENGINE (Data Ingestion)
 try:
-    # First, we read the file to find the header row
-    raw_data = pd.read_csv(FILENAME, header=None)
+    # Read the whole file as text first to find our data
+    with open(FILENAME, 'r') as f:
+        lines = f.readlines()
+
+    # Hunt for the "Power Bar" numbers (Total Value and Income)
+    total_val, total_income = 0.0, 0.0
+    for line in lines:
+        if "Total Market Value:" in line:
+            # Extracts the $3.79M value directly from your MS file [2]
+            parts = line.split('"')
+            total_val = float(parts[1].replace(',', ''))
+        if "Est. Annual Income:" in line:
+            # Extracts the $58k income directly [2]
+            parts = line.split('"')
+            total_income = float(parts[-2].replace(',', ''))
+
+    # Hunt for the row where your stocks actually start
+    header_index = 0
+    for i, line in enumerate(lines):
+        if "Symbol" in line:
+            header_index = i
+            break
     
-    # We look for the row that contains the word 'Symbol' [3]
-    header_row_index = raw_data[raw_data.apply(lambda r: r.astype(str).str.contains('Symbol').any(), axis=1)].index
-    
-    # Now we read it correctly starting from that row
-    df = pd.read_csv(FILENAME, skiprows=header_row_index)
+    # Load the table starting from that row
+    df = pd.read_csv(FILENAME, skiprows=header_index)
     df = df.dropna(subset=['Symbol'])
     
-    st.sidebar.success("✅ Data Connection Established")
+    st.sidebar.success("✅ Compustat Layer Active")
 
 except Exception as e:
     st.error(f"⚠️ Technical Error: {e}")
-    st.info("Check the sidebar to see if the filename in GitHub matches 'Current MS holdings - 042526.csv' exactly.")
     st.stop()
 
-# 3. INSTITUTIONAL KPIs (Using actual data from your MS Export [2, 4])
-total_value = 3790586.51
-unrealized_gain = 1369802.57
-est_income = 58613.01
+# 3. THE POWER BAR (Live from your file)
 withdrawal_goal = 96000.00 
-
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric("Total Market Value", f"${total_value:,.2f}")
+    st.metric("Total Market Value", f"${total_val:,.2f}")
 with col2:
-    st.metric("Total Unrealized Gain", f"${unrealized_gain:,.2f}")
+    st.metric("Est. Annual Income", f"${total_income:,.2f}")
 with col3:
-    st.metric("Est. Annual Income", f"${est_income:,.2f}")
+    st.metric("Current Portfolio Yield", f"{(total_income/total_val)*100:.2f}%")
 with col4:
-    st.metric("Income Gap", f"-${(withdrawal_goal - est_income):,.2f}", delta_color="inverse")
+    st.metric("Income Gap", f"-${(withdrawal_goal - total_income):,.2f}", delta_color="inverse")
 
 st.divider()
 
-# 4. THE HOLDINGS EXPLORER (Drill-Down [5])
+# 4. HOLDINGS EXPLORER & SEC DRILL-DOWN [3]
 st.header("📋 Holdings Explorer & SEC Drill-Down")
+st.write("Click the links below to 'drill down' into raw SEC filings for your holdings.")
 
-# Create the SEC Link column for institutional research
+# Create the SEC Link column [3]
 df['SEC Link'] = df['Symbol'].apply(lambda x: f"https://www.sec.gov/edgar/browse/?CIK={x}")
 
-# Select the columns from your MS file to display [3, 6]
-display_cols = ['Symbol', 'Name', 'Quantity', 'Market Value ($)', 'Unrealized Gain/Loss ($)', 'SEC Link']
+# Clean and display the core data
+# Note: Quantity and Market Value often come in with commas/quotes in MS files [4]
+display_df = df[['Symbol', 'Name', 'Quantity', 'Market Value ($)', 'SEC Link']]
+
 st.dataframe(
-    df[display_cols],
-    column_config={"SEC Link": st.column_config.Link_Column("SEC Filing Data")},
+    display_df,
+    column_config={"SEC Link": st.column_config.Link_Column("Institutional Research")},
     hide_index=True,
     use_container_width=True
 )
 
-st.sidebar.markdown(f"**Retirement Age:** 57")
-st.sidebar.markdown(f"**Strategy:** Final Expedition")
+# 5. STRATEGY SIDEBAR
+with st.sidebar:
+    st.header("Philosophy Engine")
+    st.info("Current Phase: Final Expedition")
+    st.markdown("**Core Strategy:** Replace MS Planner with AI logic [3].")
+    st.markdown("**Structural Hedge:** Target 15% Big Tech cap [5].")
