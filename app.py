@@ -49,25 +49,26 @@ if df_holdings is not None:
     # Filter 'Total' row to prevent double-counting [Source 93, 158]
     df_holdings = df_holdings[~df_holdings.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     
-    # Numeric conversion [Source 3]
+    # Numeric conversion for summation [Source 3]
     for col in ['Market Value ($)', 'Est. Annual Income ($)']:
         if col in df_holdings.columns:
             df_holdings[col] = pd.to_numeric(df_holdings[col].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     
+    # Calculate metrics from detail rows [Source 117]
     total_val = df_holdings['Market Value ($)'].sum()
     total_income = df_holdings['Est. Annual Income ($)'].sum()
     
-    # Prepare data for Pie Chart & Legends
+    # Group and Sort for Synchronized Keys [Source 2, 4, 18]
     product_mix = df_holdings.groupby('Product Type')['Market Value ($)'].sum().reset_index()
     product_mix = product_mix.sort_values(by='Market Value ($)', ascending=False)
     
-    # Assign specific colors for legend syncing [Source 124]
+    # Assign specific colors for legend syncing
     color_palette = px.colors.qualitative.Prism
     product_mix['color'] = [color_palette[i % len(color_palette)] for i in range(len(product_mix))]
     
     df_holdings = df_holdings.dropna(subset=['Symbol'])
 
-# B. REALIZED GAINS [Source 158]
+# B. REALIZED GAINS (Column N) [Source 131, 158]
 realized_gain_total = 0.0
 df_tax = get_clean_df(TAX_FILE, "Symbol")
 if df_tax is not None:
@@ -84,7 +85,7 @@ if df_trans is not None:
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False, case=False)]['Amount($)'].sum()
 
-# 4. THE POWER BAR (KPIs)
+# 4. THE POWER BAR (Institutional KPIs)
 col1, col2, col3, col4 = st.columns(4)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
 with col2: st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}")
@@ -93,9 +94,10 @@ with col4: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 5. PRODUCT BREAKDOWN (Clean Pie + Dual Keys)
+# 5. ASSET ALLOCATION (Clean Pie + Dual Keys)
 st.subheader("Institutional Asset Allocation")
-c1, c2, c3 = st.columns([1, 2]) # Layout for Chart, Product Key, and $ Key
+# FIXED: Providing 3 width ratios for 3 columns [Source: Conversation History]
+c1, c2, c3 = st.columns([1, 2]) 
 
 with c1:
     if not product_mix.empty:
@@ -104,7 +106,7 @@ with c1:
                      hole=0.4, color='Product Type',
                      color_discrete_map=dict(zip(product_mix['Product Type'], product_mix['color'])))
         
-        # FIXED: Only % in chart, legend hidden to use custom keys instead
+        # Only show % inside chart, hide legend to use custom keys
         fig.update_traces(textinfo='percent', textposition='inside')
         fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=300)
         st.plotly_chart(fig, use_container_width=True)
@@ -112,13 +114,13 @@ with c1:
 with c2:
     st.markdown("**Product Type**")
     for _, row in product_mix.iterrows():
-        # Custom color-coded key for Product Names
+        # Synchronized color-coded key for Product Names [Source 3, 4]
         st.markdown(f"<span style='color:{row['color']};'>●</span> {row['Product Type']}", unsafe_allow_html=True)
 
 with c3:
     st.markdown("**Market Value**")
     for _, row in product_mix.iterrows():
-        # Custom matching color-coded key for Dollar Values
+        # Synchronized matching color-coded key for Dollar Values [Source 2, 93]
         st.markdown(f"<span style='color:{row['color']};'>●</span> ${row['Market Value ($)']:,.0f}", unsafe_allow_html=True)
 
 st.divider()
@@ -128,7 +130,7 @@ st.subheader("Retirement Cash Flow Monitor")
 total_ytd_cash = ytd_dividends + ytd_interest
 st.write(f"Passive Cash Flow YTD: **${total_ytd_cash:,.2f}**")
 st.progress(min(total_ytd_cash / 96000.0, 1.0))
-st.info(f"Closing the **$37,386 income gap** toward your $8k/mo goal [Source 127].")
+st.info(f"Targeting a reduction in the **$37,386 income gap** [Source 127].")
 
 # 7. HOLDINGS EXPLORER
 st.header("📋 Institutional Holdings Explorer")
