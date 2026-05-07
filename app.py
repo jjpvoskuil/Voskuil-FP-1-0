@@ -122,4 +122,4 @@ if df_holdings is not None:
             "SEC Edgar": st.column_config.LinkColumn("SEC Filings"),
             "Yahoo Finance": st.column_config.LinkColumn("Market Data")
         },
-        hide_index=True, use_container_width=True
+        hide_index=True, use_container_width=True)
