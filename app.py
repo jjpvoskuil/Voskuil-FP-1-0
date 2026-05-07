@@ -103,7 +103,7 @@ st.divider()
 # 5. ASSET ALLOCATION BREAKDOWN
 st.subheader("Institutional Asset Allocation")
 # FIXED: Providing exactly 3 weights [3, 4] for the 3 variables c1, c2, and c3
-c1, c2, c3 = st.columns([3, 4]) 
+c1, c2, c3 = st.columns([1-3])
 
 with c1:
     if not product_mix.empty:
