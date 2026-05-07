@@ -7,21 +7,12 @@ import os
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# Exact filenames from your Source list
+# Updated Filenames
 HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
 TRANS_FILE = 'Transaction History 042626.csv'
 
-# 2. FILE DIAGNOSTIC (Sidebar)
-st.sidebar.header("📁 System Status")
-files_present = os.listdir('.')
-for f in [HOLDINGS_FILE, TAX_FILE, TRANS_FILE]:
-    if f in files_present:
-        st.sidebar.success(f"Linked: {f}")
-    else:
-        st.sidebar.error(f"Missing: {f}")
-
-# 3. DYNAMIC SEC XREF ENGINE (Automated CIK Mapping)
+# 2. DYNAMIC SEC XREF ENGINE
 @st.cache_data 
 def fetch_sec_tickers():
     try:
@@ -35,95 +26,77 @@ def fetch_sec_tickers():
 
 cik_map = fetch_sec_tickers()
 
-# 4. DYNAMIC DATA INGESTION ENGINE
+# 3. MASTER INGESTION FUNCTION (Hunter Logic)
 def get_clean_df(filename, anchor_text):
     try:
         with open(filename, 'r') as f:
             lines = f.readlines()
+        # Searches for the row where actual data starts
         header_idx = next(i for i, line in enumerate(lines) if anchor_text in line)
         return pd.read_csv(filename, skiprows=header_idx)
     except:
         return None
 
-# Load Holdings Data
-df_holdings = get_clean_df(HOLDINGS_FILE, "Symbol")
-if df_holdings is not None:
-    df_holdings = df_holdings.dropna(subset=['Symbol'])
-    total_val = 3790586.51 # Metric from MS Summary
-else:
-    st.warning("Holdings data not yet linked. Check the sidebar status.")
-    st.stop()
+# --- DATA PROCESSING ---
 
-# Load Tax Data (FIXED: Excludes the 'Total' row to prevent double counting)
+# A. Holdings (Source 93)
+df_holdings = get_clean_df(HOLDINGS_FILE, "Symbol")
+total_val = 3790586.51 
+
+# B. Realized Gains (Column N, preventing double-count) [Source 158]
 realized_gain_total = 0.0
 df_tax = get_clean_df(TAX_FILE, "Symbol")
 if df_tax is not None:
-    try:
-        # THE FIX: Filter out the row where the first column says 'Total'
-        df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
-        
-        # Target Column N (index 13) for Realized Gain/Loss
-        gain_col = df_tax_clean.iloc[:, 13]
-        realized_gain_total = pd.to_numeric(gain_col.astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce').sum()
-    except Exception as e:
-        st.sidebar.error(f"Tax Data Precision Note: {e}")
+    # Exclude MS 'Total' row [Source 158]
+    df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
+    gain_col = df_tax_clean.iloc[:, 13] # Column N
+    realized_gain_total = pd.to_numeric(gain_col.astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce').sum()
 
-# Load Cash Flow (Dividends & Interest)
+# C. Dividends & Interest (The New Feature) [Source 167, 168, 186, 213]
 ytd_dividends, ytd_interest = 0.0, 0.0
 df_trans = get_clean_df(TRANS_FILE, "Activity")
 if df_trans is not None:
-    try:
-        df_trans.columns = [c.strip() for c in df_trans.columns]
-        # Sum activities including 'Dividend' and 'Interest' [2, 3]
-        ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False)]['Amount($)'].sum()
-        ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False)]['Amount($)'].sum()
-    except:
-        pass
+    # Ensure column names are clean and Amount is numeric
+    df_trans.columns = [c.strip() for c in df_trans.columns]
+    df_trans['Amount($)'] = pd.to_numeric(df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
+    
+    # Sum all activities containing 'Dividend' (Qualified or standard) [Source 201, 202]
+    ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
+    
+    # Sum all activities containing 'Interest' [Source 186, 213]
+    ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False, case=False)]['Amount($)'].sum()
 
-# 5. THE POWER BAR (Institutional KPIs)
-withdrawal_goal = 96000.00
+# 4. THE POWER BAR (Institutional KPIs)
+withdrawal_goal = 96000.00 
 col1, col2, col3, col4 = st.columns(4)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
-with col2: st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}", help="Sum of individual trades, excluding the MS Total row.")
+with col2: st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}")
 with col3: st.metric("YTD Dividends", f"${ytd_dividends:,.2f}")
 with col4: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 6. TAX & RETIREMENT VIEWS
-st.header("📊 Tax Implications & Optimization")
+# 5. DASHBOARD VIEWS
 t1, t2 = st.columns(2)
 with t1:
-    st.subheader("Cash Flow Tracker")
-    st.write("Tracking progress towards closing your **$37,386 income gap** [4].")
-    cash_data = pd.DataFrame({
-        "Source": ["Dividends", "Interest"],
-        "Amount": [ytd_dividends, ytd_interest]
-    }).set_index("Source")
-    st.bar_chart(cash_data)
+    st.subheader("Passive Cash Flow vs. Goal")
+    total_ytd_cash = ytd_dividends + ytd_interest
+    st.write(f"Total Cash Flow: **${total_ytd_cash:,.2f}**")
+    st.progress(min(total_ytd_cash / withdrawal_goal, 1.0))
+    st.info(f"Closing the **$37,386 income gap** via dividends and interest.")
 
 with t2:
-    st.subheader("Strategic Tax Notes")
-    st.info("Modeling includes the **$6,000 senior deduction** hedge [5].")
-    st.warning("Harvesting Opportunity: Managing against **$1,369,802.57** in unrealized gains [6].")
+    st.subheader("Strategic Tax Context")
+    st.warning(f"Unrealized Gain Pool: **$1,369,802.57** [Source 93]")
+    st.info("Strategy: Targeting Pricing Power to offset structural inflation.")
 
-# 7. INSTITUTIONAL HOLDINGS EXPLORER (With CIK Drill-Down)
+# 6. HOLDINGS EXPLORER
 st.header("📋 Institutional Holdings Explorer")
-
 def get_sec_link(symbol):
     cik = cik_map.get(symbol)
-    if cik:
-        return f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude"
-    return f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}"
+    return f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude" if cik else f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}"
 
 df_holdings['SEC Edgar'] = df_holdings['Symbol'].apply(get_sec_link)
-df_holdings['Yahoo'] = df_holdings['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
-
-st.dataframe(
-    df_holdings[['Symbol', 'Name', 'Quantity', 'Market Value ($)', 'SEC Edgar', 'Yahoo']],
-    column_config={
-        "SEC Edgar": st.column_config.LinkColumn("Research"),
-        "Yahoo": st.column_config.LinkColumn("Market")
-    },
-    hide_index=True, use_container_width=True
-)
+st.dataframe(df_holdings[['Symbol', 'Name', 'Market Value ($)', 'SEC Edgar']], 
+             column_config={"SEC Edgar": st.column_config.LinkColumn("Research")}, 
+             hide_index=True, use_container_width=True)
