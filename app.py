@@ -58,7 +58,7 @@ if df_holdings is not None:
     total_val = df_holdings['Market Value ($)'].sum()
     total_income = df_holdings['Est. Annual Income ($)'].sum()
     
-    # Prepare data for the Pie Chart
+    # Grouping for the Pie Chart
     product_mix = df_holdings.groupby('Product Type')['Market Value ($)'].sum().reset_index()
     df_holdings = df_holdings.dropna(subset=['Symbol'])
 
@@ -67,7 +67,7 @@ realized_gain_total = 0.0
 df_tax = get_clean_df(TAX_FILE, "Symbol")
 if df_tax is not None:
     df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
-    gain_col = df_tax_clean.iloc[:, 13] # Index 13 is Column N
+    gain_col = df_tax_clean.iloc[:, 13] 
     realized_gain_total = pd.to_numeric(gain_col.astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce').sum()
 
 # C. DIVIDENDS & INTEREST [Source 167, 168]
@@ -79,7 +79,7 @@ if df_trans is not None:
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False, case=False)]['Amount($)'].sum()
 
-# 4. THE POWER BAR (Top Level KPIs)
+# 4. THE POWER BAR (Institutional KPIs)
 withdrawal_goal = 96000.00 
 col1, col2, col3, col4 = st.columns(4)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
@@ -89,29 +89,40 @@ with col4: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 5. PRODUCT BREAKDOWN (FIXED: Creation of 2 columns) & RETIREMENT PROGRESS
-c1, c2 = st.columns(2) # Corrected to ensure unpacking works for c1 and c2
+# 5. PRODUCT BREAKDOWN (With $ Values & Side Labels) & RETIREMENT PROGRESS
+c1, c2 = st.columns(2)
 
 with c1:
     st.subheader("Asset Allocation by Product Type")
     if not product_mix.empty:
-        # Create institutional-grade pie chart [Source 124]
+        # Create the Pie Chart [Source 124]
         fig = px.pie(product_mix, values='Market Value ($)', names='Product Type', 
                      hole=0.4, color_discrete_sequence=px.colors.qualitative.Prism)
-        fig.update_layout(margin=dict(t=30, b=0, l=0, r=0))
+        
+        # FIXED: Moves labels outside and adds formatted dollar values
+        fig.update_traces(
+            textposition='outside', 
+            textinfo='percent+label',
+            texttemplate='%{label}<br>%{percent}<br>$%{value:,.0f}'
+        )
+        
+        fig.update_layout(
+            margin=dict(t=30, b=30, l=10, r=10),
+            showlegend=False # Legend hidden as labels are now outside
+        )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Product mix data currently unavailable.")
+        st.info("Allocation data currently unavailable.")
 
 with c2:
     st.subheader("Passive Cash Flow Progress")
     total_ytd_cash = ytd_dividends + ytd_interest
     st.write(f"Total YTD Cash Flow: **${total_ytd_cash:,.2f}**")
     st.progress(min(total_ytd_cash / withdrawal_goal, 1.0))
-    st.info(f"Targeting progress toward your **$37,386 income gap** [Source 127].")
+    st.info(f"Targeting a **$37,386 income gap** [Source 127].")
     st.write(f"**Organic Yield Income:** ${total_income:,.2f}")
 
-# 6. HOLDINGS EXPLORER (With Research Links)
+# 6. HOLDINGS EXPLORER
 st.header("📋 Institutional Holdings Explorer")
 if df_holdings is not None:
     def get_sec_link(symbol):
