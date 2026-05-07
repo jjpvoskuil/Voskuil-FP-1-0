@@ -8,7 +8,7 @@ import os
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# Global Filenames (Sources 1, 4, 6)
+# Global Filenames [Source 1, 4, 6]
 HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
 TRANS_FILE = 'Transaction History 042626.csv'
@@ -27,7 +27,7 @@ def fetch_sec_tickers():
 
 cik_map = fetch_sec_tickers()
 
-# 3. MASTER INGESTION FUNCTION (Source 167)
+# 3. MASTER INGESTION FUNCTION [Source 167]
 def get_clean_df(filename, anchor_text):
     try:
         with open(filename, 'r') as f:
@@ -39,26 +39,26 @@ def get_clean_df(filename, anchor_text):
 
 # --- DYNAMIC DATA PROCESSING ---
 
-# A. HOLDINGS: Raw Summation & Product Mix (Sources 2, 3, 93)
+# A. HOLDINGS: Raw Summation & Product Mix [Source 2, 3, 93, 117]
 total_val, total_income = 0.0, 0.0
 df_holdings = get_clean_df(HOLDINGS_FILE, "Symbol")
 product_mix = pd.DataFrame()
 
 if df_holdings is not None:
     df_holdings.columns = [c.strip() for c in df_holdings.columns]
-    # Filter 'Total' row to prevent double-counting portfolio value (Source 93)
+    # Filter 'Total' row to prevent double-counting [Source 93, 158]
     df_holdings = df_holdings[~df_holdings.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     
-    # Numeric conversion for summation
+    # Numeric conversion for summation [Source 3]
     for col in ['Market Value ($)', 'Est. Annual Income ($)']:
         if col in df_holdings.columns:
             df_holdings[col] = pd.to_numeric(df_holdings[col].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     
-    # Calculated metrics from detail rows as requested (Sources 2, 117)
+    # Calculated metrics from detail rows [Source 117]
     total_val = df_holdings['Market Value ($)'].sum()
     total_income = df_holdings['Est. Annual Income ($)'].sum()
     
-    # Group and Sort for Synchronized Keys (Sources 2, 4)
+    # Group and Sort for Synchronized Keys [Source 2, 4]
     product_mix = df_holdings.groupby('Product Type')['Market Value ($)'].sum().reset_index()
     product_mix = product_mix.sort_values(by='Market Value ($)', ascending=False)
     
@@ -68,15 +68,15 @@ if df_holdings is not None:
     
     df_holdings = df_holdings.dropna(subset=['Symbol'])
 
-# B. REALIZED GAINS (Targeting Column N, excluding Total row) (Source 158)
+# B. REALIZED GAINS (Column N) [Source 158]
 realized_gain_total = 0.0
 df_tax = get_clean_df(TAX_FILE, "Symbol")
 if df_tax is not None:
     df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
-    gain_col = df_tax_clean.iloc[:, 13] # Index 13 is Column N
+    gain_col = df_tax_clean.iloc[:, 13] 
     realized_gain_total = pd.to_numeric(gain_col.astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce').sum()
 
-# C. DIVIDENDS & INTEREST (Sources 167, 168)
+# C. DIVIDENDS & INTEREST [Source 167, 168]
 ytd_dividends, ytd_interest = 0.0, 0.0
 df_trans = get_clean_df(TRANS_FILE, "Activity Date")
 if df_trans is not None:
@@ -85,8 +85,7 @@ if df_trans is not None:
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False, case=False)]['Amount($)'].sum()
 
-# 4. THE POWER BAR (Top Level KPIs)
-withdrawal_goal = 96000.00 
+# 4. THE POWER BAR (Institutional KPIs)
 col1, col2, col3, col4 = st.columns(4)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
 with col2: st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}")
@@ -97,7 +96,7 @@ st.divider()
 
 # 5. ASSET ALLOCATION (Clean Pie + Dual Synchronized Keys)
 st.subheader("Institutional Asset Allocation")
-# FIXED: Providing 3 width definitions for the 3 columns (c1, c2, c3)
+# FIXED: Providing exactly 3 width definitions for the 3 variables (c1, c2, c3)
 c1, c2, c3 = st.columns([1, 2]) 
 
 with c1:
@@ -107,7 +106,7 @@ with c1:
                      hole=0.4, color='Product Type',
                      color_discrete_map=dict(zip(product_mix['Product Type'], product_mix['color'])))
         
-        # FIXED: Only show % inside chart slices, hide legend to use your custom keys
+        # Only show % inside chart slices, hide legend to use your custom keys
         fig.update_traces(textinfo='percent', textposition='inside')
         fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=300)
         st.plotly_chart(fig, use_container_width=True)
@@ -130,7 +129,7 @@ st.divider()
 st.subheader("Retirement Cash Flow Monitor")
 total_ytd_cash = ytd_dividends + ytd_interest
 st.write(f"Passive Cash Flow YTD: **${total_ytd_cash:,.2f}**")
-st.progress(min(total_ytd_cash / withdrawal_goal, 1.0))
+st.progress(min(total_ytd_cash / 96000.0, 1.0))
 st.info(f"Closing the **$37,386 income gap** [Source 127] toward your $8k/mo goal.")
 
 # 7. HOLDINGS EXPLORER (With Institutional Drill-Downs)
