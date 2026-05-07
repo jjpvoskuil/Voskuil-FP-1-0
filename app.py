@@ -8,7 +8,7 @@ import os
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# Global Filenames
+# Global Filenames [Source 1, 4, 6]
 HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
 TRANS_FILE = 'Transaction History 042626.csv'
@@ -49,20 +49,25 @@ if df_holdings is not None:
     # Filter 'Total' row to prevent double-counting [Source 93, 158]
     df_holdings = df_holdings[~df_holdings.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     
-    # Numeric conversion for summation
+    # Numeric conversion [Source 3]
     for col in ['Market Value ($)', 'Est. Annual Income ($)']:
         if col in df_holdings.columns:
             df_holdings[col] = pd.to_numeric(df_holdings[col].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     
-    # Calculated metrics from detail rows as requested
     total_val = df_holdings['Market Value ($)'].sum()
     total_income = df_holdings['Est. Annual Income ($)'].sum()
     
-    # Grouping for the Pie Chart
+    # Prepare data for Pie Chart & Legends
     product_mix = df_holdings.groupby('Product Type')['Market Value ($)'].sum().reset_index()
+    product_mix = product_mix.sort_values(by='Market Value ($)', ascending=False)
+    
+    # Assign specific colors for legend syncing [Source 124]
+    color_palette = px.colors.qualitative.Prism
+    product_mix['color'] = [color_palette[i % len(color_palette)] for i in range(len(product_mix))]
+    
     df_holdings = df_holdings.dropna(subset=['Symbol'])
 
-# B. REALIZED GAINS (Column N) [Source 158]
+# B. REALIZED GAINS [Source 158]
 realized_gain_total = 0.0
 df_tax = get_clean_df(TAX_FILE, "Symbol")
 if df_tax is not None:
@@ -79,8 +84,7 @@ if df_trans is not None:
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False, case=False)]['Amount($)'].sum()
 
-# 4. THE POWER BAR (Institutional KPIs)
-withdrawal_goal = 96000.00 
+# 4. THE POWER BAR (KPIs)
 col1, col2, col3, col4 = st.columns(4)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
 with col2: st.metric("Realized G/L (YTD)", f"${realized_gain_total:,.2f}")
@@ -89,40 +93,44 @@ with col4: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 5. PRODUCT BREAKDOWN (With $ Values & Side Labels) & RETIREMENT PROGRESS
-c1, c2 = st.columns(2)
+# 5. PRODUCT BREAKDOWN (Clean Pie + Dual Keys)
+st.subheader("Institutional Asset Allocation")
+c1, c2, c3 = st.columns([1, 2]) # Layout for Chart, Product Key, and $ Key
 
 with c1:
-    st.subheader("Asset Allocation by Product Type")
     if not product_mix.empty:
-        # Create the Pie Chart [Source 124]
+        # Create simplified pie chart
         fig = px.pie(product_mix, values='Market Value ($)', names='Product Type', 
-                     hole=0.4, color_discrete_sequence=px.colors.qualitative.Prism)
+                     hole=0.4, color='Product Type',
+                     color_discrete_map=dict(zip(product_mix['Product Type'], product_mix['color'])))
         
-        # FIXED: Moves labels outside and adds formatted dollar values
-        fig.update_traces(
-            textposition='outside', 
-            textinfo='percent+label',
-            texttemplate='%{label}<br>%{percent}<br>$%{value:,.0f}'
-        )
-        
-        fig.update_layout(
-            margin=dict(t=30, b=30, l=10, r=10),
-            showlegend=False # Legend hidden as labels are now outside
-        )
+        # FIXED: Only % in chart, legend hidden to use custom keys instead
+        fig.update_traces(textinfo='percent', textposition='inside')
+        fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=300)
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Allocation data currently unavailable.")
 
 with c2:
-    st.subheader("Passive Cash Flow Progress")
-    total_ytd_cash = ytd_dividends + ytd_interest
-    st.write(f"Total YTD Cash Flow: **${total_ytd_cash:,.2f}**")
-    st.progress(min(total_ytd_cash / withdrawal_goal, 1.0))
-    st.info(f"Targeting a **$37,386 income gap** [Source 127].")
-    st.write(f"**Organic Yield Income:** ${total_income:,.2f}")
+    st.markdown("**Product Type**")
+    for _, row in product_mix.iterrows():
+        # Custom color-coded key for Product Names
+        st.markdown(f"<span style='color:{row['color']};'>●</span> {row['Product Type']}", unsafe_allow_html=True)
 
-# 6. HOLDINGS EXPLORER
+with c3:
+    st.markdown("**Market Value**")
+    for _, row in product_mix.iterrows():
+        # Custom matching color-coded key for Dollar Values
+        st.markdown(f"<span style='color:{row['color']};'>●</span> ${row['Market Value ($)']:,.0f}", unsafe_allow_html=True)
+
+st.divider()
+
+# 6. PASSIVE CASH FLOW PROGRESS
+st.subheader("Retirement Cash Flow Monitor")
+total_ytd_cash = ytd_dividends + ytd_interest
+st.write(f"Passive Cash Flow YTD: **${total_ytd_cash:,.2f}**")
+st.progress(min(total_ytd_cash / 96000.0, 1.0))
+st.info(f"Closing the **$37,386 income gap** toward your $8k/mo goal [Source 127].")
+
+# 7. HOLDINGS EXPLORER
 st.header("📋 Institutional Holdings Explorer")
 if df_holdings is not None:
     def get_sec_link(symbol):
@@ -133,7 +141,7 @@ if df_holdings is not None:
     df_holdings['Yahoo Finance'] = df_holdings['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
 
     st.dataframe(
-        df_holdings[['Symbol', 'Name', 'Product Type', 'Market Value ($)', 'Est. Annual Income ($)', 'SEC Edgar', 'Yahoo Finance']],
+        df_holdings[['Symbol', 'Name', 'Product Type', 'Market Value ($)', 'SEC Edgar', 'Yahoo Finance']],
         column_config={
             "SEC Edgar": st.column_config.LinkColumn("SEC Filings"),
             "Yahoo Finance": st.column_config.LinkColumn("Market Data")
