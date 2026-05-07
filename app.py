@@ -97,7 +97,7 @@ st.divider()
 # 5. ASSET ALLOCATION (Clean Pie + Dual Synchronized Keys)
 st.subheader("Institutional Asset Allocation")
 # FIXED: Providing exactly 3 width definitions [1, 2] for the 3 variables (c1, c2, c3)
-c1, c2, c3 = st.columns([1, 2]) 
+c1, c2, c3 = st.columns([1, 2, 3]) 
 
 with c1:
     if not product_mix.empty:
