@@ -7,7 +7,7 @@ import os
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# Updated Filenames
+# Verified Filenames
 HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
 TRANS_FILE = 'Transaction History 042626.csv'
@@ -26,12 +26,12 @@ def fetch_sec_tickers():
 
 cik_map = fetch_sec_tickers()
 
-# 3. MASTER INGESTION FUNCTION (Hunter Logic)
+# 3. MASTER INGESTION FUNCTION
 def get_clean_df(filename, anchor_text):
     try:
         with open(filename, 'r') as f:
             lines = f.readlines()
-        # Searches for the row where actual data starts
+        # Searches for the row where actual data starts (Source 167)
         header_idx = next(i for i, line in enumerate(lines) if anchor_text in line)
         return pd.read_csv(filename, skiprows=header_idx)
     except:
@@ -43,27 +43,26 @@ def get_clean_df(filename, anchor_text):
 df_holdings = get_clean_df(HOLDINGS_FILE, "Symbol")
 total_val = 3790586.51 
 
-# B. Realized Gains (Column N, preventing double-count) [Source 158]
+# B. Realized Gains (Targeting Column N, index 13) [Source 158]
 realized_gain_total = 0.0
 df_tax = get_clean_df(TAX_FILE, "Symbol")
 if df_tax is not None:
-    # Exclude MS 'Total' row [Source 158]
     df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
-    gain_col = df_tax_clean.iloc[:, 13] # Column N
+    gain_col = df_tax_clean.iloc[:, 13] 
     realized_gain_total = pd.to_numeric(gain_col.astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce').sum()
 
-# C. Dividends & Interest (The New Feature) [Source 167, 168, 186, 213]
+# C. Dividends & Interest (FIXED: Using "Activity Date" as Anchor) [Source 167]
 ytd_dividends, ytd_interest = 0.0, 0.0
-df_trans = get_clean_df(TRANS_FILE, "Activity")
+df_trans = get_clean_df(TRANS_FILE, "Activity Date") # More specific anchor
 if df_trans is not None:
-    # Ensure column names are clean and Amount is numeric
+    # Standardize column names (Source 167)
     df_trans.columns = [c.strip() for c in df_trans.columns]
+    
+    # Target Amount($) column and clean formatting
     df_trans['Amount($)'] = pd.to_numeric(df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     
-    # Sum all activities containing 'Dividend' (Qualified or standard) [Source 201, 202]
+    # Sum activities [Source 168, 186, 213]
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
-    
-    # Sum all activities containing 'Interest' [Source 186, 213]
     ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False, case=False)]['Amount($)'].sum()
 
 # 4. THE POWER BAR (Institutional KPIs)
@@ -79,16 +78,16 @@ st.divider()
 # 5. DASHBOARD VIEWS
 t1, t2 = st.columns(2)
 with t1:
-    st.subheader("Passive Cash Flow vs. Goal")
+    st.subheader("Passive Cash Flow Progress")
     total_ytd_cash = ytd_dividends + ytd_interest
     st.write(f"Total Cash Flow: **${total_ytd_cash:,.2f}**")
     st.progress(min(total_ytd_cash / withdrawal_goal, 1.0))
-    st.info(f"Closing the **$37,386 income gap** via dividends and interest.")
+    st.info(f"Targeting the **$37,386 income gap** [Source 127].")
 
 with t2:
     st.subheader("Strategic Tax Context")
     st.warning(f"Unrealized Gain Pool: **$1,369,802.57** [Source 93]")
-    st.info("Strategy: Targeting Pricing Power to offset structural inflation.")
+    st.markdown("**Strategy:** Replace MS Planner with automated Price Power monitoring.")
 
 # 6. HOLDINGS EXPLORER
 st.header("📋 Institutional Holdings Explorer")
