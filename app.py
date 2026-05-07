@@ -39,15 +39,17 @@ def get_clean_df(filename, anchor_text):
 
 # --- DYNAMIC DATA PROCESSING ---
 
-# A. HOLDINGS: Summation & Product Mix [Source 2, 3, 93, 117]
+# A. HOLDINGS: Raw Summation & Product Mix [Source 2, 3, 93, 117]
 total_val, total_income = 0.0, 0.0
-df_holdings = get_clean_df(HOLDINGS_FILE, "Symbol")
+df_holdings = get_clean_df(HOLDINGS_FILE, "Account Number")
 product_mix = pd.DataFrame()
 
 if df_holdings is not None:
     df_holdings.columns = [c.strip() for c in df_holdings.columns]
+    # Filter 'Total' row to prevent double-counting [Source 93, 158]
     df_holdings = df_holdings[~df_holdings.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     
+    # Numeric conversion for summation [Source 3]
     for col in ['Market Value ($)', 'Est. Annual Income ($)']:
         if col in df_holdings.columns:
             df_holdings[col] = pd.to_numeric(df_holdings[col].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
@@ -55,21 +57,26 @@ if df_holdings is not None:
     total_val = df_holdings['Market Value ($)'].sum()
     total_income = df_holdings['Est. Annual Income ($)'].sum()
     
+    # Prepare data for Pie Chart & Synchronized Dual Keys
     product_mix = df_holdings.groupby('Product Type')['Market Value ($)'].sum().reset_index()
     product_mix = product_mix.sort_values(by='Market Value ($)', ascending=False)
     
+    # Assign institutional colors for synchronization [Source 124]
     color_palette = px.colors.qualitative.Prism
     product_mix['color'] = [color_palette[i % len(color_palette)] for i in range(len(product_mix))]
     df_holdings = df_holdings.dropna(subset=['Symbol'])
 
-# B. REALIZED GAINS: Tax-Aware Breakout [Source 131, 135, 158]
+# B. REALIZED GAINS: Tax Breakout (Taxable vs IRA) [Source 131, 135, 158]
 ira_gain_total, taxable_gain_total = 0.0, 0.0
-df_tax = get_clean_df(TAX_FILE, "Symbol")
+df_tax = get_clean_df(TAX_FILE, "Account Number")
 if df_tax is not None:
+    df_tax.columns = [c.strip() for c in df_tax.columns]
     df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
+    
+    # Convert gains to numeric (Column N is index 13) [Source 158]
     df_tax_clean['Numeric Gain'] = pd.to_numeric(df_tax_clean.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     
-    # Logic: Breakout based on "IRA" being in the Account Number field [Source 135]
+    # Logic: If Account Number contains "IRA", bucket as IRA, otherwise Taxable [Source 135]
     ira_mask = df_tax_clean.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
     ira_gain_total = df_tax_clean[ira_mask]['Numeric Gain'].sum()
     taxable_gain_total = df_tax_clean[~ira_mask]['Numeric Gain'].sum()
@@ -83,20 +90,20 @@ if df_trans is not None:
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False, case=False)]['Amount($)'].sum()
 
-# 4. THE POWER BAR (5 Columns for Tax Segmentation)
+# 4. THE POWER BAR (5 Columns for Split Gains)
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
 with col2: st.metric("Taxable G/L (YTD)", f"${taxable_gain_total:,.2f}", help="Gains from non-IRA brokerage accounts.")
-with col3: st.metric("IRA G/L (YTD)", f"${ira_gain_total:,.2f}", help="Gains from tax-deferred IRA accounts.")
+with col3: st.metric("IRA G/L (YTD)", f"${ira_gain_total:,.2f}", help="Tax-deferred growth in IRA buckets.")
 with col4: st.metric("YTD Dividends", f"${ytd_dividends:,.2f}")
 with col5: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 5. ASSET ALLOCATION (FIXED LAYOUT)
+# 5. PRODUCT BREAKDOWN (Corrected Column Definition)
 st.subheader("Institutional Asset Allocation")
-# FIXED: Using a list of three positive numbers [Source: Conversation History]
-c1, c2, c3 = st.columns([4, 5]) 
+# FIXED: Providing exactly 3 weights for the 3 variables c1, c2, and c3
+c1, c2, c3 = st.columns([3, 4]) 
 
 with c1:
     if not product_mix.empty:
@@ -119,12 +126,12 @@ with c3:
 
 st.divider()
 
-# 6. PASSIVE CASH FLOW PROGRESS
-st.subheader("Retirement Cash Flow Monitor")
+# 6. RETIREMENT PROGRESS
+st.subheader("Passive Cash Flow Monitor")
 total_ytd_cash = ytd_dividends + ytd_interest
 st.write(f"Passive Cash Flow YTD: **${total_ytd_cash:,.2f}**")
 st.progress(min(total_ytd_cash / 96000.0, 1.0))
-st.info(f"Targeting toward closing your **$37,386 income gap** [Source 127].")
+st.info(f"Closing the **$37,386 income gap** toward your legacy preservation goal [7].")
 
 # 7. HOLDINGS EXPLORER
 st.header("📋 Institutional Holdings Explorer")
