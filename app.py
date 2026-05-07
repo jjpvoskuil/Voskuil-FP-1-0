@@ -76,7 +76,7 @@ if df_tax is not None:
     # Convert gains to numeric (Column N is index 13) [Source 158]
     df_tax_clean['Numeric Gain'] = pd.to_numeric(df_tax_clean.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     
-    # Logic: If Account Number contains "IRA", bucket as IRA, otherwise Taxable [Source 135]
+    # Logic: Search 'Account Number' (Index 0) for "IRA" string [Source 135]
     ira_mask = df_tax_clean.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
     ira_gain_total = df_tax_clean[ira_mask]['Numeric Gain'].sum()
     taxable_gain_total = df_tax_clean[~ira_mask]['Numeric Gain'].sum()
@@ -100,9 +100,9 @@ with col5: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 5. PRODUCT BREAKDOWN (Corrected Column Definition)
+# 5. ASSET ALLOCATION BREAKDOWN
 st.subheader("Institutional Asset Allocation")
-# FIXED: Providing exactly 3 weights for the 3 variables c1, c2, and c3
+# FIXED: Providing exactly 3 weights [3, 4] for the 3 variables c1, c2, and c3
 c1, c2, c3 = st.columns([3, 4]) 
 
 with c1:
@@ -117,21 +117,23 @@ with c1:
 with c2:
     st.markdown("**Product Type**")
     for _, row in product_mix.iterrows():
+        # Matching color-coded dot for Product Name
         st.markdown(f"<span style='color:{row['color']};'>●</span> {row['Product Type']}", unsafe_allow_html=True)
 
 with c3:
     st.markdown("**Value ($)**")
     for _, row in product_mix.iterrows():
+        # Matching color-coded dot for Dollar Value
         st.markdown(f"<span style='color:{row['color']};'>●</span> ${row['Market Value ($)']:,.0f}", unsafe_allow_html=True)
 
 st.divider()
 
-# 6. RETIREMENT PROGRESS
-st.subheader("Passive Cash Flow Monitor")
+# 6. PASSIVE CASH FLOW PROGRESS
+st.subheader("Retirement Cash Flow Monitor")
 total_ytd_cash = ytd_dividends + ytd_interest
 st.write(f"Passive Cash Flow YTD: **${total_ytd_cash:,.2f}**")
 st.progress(min(total_ytd_cash / 96000.0, 1.0))
-st.info(f"Closing the **$37,386 income gap** toward your legacy preservation goal [7].")
+st.info(f"Targeting progress toward your **$37,386 income gap** [Source 127] toward legacy preservation.")
 
 # 7. HOLDINGS EXPLORER
 st.header("📋 Institutional Holdings Explorer")
