@@ -8,7 +8,7 @@ import os
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-# Global Filenames [Source 1, 4, 6]
+# Global Filenames
 HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
 TRANS_FILE = 'Transaction History 042626.csv'
@@ -39,33 +39,35 @@ def get_clean_df(filename, anchor_text):
 
 # --- DATA PROCESSING ---
 
-# A. HOLDINGS & PIE CHART DATA [Source 2, 3, 4, 117]
+# A. HOLDINGS: Raw Summation & Product Mix [Source 2, 3, 93, 117]
 total_val, total_income = 0.0, 0.0
 df_holdings = get_clean_df(HOLDINGS_FILE, "Symbol")
+product_mix = pd.DataFrame()
 
 if df_holdings is not None:
     df_holdings.columns = [c.strip() for c in df_holdings.columns]
-    # Filter 'Total' row [Source 93]
+    # Filter 'Total' row to prevent double-counting [Source 93, 158]
     df_holdings = df_holdings[~df_holdings.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     
-    # Numeric conversion [Source 3]
+    # Numeric conversion for summation
     for col in ['Market Value ($)', 'Est. Annual Income ($)']:
         if col in df_holdings.columns:
             df_holdings[col] = pd.to_numeric(df_holdings[col].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     
+    # Calculated metrics from detail rows as requested
     total_val = df_holdings['Market Value ($)'].sum()
     total_income = df_holdings['Est. Annual Income ($)'].sum()
     
-    # Preparation for Pie Chart (Grouping by Product Type) [Source 2]
+    # Prepare data for the Pie Chart
     product_mix = df_holdings.groupby('Product Type')['Market Value ($)'].sum().reset_index()
     df_holdings = df_holdings.dropna(subset=['Symbol'])
 
-# B. REALIZED GAINS [Source 158]
+# B. REALIZED GAINS (Column N) [Source 158]
 realized_gain_total = 0.0
 df_tax = get_clean_df(TAX_FILE, "Symbol")
 if df_tax is not None:
     df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
-    gain_col = df_tax_clean.iloc[:, 13] 
+    gain_col = df_tax_clean.iloc[:, 13] # Index 13 is Column N
     realized_gain_total = pd.to_numeric(gain_col.astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce').sum()
 
 # C. DIVIDENDS & INTEREST [Source 167, 168]
@@ -87,26 +89,29 @@ with col4: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 5. PRODUCT BREAKDOWN (The Requested Pie Chart) & RETIREMENT PROGRESS
-c1, c2 = st.columns([7])
+# 5. PRODUCT BREAKDOWN (FIXED: Creation of 2 columns) & RETIREMENT PROGRESS
+c1, c2 = st.columns(2) # Corrected to ensure unpacking works for c1 and c2
 
 with c1:
     st.subheader("Asset Allocation by Product Type")
-    # Generate Pie Chart using Plotly [Source 124, 129]
-    fig = px.pie(product_mix, values='Market Value ($)', names='Product Type', 
-                 hole=0.4, color_discrete_sequence=px.colors.qualitative.Prism)
-    fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
-    st.plotly_chart(fig, use_container_width=True)
+    if not product_mix.empty:
+        # Create institutional-grade pie chart [Source 124]
+        fig = px.pie(product_mix, values='Market Value ($)', names='Product Type', 
+                     hole=0.4, color_discrete_sequence=px.colors.qualitative.Prism)
+        fig.update_layout(margin=dict(t=30, b=0, l=0, r=0))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Product mix data currently unavailable.")
 
 with c2:
     st.subheader("Passive Cash Flow Progress")
     total_ytd_cash = ytd_dividends + ytd_interest
     st.write(f"Total YTD Cash Flow: **${total_ytd_cash:,.2f}**")
     st.progress(min(total_ytd_cash / withdrawal_goal, 1.0))
-    st.info(f"Targeting toward closing your **$37,386 annual income gap** [Source 127].")
-    st.write(f"**Strategic Annual Income:** ${total_income:,.2f} [Source 93]")
+    st.info(f"Targeting progress toward your **$37,386 income gap** [Source 127].")
+    st.write(f"**Organic Yield Income:** ${total_income:,.2f}")
 
-# 6. HOLDINGS EXPLORER
+# 6. HOLDINGS EXPLORER (With Research Links)
 st.header("📋 Institutional Holdings Explorer")
 if df_holdings is not None:
     def get_sec_link(symbol):
