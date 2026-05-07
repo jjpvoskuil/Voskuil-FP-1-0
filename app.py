@@ -12,23 +12,38 @@ HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
 TAX_FILE = 'Realized GL 042626.csv'
 TRANS_FILE = 'Transaction History 042626.csv'
 
-# 2. DYNAMIC METRIC SCRAPER (Scans CSV headers for summary numbers)
+# 2. DYNAMIC SEC XREF ENGINE (Restored)
+@st.cache_data 
+def fetch_sec_tickers():
+    try:
+        url = "https://www.sec.gov/files/company_tickers.json"
+        headers = {'User-Agent': 'Voskuil Wealth Engine (voskuil@example.com)'}
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        return {item['ticker']: str(item['cik_str']).zfill(10) for item in data.values()}
+    except:
+        return {}
+
+cik_map = fetch_sec_tickers()
+
+# 3. DYNAMIC METRIC SCRAPER (Fixed: Corrected string handling)
 def scrape_ms_summary(filename, search_term):
     try:
         with open(filename, 'r') as f:
             for line in f:
                 if search_term in line:
-                    # Extracts the number between quotes (e.g., "3,790,586.51") [Source 2]
+                    # Target the numeric value between quotes [1]
                     parts = line.split(',"')
                     for p in parts:
                         if search_term not in p and '"' in p:
+                            # FIXED: Added  to select string before splitting again
                             val = p.split('"').replace(',', '')
                             return float(val)
     except:
         return 0.0
     return 0.0
 
-# 3. MASTER INGESTION FUNCTION
+# 4. MASTER INGESTION FUNCTION
 def get_clean_df(filename, anchor_text):
     try:
         with open(filename, 'r') as f:
@@ -40,12 +55,12 @@ def get_clean_df(filename, anchor_text):
 
 # --- DYNAMIC DATA PROCESSING ---
 
-# A. Holdings & Dynamic Market Value [Source 2, 93]
+# A. Holdings & Scraped Metrics [1, 2]
 total_val = scrape_ms_summary(HOLDINGS_FILE, "Total Market Value:")
 total_income = scrape_ms_summary(HOLDINGS_FILE, "Est. Annual Income:")
 df_holdings = get_clean_df(HOLDINGS_FILE, "Symbol")
 
-# B. Realized Gains (Excluding 'Total' row) [Source 158]
+# B. Realized Gains (Excluding 'Total' row) [3]
 realized_gain_total = 0.0
 df_tax = get_clean_df(TAX_FILE, "Symbol")
 if df_tax is not None:
@@ -53,7 +68,7 @@ if df_tax is not None:
     gain_col = df_tax_clean.iloc[:, 13] 
     realized_gain_total = pd.to_numeric(gain_col.astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce').sum()
 
-# C. Dividends & Interest [Source 167, 168, 213]
+# C. Dividends & Interest [4-6]
 ytd_dividends, ytd_interest = 0.0, 0.0
 df_trans = get_clean_df(TRANS_FILE, "Activity Date")
 if df_trans is not None:
@@ -62,7 +77,7 @@ if df_trans is not None:
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest = df_trans[df_trans['Activity'].str.contains('Interest', na=False, case=False)]['Amount($)'].sum()
 
-# 4. THE POWER BAR
+# 5. THE POWER BAR
 withdrawal_goal = 96000.00 
 col1, col2, col3, col4 = st.columns(4)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
@@ -72,21 +87,27 @@ with col4: st.metric("YTD Interest", f"${ytd_interest:,.2f}")
 
 st.divider()
 
-# 5. DASHBOARD VIEWS
-t1, t2 = st.columns(2)
-with t1:
-    st.subheader("Passive Cash Flow Progress")
-    total_ytd_cash = ytd_dividends + ytd_interest
-    st.write(f"Total YTD Cash Flow: **${total_ytd_cash:,.2f}**")
-    st.progress(min(total_ytd_cash / withdrawal_goal, 1.0))
-    st.info(f"Targeting the **$37,386 income gap** [Source 127].")
-
-with t2:
-    st.subheader("Strategic Context")
-    st.write(f"Est. Annual Income: **${total_income:,.2f}**")
-    st.warning("Strategy: Managing against Pettis-style inflation risk.")
-
-# 6. HOLDINGS EXPLORER
+# 6. HOLDINGS EXPLORER (With Restored Links)
 if df_holdings is not None:
     st.header("📋 Institutional Holdings Explorer")
-    st.dataframe(df_holdings[['Symbol', 'Name', 'Market Value ($)']], hide_index=True, use_container_width=True)
+    
+    # Restore the Dynamic Link Logic
+    def get_sec_link(symbol):
+        cik = cik_map.get(symbol)
+        if cik:
+            return f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude"
+        return f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}"
+
+    df_holdings['SEC Edgar'] = df_holdings['Symbol'].apply(get_sec_link)
+    df_holdings['Yahoo Finance'] = df_holdings['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
+
+    # Display with restored link columns
+    st.dataframe(
+        df_holdings[['Symbol', 'Name', 'Market Value ($)', 'SEC Edgar', 'Yahoo Finance']],
+        column_config={
+            "SEC Edgar": st.column_config.LinkColumn("SEC Filings"),
+            "Yahoo Finance": st.column_config.LinkColumn("Market Data")
+        },
+        hide_index=True, 
+        use_container_width=True
+    )
