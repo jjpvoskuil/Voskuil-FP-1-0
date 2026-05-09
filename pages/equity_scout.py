@@ -186,10 +186,13 @@ def score_stock(data: dict) -> tuple[int, list[dict]]:
     # ── 3. Debt Safety (20 pts) ───────────────────────────────────────────
     debt_fcf = data.get('debt_to_fcf')
     if debt_fcf is not None:
+        ic = data.get('interest_coverage') or 0
         if debt_fcf < THRESHOLDS['debt_fcf_safe']:
             pts, verdict = 20, "Fortress"
         elif debt_fcf < THRESHOLDS['debt_fcf_warning']:
             pts, verdict = 10, "Manageable"
+        elif ic >= THRESHOLDS['interest_coverage_safe']:
+            pts, verdict = 10, "High Debt, Well Covered"
         else:
             pts, verdict = 0, "Overleveraged"
         criteria.append({
