@@ -77,11 +77,13 @@ def av_get_cashflow(ticker):
     except Exception:
         return None, None
 
-
 @st.cache_data(ttl=3600)
 def fetch_fundamentals(ticker):
     try:
         overview = av_get_overview(ticker)
+        st.write("DEBUG overview keys:", list(overview.keys()) if overview else "NONE")
+        if overview:
+            st.write("DEBUG overview sample:", {k: overview[k] for k in list(overview.keys())[:10]})
         if not overview:
             return {}
 
