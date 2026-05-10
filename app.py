@@ -368,7 +368,7 @@ if df_holdings_raw is not None:
         else:
             st.caption("Scores not yet loaded. Click the button above.")
 
-    if run_scoring:
+   if run_scoring:
         progress_bar = st.progress(0)
         status_text  = st.empty()
         scores       = {}
@@ -389,7 +389,7 @@ if df_holdings_raw is not None:
         st.session_state.holding_scores = scores
         progress_bar.progress(1.0)
         scored_ok = len([s for s in scores.values() if s is not None])
-        status_text.markdown(f"✅ Done — {scored_ok} of {n_symbols} holdings scored successfully.")
+        status_text.markdown(f"✅ Done — {scored_ok} of {n_symbols} holdings scored.")
 
     st.divider()
 
