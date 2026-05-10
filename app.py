@@ -438,7 +438,7 @@ if df_holdings_raw is not None:
         lambda n: f"{n} account{'s' if n > 1 else ''}"
     )
     display_df['Analyze'] = display_df['Symbol'].apply(
-        lambda s: f"./Equity_Scout?ticker={s}&auto=1"
+        lambda s: f"https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/equity_scout?ticker={s}&auto=1"
     )
 
     # Columns to show in the sortable table
@@ -513,6 +513,6 @@ if df_holdings_raw is not None:
         st.dataframe(account_detail, hide_index=True, use_container_width=True)
 
         st.markdown(
-            f"[🔍 Open Full Analysis in Equity Scout](./Equity_Scout?ticker={selected_symbol}&auto=1)",
+            f"[🔍 Open Full Analysis in Equity Scout](https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/equity_scout?ticker={selected_symbol}&auto=1)",
             unsafe_allow_html=True
         )
