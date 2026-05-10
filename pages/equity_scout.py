@@ -369,21 +369,7 @@ if analyze and ticker_input:
     with st.spinner(f"Fetching fundamentals for **{ticker_input}** via Alpha Vantage (2 API calls)..."):
         data = fetch_fundamentals(ticker_input)
 
-    # TEMPORARY DEBUG
-    if data:
-        key = st.secrets["ALPHA_VANTAGE_KEY"]
-        cf_raw = requests.get(AV_URL, params={"function": "CASH_FLOW", "symbol": ticker_input, "apikey": key}).json()
-        if cf_raw.get("annualReports"):
-            st.write("CF fields available:", list(cf_raw["annualReports"][0].keys()))
-            st.write("CF values:", cf_raw["annualReports"][0])
-
-    # TEMPORARY DEBUG
-    if data:
-        key = st.secrets["ALPHA_VANTAGE_KEY"]
-        cf_raw = requests.get(AV_URL, params={"function": "CASH_FLOW", "symbol": ticker_input, "apikey": key}).json()
-        if cf_raw.get("annualReports"):
-            st.write("CF fields available:", list(cf_raw["annualReports"][0].keys()))
-            st.write("CF values:", cf_raw["annualReports"][0])
+   
     if not data:
         st.stop()
 
