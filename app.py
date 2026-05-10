@@ -189,13 +189,16 @@ def score_stock(data: dict, weights: dict) -> int:
 
 
 def score_to_badge(score) -> str:
-    if score == "—" or score is None:
+    try:
+        if score is None or (isinstance(score, float) and pd.isna(score)):
+            return "—"
+        score = int(score)
+        if score >= 80:   return f"🟢 {score}"
+        elif score >= 65: return f"🟡 {score}"
+        elif score >= 45: return f"🟠 {score}"
+        else:             return f"🔴 {score}"
+    except:
         return "—"
-    score = int(score)
-    if score >= 80:   return f"🟢 {score}"
-    elif score >= 65: return f"🟡 {score}"
-    elif score >= 45: return f"🟠 {score}"
-    else:             return f"🔴 {score}"
 
 
 # ─────────────────────────────────────────────
