@@ -436,8 +436,9 @@ if df_holdings_raw is not None:
 
         st.session_state.holding_scores = scores
         progress_bar.progress(1.0)
-        status_text.markdown(f"✅ Done — {len([s for s in scores.values() if s is not None])} holdings scored.")
-        st.rerun()
+        scored_ok = len([s for s in scores.values() if s is not None])
+        status_text.markdown(f"✅ Done — {scored_ok} holdings scored.")
+        st.write("DEBUG sample:", {k: v for k, v in list(scores.items())[:3]})
 
     st.divider()
 
