@@ -312,6 +312,25 @@ st.divider()
 # HOLDINGS EXPLORER
 # ─────────────────────────────────────────────
 st.header("📋 Holdings Explorer")
+st.markdown("""
+<style>
+/* Style dataframe link columns to look like buttons */
+.stDataFrame a {
+    background-color: #1f6feb;
+    color: white !important;
+    padding: 3px 10px;
+    border-radius: 12px;
+    text-decoration: none !important;
+    font-size: 0.78em;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.stDataFrame a:hover {
+    background-color: #388bfd;
+    color: white !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 if df_holdings_raw is not None:
 
