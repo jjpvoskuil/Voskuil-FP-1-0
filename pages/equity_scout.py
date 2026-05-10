@@ -1,6 +1,5 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
 import plotly.graph_objects as go
  
 # ─────────────────────────────────────────────
@@ -10,32 +9,34 @@ st.set_page_config(page_title="Equity Scout | Voskuil FP", layout="wide")
  
 # ─────────────────────────────────────────────
 # DEFAULT WEIGHTS
-# Edit these numbers to change the baseline.
-# They must add up to 100.
+# Must add up to 100.
 # ─────────────────────────────────────────────
 DEFAULT_WEIGHTS = {
-    "FCF Yield":          35,
-    "ROIC":               15,
-    "Debt / FCF":         20,
-    "Gross Margin":       15,
-    "Interest Coverage":  15,
+    "FCF Yield":            30,
+    "ROIC":                 10,
+    "Debt / FCF":           20,
+    "Gross Margin":         15,
+    "Interest Coverage":    10,
+    "Price / Owner Earnings": 15,
 }
  
 # ─────────────────────────────────────────────
 # SCORING THRESHOLDS
-# Adjust these to tune pass/fail cutoffs.
 # ─────────────────────────────────────────────
 THRESHOLDS = {
-    "fcf_yield_good":         0.04,
-    "fcf_yield_great":        0.06,
-    "roic_good":              0.12,
-    "roic_great":             0.20,
-    "debt_fcf_safe":          3.0,
-    "debt_fcf_warning":       5.0,
-    "interest_coverage_safe": 5.0,
-    "gross_margin_good":      0.40,
-    "gross_margin_great":     0.60,
-    "monthly_income_target":  8000,
+    "fcf_yield_good":           0.04,
+    "fcf_yield_great":          0.06,
+    "roic_good":                0.12,
+    "roic_great":               0.20,
+    "debt_fcf_safe":            3.0,
+    "debt_fcf_warning":         5.0,
+    "interest_coverage_safe":   5.0,
+    "gross_margin_good":        0.40,
+    "gross_margin_great":       0.60,
+    "poe_bargain":              15.0,   # Price/Owner Earnings under 15x = bargain
+    "poe_fair":                 25.0,   # Under 25x = fair value
+    "poe_stretched":            35.0,   # Under 35x = stretched
+    "monthly_income_target":    8000,
 }
  
 # ─────────────────────────────────────────────
@@ -72,7 +73,7 @@ def fetch_fundamentals(ticker: str) -> dict:
             invested_cap = total_assets - current_liab
             roic         = net_income / invested_cap if invested_cap != 0 else None
         except Exception:
-            roic = None
+            net_income, roic = None, None
  
         # Debt / FCF
         try:
@@ -92,31 +93,35 @@ def fetch_fundamentals(ticker: str) -> dict:
         # Gross Margin
         gross_margin = info.get('grossMargins')
  
-        # Owner Earnings
+        # Owner Earnings & Price/Owner Earnings
         try:
             dna        = cashflow.loc['Depreciation And Amortization'].iloc[0]
             capex_val  = abs(cashflow.loc['Capital Expenditure'].iloc[0])
             owner_earn = net_income + dna - capex_val
+            shares     = info.get('sharesOutstanding')
+            price      = info.get('currentPrice') or info.get('regularMarketPrice')
+            poe        = (price / (owner_earn / shares)) if (owner_earn and shares and owner_earn > 0 and price) else None
         except Exception:
-            owner_earn = None
+            owner_earn, poe = None, None
  
         return {
-            "name":             info.get('longName', ticker),
-            "sector":           info.get('sector', 'N/A'),
-            "market_cap":       market_cap,
-            "price":            info.get('currentPrice') or info.get('regularMarketPrice'),
-            "pe_ratio":         info.get('trailingPE'),
-            "fcf":              fcf,
-            "fcf_yield":        fcf_yield,
-            "fcf_growth":       fcf_growth,
-            "roic":             roic,
-            "debt_to_fcf":      debt_to_fcf,
-            "total_debt":       total_debt,
-            "interest_coverage":interest_coverage,
-            "gross_margin":     gross_margin,
-            "owner_earnings":   owner_earn,
-            "dividend_yield":   info.get('dividendYield'),
-            "description":      info.get('longBusinessSummary', '')[:400] + '...' if info.get('longBusinessSummary') else '',
+            "name":              info.get('longName', ticker),
+            "sector":            info.get('sector', 'N/A'),
+            "market_cap":        market_cap,
+            "price":             info.get('currentPrice') or info.get('regularMarketPrice'),
+            "pe_ratio":          info.get('trailingPE'),
+            "fcf":               fcf,
+            "fcf_yield":         fcf_yield,
+            "fcf_growth":        fcf_growth,
+            "roic":              roic,
+            "debt_to_fcf":       debt_to_fcf,
+            "total_debt":        total_debt,
+            "interest_coverage": interest_coverage,
+            "gross_margin":      gross_margin,
+            "owner_earnings":    owner_earn,
+            "price_owner_earn":  poe,
+            "dividend_yield":    info.get('dividendYield'),
+            "description":       info.get('longBusinessSummary', '')[:400] + '...' if info.get('longBusinessSummary') else '',
         }
  
     except Exception as e:
@@ -126,7 +131,6 @@ def fetch_fundamentals(ticker: str) -> dict:
  
 # ─────────────────────────────────────────────
 # SCORING ENGINE
-# Reads weights from the slider values passed in.
 # ─────────────────────────────────────────────
 def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
     criteria = []
@@ -232,7 +236,28 @@ def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
         "name": "Interest Coverage Ratio",
         "value": f"{ic_val:.1f}x" if ic_val is not None else "N/A",
         "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-        "note": "How many times can earnings cover interest payments? Critical in a rising-rate 'Long Squeeze' environment."
+        "note": "How many times can earnings cover interest payments? Critical in a rising-rate Long Squeeze environment."
+    })
+ 
+    # ── 6. Price / Owner Earnings ────────────────────────────────────────
+    max_pts = weights["Price / Owner Earnings"]
+    poe     = data.get('price_owner_earn')
+    if poe is not None:
+        if poe <= THRESHOLDS['poe_bargain']:
+            pts, verdict = max_pts, "Bargain"
+        elif poe <= THRESHOLDS['poe_fair']:
+            pts, verdict = round(max_pts * 0.67), "Fair Value"
+        elif poe <= THRESHOLDS['poe_stretched']:
+            pts, verdict = round(max_pts * 0.25), "Stretched"
+        else:
+            pts, verdict = 0, "Expensive"
+    else:
+        pts, verdict = 0, "No Data"
+    criteria.append({
+        "name": "Price / Owner Earnings",
+        "value": f"{poe:.1f}x" if poe is not None else "N/A",
+        "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+        "note": "Buffett's valuation test. What are you paying per dollar of real owner earnings? Under 15x is a bargain."
     })
  
     total = sum(c['points_earned'] for c in criteria)
@@ -256,30 +281,30 @@ def score_to_verdict(score: int) -> tuple[str, str]:
 st.title("🔍 Equity Scout")
 st.caption("Concentrated, Buffett-style fundamental analysis. One business at a time.")
 st.markdown("""
-> *"I don't look to jump over 7-foot bars: I look around for 1-foot bars that I can step over."*
-> — Warren Buffett
+> *"Price is what you pay. Value is what you get."* — Warren Buffett
 """)
 st.divider()
  
-# ── Scoring Weights Expander ──────────────────────────────────────────────
+# ── Scoring Weights ───────────────────────────────────────────────────────
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
-    st.caption("Adjust how much each metric contributes to the total score. Should add up to 100.")
- 
+    st.caption("Adjust how much each metric contributes to the total score. Must add up to 100.")
     w_col1, w_col2 = st.columns(2)
     with w_col1:
-        w_fcf  = st.slider("FCF Yield",        0, 60, DEFAULT_WEIGHTS["FCF Yield"],        step=5)
-        w_roic = st.slider("ROIC",              0, 40, DEFAULT_WEIGHTS["ROIC"],              step=5)
-        w_debt = st.slider("Debt / FCF",        0, 40, DEFAULT_WEIGHTS["Debt / FCF"],        step=5)
+        w_fcf  = st.slider("FCF Yield",              0, 60, DEFAULT_WEIGHTS["FCF Yield"],              step=5)
+        w_roic = st.slider("ROIC",                   0, 40, DEFAULT_WEIGHTS["ROIC"],                   step=5)
+        w_debt = st.slider("Debt / FCF",             0, 40, DEFAULT_WEIGHTS["Debt / FCF"],             step=5)
     with w_col2:
-        w_gm   = st.slider("Gross Margin",      0, 40, DEFAULT_WEIGHTS["Gross Margin"],      step=5)
-        w_ic   = st.slider("Interest Coverage", 0, 40, DEFAULT_WEIGHTS["Interest Coverage"], step=5)
+        w_gm   = st.slider("Gross Margin",           0, 40, DEFAULT_WEIGHTS["Gross Margin"],           step=5)
+        w_ic   = st.slider("Interest Coverage",      0, 40, DEFAULT_WEIGHTS["Interest Coverage"],      step=5)
+        w_poe  = st.slider("Price / Owner Earnings", 0, 40, DEFAULT_WEIGHTS["Price / Owner Earnings"], step=5)
  
     weights = {
-        "FCF Yield":         w_fcf,
-        "ROIC":              w_roic,
-        "Debt / FCF":        w_debt,
-        "Gross Margin":      w_gm,
-        "Interest Coverage": w_ic,
+        "FCF Yield":              w_fcf,
+        "ROIC":                   w_roic,
+        "Debt / FCF":             w_debt,
+        "Gross Margin":           w_gm,
+        "Interest Coverage":      w_ic,
+        "Price / Owner Earnings": w_poe,
     }
  
     total_weight = sum(weights.values())
@@ -288,7 +313,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     elif total_weight < 100:
         st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
     else:
-        st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts. Scores will be inflated.")
+        st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
  
 # ── Ticker Input ──────────────────────────────────────────────────────────
 col_input, col_btn = st.columns([3, 1])
@@ -301,19 +326,17 @@ with col_input:
 with col_btn:
     analyze = st.button("🔎 Analyze", use_container_width=True, type="primary")
  
-# ── Position Sizing ───────────────────────────────────────────────────────
 with st.expander("💼 Position Sizing Context (optional)"):
     position_size = st.number_input(
         "How much are you considering investing? ($)",
         min_value=0, value=100000, step=10000, format="%d"
     )
-    st.caption("Used to estimate monthly income potential from dividends at your position size.")
  
-# ── Analysis Output ───────────────────────────────────────────────────────
+# ── Analysis ──────────────────────────────────────────────────────────────
 if analyze and ticker_input:
  
     if total_weight != 100:
-        st.warning(f"Your weights add up to {total_weight}, not 100. Adjust the sliders for accurate scores.")
+        st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
  
     with st.spinner(f"Fetching fundamentals for **{ticker_input}**..."):
         data = fetch_fundamentals(ticker_input)
@@ -321,10 +344,9 @@ if analyze and ticker_input:
     if not data:
         st.stop()
  
-    score, criteria   = score_stock(data, weights)
+    score, criteria      = score_stock(data, weights)
     verdict_label, verdict_color = score_to_verdict(score)
  
-    # Company Header
     st.markdown(f"## {data.get('name', ticker_input)}")
     st.caption(
         f"{data.get('sector', '')}  ·  "
@@ -336,7 +358,6 @@ if analyze and ticker_input:
  
     st.divider()
  
-    # Gauge + Scorecard
     left, right = st.columns([1, 2])
  
     with left:
@@ -368,7 +389,6 @@ if analyze and ticker_input:
             f"{verdict_label}</div>",
             unsafe_allow_html=True
         )
- 
         st.markdown("**Active Weights**")
         for k, v in weights.items():
             st.caption(f"{k}: {v} pts")
@@ -379,14 +399,12 @@ if analyze and ticker_input:
             earned  = c['points_earned']
             maximum = c['points_max']
             pct     = earned / maximum if maximum > 0 else 0
- 
             if pct >= 0.8:
                 bar_color, icon = "#2ecc71", "✅"
             elif pct >= 0.5:
                 bar_color, icon = "#f39c12", "⚠️"
             else:
                 bar_color, icon = "#e74c3c", "❌"
- 
             st.markdown(
                 f"{icon} **{c['name']}** — `{c['value']}` "
                 f"&nbsp;&nbsp;<span style='color:{bar_color}'>{c['verdict']}</span> "
@@ -398,7 +416,6 @@ if analyze and ticker_input:
  
     st.divider()
  
-    # Key Metrics
     st.markdown("### 📊 Key Metrics at a Glance")
     m1, m2, m3, m4 = st.columns(4)
  
@@ -410,21 +427,20 @@ if analyze and ticker_input:
         return str(val)
  
     with m1:
-        st.metric("Free Cash Flow",    fmt_val(data.get('fcf')))
-        st.metric("Owner Earnings",    fmt_val(data.get('owner_earnings')))
+        st.metric("Free Cash Flow",      fmt_val(data.get('fcf')))
+        st.metric("Owner Earnings",      fmt_val(data.get('owner_earnings')))
     with m2:
-        st.metric("FCF Yield",         fmt_val(data.get('fcf_yield'), "pct"))
-        st.metric("FCF Growth (1yr)",  fmt_val(data.get('fcf_growth'), "pct"))
+        st.metric("FCF Yield",           fmt_val(data.get('fcf_yield'), "pct"))
+        st.metric("FCF Growth (1yr)",    fmt_val(data.get('fcf_growth'), "pct"))
     with m3:
-        st.metric("ROIC",              fmt_val(data.get('roic'), "pct"))
-        st.metric("Gross Margin",      fmt_val(data.get('gross_margin'), "pct"))
+        st.metric("ROIC",                fmt_val(data.get('roic'), "pct"))
+        st.metric("Gross Margin",        fmt_val(data.get('gross_margin'), "pct"))
     with m4:
-        st.metric("Debt / FCF",        fmt_val(data.get('debt_to_fcf'), "ratio"))
-        st.metric("Interest Coverage", fmt_val(data.get('interest_coverage'), "ratio"))
+        st.metric("Debt / FCF",          fmt_val(data.get('debt_to_fcf'), "ratio"))
+        st.metric("Price/Owner Earnings",fmt_val(data.get('price_owner_earn'), "ratio"))
  
     st.divider()
  
-    # Income Potential
     st.markdown("### 💰 Income Potential at Your Position Size")
     div_yield = data.get('dividend_yield')
     if div_yield and position_size > 0:
@@ -432,20 +448,17 @@ if analyze and ticker_input:
         monthly_income = annual_income / 12
         target         = THRESHOLDS['monthly_income_target']
         pct_of_target  = monthly_income / target
- 
-        ic1, ic2, ic3 = st.columns(3)
+        ic1, ic2, ic3  = st.columns(3)
         with ic1: st.metric("Dividend Yield",      f"{div_yield:.2%}")
         with ic2: st.metric("Est. Annual Income",  f"${annual_income:,.0f}")
         with ic3: st.metric("Est. Monthly Income", f"${monthly_income:,.0f}",
                              delta=f"{pct_of_target:.0%} of your $8K/mo target")
         st.progress(min(pct_of_target, 1.0))
     else:
-        st.info("No dividend yield data available, or position size is $0. "
-                "This may be a pure growth / reinvestment compounder.")
+        st.info("No dividend yield data available. This may be a pure growth compounder.")
  
     st.divider()
  
-    # Plain English Verdict
     st.markdown("### 📝 The Verdict")
     strengths  = [c['name'] for c in criteria if c['points_max'] > 0 and c['points_earned'] / c['points_max'] >= 0.8]
     weaknesses = [c['name'] for c in criteria if c['points_max'] > 0 and c['points_earned'] / c['points_max'] < 0.5 and c['value'] != 'N/A']
@@ -466,7 +479,6 @@ if analyze and ticker_input:
         verdict_text += "Does not meet the criteria for a concentrated bet. Risk of permanent capital loss outweighs the upside."
  
     st.markdown(verdict_text)
- 
     st.info(
         "⚠️ **Macro Overlay Reminder:** In a 'Long Squeeze' environment, prioritize companies with low debt, "
         "strong FCF, and pricing power. Your $8K/month withdrawal target requires this portfolio to be "
@@ -480,16 +492,17 @@ else:
     st.markdown("""
     ### How this works
  
-    Enter any stock ticker above and get an **Owner's Report** scored on five Buffett fundamentals.
+    Enter any stock ticker above and get an **Owner's Report** scored on six Buffett fundamentals.
     Use the **Customize Scoring Weights** expander to adjust how much each metric matters to you.
  
     | Metric | Default Weight | What it measures |
     |--------|---------------|-----------------|
-    | Free Cash Flow Yield | 35 pts | Real owner earnings relative to price |
-    | ROIC | 15 pts | How wisely management deploys your capital |
+    | Free Cash Flow Yield | 30 pts | Real owner earnings relative to price |
+    | ROIC | 10 pts | How wisely management deploys your capital |
     | Debt / FCF | 20 pts | Survival capacity in a credit crunch |
     | Gross Margin | 15 pts | Pricing power and moat durability |
-    | Interest Coverage | 15 pts | Ability to service debt in a Long Squeeze |
+    | Interest Coverage | 10 pts | Ability to service debt in a Long Squeeze |
+    | Price / Owner Earnings | 15 pts | What you're paying per dollar of real earnings |
  
     **Score guide:** 80-100 = Strong Buy · 65-79 = Watch · 45-64 = Caution · <45 = Avoid
  
