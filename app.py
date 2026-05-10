@@ -386,7 +386,7 @@ if df_holdings_raw is not None:
                 scores[symbol] = None
             time.sleep(0.05)
 
-        st.session_state.holding_scores = scores
+            st.session_state.holding_scores = scores
             progress_bar.progress(1.0)
             scored_ok = len([s for s in scores.values() if s is not None])
             status_text.markdown(f"✅ Done — {scored_ok} of {n_symbols} holdings scored successfully.")
