@@ -423,16 +423,16 @@ if df_holdings_raw is not None:
         status_text  = st.empty()
         scores       = {}
 
-    for i, symbol in enumerate(unique_symbols):
-        pct = (i + 1) / n_symbols
-        progress_bar.progress(pct)
-        status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
-    
-        data = fetch_score_data(symbol)
-        if i == 0:
-            st.write(f"DEBUG first ticker {symbol} — data returned:", data)
-        scores[symbol] = score_stock(data, active_weights) if data else None
-        time.sleep(0.15)
+        for i, symbol in enumerate(unique_symbols):
+            pct = (i + 1) / n_symbols
+            progress_bar.progress(pct)
+            status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
+
+            data = fetch_score_data(symbol)
+            if i == 0:
+                st.write(f"DEBUG — first ticker {symbol} data:", data)
+            scores[symbol] = score_stock(data, active_weights) if data else None
+            time.sleep(0.15)
 
         st.session_state.holding_scores = scores
         progress_bar.progress(1.0)
