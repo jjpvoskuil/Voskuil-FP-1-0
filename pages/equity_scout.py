@@ -1,11 +1,15 @@
 import streamlit as st
 import requests
 import plotly.graph_objects as go
+import time
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(page_title="Equity Scout | Voskuil FP", layout="wide")
+
+APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
+AV_URL  = "https://www.alphavantage.co/query"
 
 # ─────────────────────────────────────────────
 # DEFAULT WEIGHTS
@@ -35,74 +39,120 @@ THRESHOLDS = {
     "monthly_income_target":    8000,
 }
 
-APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
-BASE_URL = "https://financialmodelingprep.com/api/v3"
-
 # ─────────────────────────────────────────────
-# FMP FETCHER
+# ALPHA VANTAGE FETCHER
 # ─────────────────────────────────────────────
-def fmp_get(endpoint: str, params: dict = {}) -> list | dict | None:
+def safe_float(val):
     try:
-        key      = st.secrets["FMP_API_KEY"]
-        url      = f"{BASE_URL}/{endpoint}"
-        params   = {**params, "apikey": key}
-        response = requests.get(url, params=params, timeout=10)
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def av_get_overview(ticker):
+    try:
+        key = st.secrets["ALPHA_VANTAGE_KEY"]
+        params = {"function": "OVERVIEW", "symbol": ticker, "apikey": key}
+        response = requests.get(AV_URL, params=params, timeout=10)
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            if "Symbol" in data:
+                return data
         return None
     except Exception:
         return None
 
 
-@st.cache_data(ttl=3600)
-def fetch_fundamentals(ticker: str) -> dict:
+def av_get_cashflow(ticker):
     try:
-        quote_data  = fmp_get(f"profile/{ticker}")
-        quote       = quote_data[0] if quote_data else {}
-        income_data = fmp_get(f"income-statement/{ticker}", {"limit": 2})
-        income      = income_data[0] if income_data else {}
-        income_prev = income_data[1] if income_data and len(income_data) > 1 else {}
-        cf_data     = fmp_get(f"cash-flow-statement/{ticker}", {"limit": 2})
-        cf          = cf_data[0] if cf_data else {}
-        cf_prev     = cf_data[1] if cf_data and len(cf_data) > 1 else {}
-        bs_data     = fmp_get(f"balance-sheet-statement/{ticker}", {"limit": 1})
-        bs          = bs_data[0] if bs_data else {}
+        key = st.secrets["ALPHA_VANTAGE_KEY"]
+        params = {"function": "CASH_FLOW", "symbol": ticker, "apikey": key}
+        response = requests.get(AV_URL, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            reports = data.get("annualReports", [])
+            if reports:
+                return reports[0], reports[1] if len(reports) > 1 else None
+        return None, None
+    except Exception:
+        return None, None
 
-        market_cap   = quote.get('mktCap')
-        price        = quote.get('price')
-        op_cf        = cf.get('operatingCashFlow')
-        capex        = cf.get('capitalExpenditure', 0)
-        fcf          = (op_cf + capex) if op_cf is not None else None
-        op_cf_prev   = cf_prev.get('operatingCashFlow')
-        capex_prev   = cf_prev.get('capitalExpenditure', 0)
-        fcf_prev     = (op_cf_prev + capex_prev) if op_cf_prev is not None else None
-        fcf_growth   = ((fcf / fcf_prev) - 1) if (fcf and fcf_prev and fcf_prev != 0) else None
-        fcf_yield    = (fcf / market_cap) if (fcf and market_cap) else None
-        net_income   = income.get('netIncome')
-        total_assets = bs.get('totalAssets')
-        current_liab = bs.get('totalCurrentLiabilities')
-        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-        total_debt   = bs.get('totalDebt')
-        debt_to_fcf  = (total_debt / fcf) if (total_debt is not None and fcf and fcf > 0) else None
-        ebit             = (income.get('ebitda', 0) or 0) - (cf.get('depreciationAndAmortization', 0) or 0)
-        interest_expense = abs(income.get('interestExpense', 0) or 0)
-        interest_coverage= (ebit / interest_expense) if (ebit and interest_expense != 0) else None
-        gross_margin = income.get('grossProfitRatio')
-        dna          = cf.get('depreciationAndAmortization', 0) or 0
-        capex_abs    = abs(capex) if capex else 0
-        owner_earn   = (net_income + dna - capex_abs) if net_income is not None else None
-        shares       = quote.get('sharesOutstanding')
-        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        div          = quote.get('lastDiv')
-        div_yield    = (div / price) if (div and price and price > 0) else None
+
+@st.cache_data(ttl=3600)
+def fetch_fundamentals(ticker):
+    try:
+        overview = av_get_overview(ticker)
+        if not overview:
+            return {}
+
+        time.sleep(12)
+        cf, cf_prev = av_get_cashflow(ticker)
+
+        # ── From OVERVIEW ────────────────────────────────────────────
+        market_cap   = safe_float(overview.get("MarketCapitalization"))
+        price        = safe_float(overview.get("50DayMovingAverage"))
+        gross_profit = safe_float(overview.get("GrossProfitTTM"))
+        revenue      = safe_float(overview.get("RevenueTTM"))
+        gross_margin = (gross_profit / revenue) if (gross_profit and revenue and revenue > 0) else None
+        roic         = safe_float(overview.get("ReturnOnEquityTTM"))
+        ebitda       = safe_float(overview.get("EBITDA"))
+        pe_ratio     = safe_float(overview.get("PERatio"))
+        shares       = safe_float(overview.get("SharesOutstanding"))
+        div_yield    = safe_float(overview.get("DividendYield"))
+        total_debt   = safe_float(overview.get("TotalDebt")) or safe_float(overview.get("LongTermDebtNoncurrent"))
+        name         = overview.get("Name", ticker)
+        sector       = overview.get("Sector", "N/A")
+        description  = (overview.get("Description", "")[:400] + "...") if overview.get("Description") else ""
+
+        # ── From CASH_FLOW ───────────────────────────────────────────
+        fcf = None
+        fcf_growth = None
+        fcf_yield = None
+        debt_to_fcf = None
+        interest_coverage = None
+        owner_earn = None
+        poe = None
+
+        if cf:
+            op_cf   = safe_float(cf.get("operatingCashflow"))
+            capex   = safe_float(cf.get("capitalExpenditures"))
+            net_inc = safe_float(cf.get("netIncome"))
+            dna     = safe_float(cf.get("depreciationDepletionAndAmortization"))
+            int_exp = safe_float(cf.get("interestExpense")) or safe_float(cf.get("paymentsForInterest"))
+
+            if op_cf is not None and capex is not None:
+                fcf = op_cf - capex
+
+            if fcf and market_cap and market_cap > 0:
+                fcf_yield = fcf / market_cap
+
+            if fcf and total_debt and fcf > 0:
+                debt_to_fcf = total_debt / fcf
+
+            if ebitda and int_exp and int_exp > 0:
+                interest_coverage = ebitda / int_exp
+
+            if net_inc is not None and dna is not None and capex is not None:
+                owner_earn = net_inc + dna - capex
+                if owner_earn > 0 and shares and price:
+                    poe = price / (owner_earn / shares)
+
+            # FCF growth year over year
+            if cf_prev:
+                op_cf_prev  = safe_float(cf_prev.get("operatingCashflow"))
+                capex_prev  = safe_float(cf_prev.get("capitalExpenditures"))
+                if op_cf_prev and capex_prev:
+                    fcf_prev = op_cf_prev - capex_prev
+                    if fcf and fcf_prev and fcf_prev != 0:
+                        fcf_growth = (fcf / fcf_prev) - 1
 
         return {
-            "name":              quote.get('companyName', ticker),
-            "sector":            quote.get('sector', 'N/A'),
+            "name":              name,
+            "sector":            sector,
+            "description":       description,
             "market_cap":        market_cap,
             "price":             price,
-            "pe_ratio":          quote.get('pe'),
+            "pe_ratio":          pe_ratio,
             "fcf":               fcf,
             "fcf_yield":         fcf_yield,
             "fcf_growth":        fcf_growth,
@@ -114,8 +164,8 @@ def fetch_fundamentals(ticker: str) -> dict:
             "owner_earnings":    owner_earn,
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
-            "description":       (quote.get('description', '')[:400] + '...') if quote.get('description') else '',
         }
+
     except Exception as e:
         st.error(f"Could not fetch data for **{ticker}**: {e}")
         return {}
@@ -124,7 +174,7 @@ def fetch_fundamentals(ticker: str) -> dict:
 # ─────────────────────────────────────────────
 # SCORING ENGINE
 # ─────────────────────────────────────────────
-def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
+def score_stock(data, weights):
     criteria = []
 
     # FCF Yield
@@ -137,9 +187,12 @@ def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
         else:                                            pts, verdict = 0, "Negative FCF"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Free Cash Flow Yield", "value": f"{fcf_yield:.1%}" if fcf_yield is not None else "N/A",
-                      "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "What you earn as an owner relative to price. Buffett wants real cash, not accounting earnings."})
+    criteria.append({
+        "name": "Free Cash Flow Yield",
+        "value": f"{fcf_yield:.1%}" if fcf_yield is not None else "N/A",
+        "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+        "note": "What you earn as an owner relative to price. Buffett wants real cash, not accounting earnings."
+    })
 
     # ROIC
     max_pts = weights["ROIC"]
@@ -151,9 +204,12 @@ def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
         else:                                  pts, verdict = 0, "Destroying Capital"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Return on Invested Capital (ROIC)", "value": f"{roic:.1%}" if roic is not None else "N/A",
-                      "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Munger: 'Show me the incentives and I'll show you the outcome.' ROIC shows if management deploys capital wisely."})
+    criteria.append({
+        "name": "Return on Invested Capital (ROIC)",
+        "value": f"{roic:.1%}" if roic is not None else "N/A",
+        "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+        "note": "Munger: 'Show me the incentives and I'll show you the outcome.' ROIC shows if management deploys capital wisely."
+    })
 
     # Debt / FCF
     max_pts  = weights["Debt / FCF"]
@@ -166,9 +222,12 @@ def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
         else:                                            pts, verdict = 0, "Overleveraged"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Debt / Free Cash Flow", "value": f"{debt_fcf:.1f}x" if debt_fcf is not None else "N/A",
-                      "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Years of FCF needed to pay off all debt. In a credit crunch, this is the survival metric."})
+    criteria.append({
+        "name": "Debt / Free Cash Flow",
+        "value": f"{debt_fcf:.1f}x" if debt_fcf is not None else "N/A",
+        "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+        "note": "Years of FCF needed to pay off all debt. In a credit crunch, this is the survival metric."
+    })
 
     # Gross Margin
     max_pts = weights["Gross Margin"]
@@ -179,9 +238,12 @@ def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
         else:                                        pts, verdict = round(max_pts * 0.20), "Commodity Risk"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Gross Margin (Pricing Power)", "value": f"{gm:.1%}" if gm is not None else "N/A",
-                      "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Buffett's favorite moat signal. Can the company raise prices without losing customers?"})
+    criteria.append({
+        "name": "Gross Margin (Pricing Power)",
+        "value": f"{gm:.1%}" if gm is not None else "N/A",
+        "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+        "note": "Buffett's favorite moat signal. Can the company raise prices without losing customers?"
+    })
 
     # Interest Coverage
     max_pts = weights["Interest Coverage"]
@@ -193,9 +255,12 @@ def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
         else:                                              pts, verdict = 0, "Danger"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Interest Coverage Ratio", "value": f"{ic_val:.1f}x" if ic_val is not None else "N/A",
-                      "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "How many times can earnings cover interest payments? Critical in a Long Squeeze environment."})
+    criteria.append({
+        "name": "Interest Coverage Ratio",
+        "value": f"{ic_val:.1f}x" if ic_val is not None else "N/A",
+        "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+        "note": "How many times can earnings cover interest payments? Critical in a Long Squeeze environment."
+    })
 
     # Price / Owner Earnings
     max_pts = weights["Price / Owner Earnings"]
@@ -207,15 +272,18 @@ def score_stock(data: dict, weights: dict) -> tuple[int, list[dict]]:
         else:                                   pts, verdict = 0, "Expensive"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Price / Owner Earnings", "value": f"{poe:.1f}x" if poe is not None else "N/A",
-                      "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Buffett's valuation test. What are you paying per dollar of real owner earnings? Under 15x is a bargain."})
+    criteria.append({
+        "name": "Price / Owner Earnings",
+        "value": f"{poe:.1f}x" if poe is not None else "N/A",
+        "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+        "note": "Buffett's valuation test. What are you paying per dollar of real owner earnings? Under 15x is a bargain."
+    })
 
     total = sum(c['points_earned'] for c in criteria)
     return total, criteria
 
 
-def score_to_verdict(score: int) -> tuple[str, str]:
+def score_to_verdict(score):
     if score >= 80:   return "Strong Buy", "#2ecc71"
     elif score >= 65: return "Watch Closely", "#f39c12"
     elif score >= 45: return "Proceed with Caution", "#e67e22"
@@ -223,7 +291,7 @@ def score_to_verdict(score: int) -> tuple[str, str]:
 
 
 # ─────────────────────────────────────────────
-# READ QUERY PARAMS (drill-through from Holdings)
+# READ QUERY PARAMS
 # ─────────────────────────────────────────────
 params       = st.query_params
 url_ticker   = params.get("ticker", "").upper().strip()
@@ -243,7 +311,7 @@ st.divider()
 
 # Weights
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
-    st.caption("Adjust how much each metric contributes to the total score. Must add up to 100.")
+    st.caption("Adjust how much each metric contributes. Must add up to 100.")
     w_col1, w_col2 = st.columns(2)
     with w_col1:
         w_fcf  = st.slider("FCF Yield",              0, 60, DEFAULT_WEIGHTS["FCF Yield"],              step=5)
@@ -285,7 +353,7 @@ with st.expander("💼 Position Sizing Context (optional)"):
         min_value=0, value=100000, step=10000, format="%d"
     )
 
-# Auto-trigger if arriving from Holdings drill-through
+# Auto-trigger from Holdings drill-through
 if auto_analyze and url_ticker and not analyze:
     analyze      = True
     ticker_input = url_ticker
@@ -298,7 +366,7 @@ if analyze and ticker_input:
     if total_weight != 100:
         st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
 
-    with st.spinner(f"Fetching fundamentals for **{ticker_input}** via FMP..."):
+    with st.spinner(f"Fetching fundamentals for **{ticker_input}** via Alpha Vantage (2 API calls)..."):
         data = fetch_fundamentals(ticker_input)
 
     if not data:
@@ -311,7 +379,7 @@ if analyze and ticker_input:
     st.caption(
         f"{data.get('sector', '')}  ·  "
         f"${data.get('price', 0):,.2f} per share  ·  "
-        f"Market Cap: ${data.get('market_cap', 0)/1e9:.1f}B"
+        f"Market Cap: ${(data.get('market_cap') or 0)/1e9:.1f}B"
     )
     if data.get('description'):
         st.markdown(f"*{data['description']}*")
@@ -452,5 +520,5 @@ else:
     **Score guide:** 80-100 = Strong Buy · 65-79 = Watch · 45-64 = Caution · <45 = Avoid
 
     ---
-    *Data sourced from Financial Modeling Prep (FMP).*
+    *Data sourced from Alpha Vantage. Each analysis uses 2 of your 25 daily free API calls.*
     """)
