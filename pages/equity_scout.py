@@ -1,5 +1,5 @@
 import streamlit as st
-import yfinance as yf
+import requests
 import plotly.graph_objects as go
 
 # ─────────────────────────────────────────────
@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Equity Scout | Voskuil FP", layout="wide")
 
 # ─────────────────────────────────────────────
-# DEFAULT WEIGHTS — edit here to change baseline
+# DEFAULT WEIGHTS
 # ─────────────────────────────────────────────
 DEFAULT_WEIGHTS = {
     "FCF Yield":              30,
@@ -35,79 +35,74 @@ THRESHOLDS = {
     "monthly_income_target":    8000,
 }
 
-# ─────────────────────────────────────────────
-# READ QUERY PARAMS
-# Checks if we arrived here from a Holdings
-# drill-through link with ?ticker=XXXX&auto=1
-# ─────────────────────────────────────────────
-params        = st.query_params
-url_ticker    = params.get("ticker", "").upper().strip()
-auto_analyze  = params.get("auto", "0") == "1"
+APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
+BASE_URL = "https://financialmodelingprep.com/api/v3"
 
 # ─────────────────────────────────────────────
-# DATA FETCHER
+# FMP FETCHER
 # ─────────────────────────────────────────────
+def fmp_get(endpoint: str, params: dict = {}) -> list | dict | None:
+    try:
+        key      = st.secrets["FMP_API_KEY"]
+        url      = f"{BASE_URL}/{endpoint}"
+        params   = {**params, "apikey": key}
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=3600)
 def fetch_fundamentals(ticker: str) -> dict:
     try:
-        stock      = yf.Ticker(ticker)
-        info       = stock.info
-        cashflow   = stock.cashflow
-        financials = stock.financials
-        balance    = stock.balance_sheet
+        quote_data  = fmp_get(f"profile/{ticker}")
+        quote       = quote_data[0] if quote_data else {}
+        income_data = fmp_get(f"income-statement/{ticker}", {"limit": 2})
+        income      = income_data[0] if income_data else {}
+        income_prev = income_data[1] if income_data and len(income_data) > 1 else {}
+        cf_data     = fmp_get(f"cash-flow-statement/{ticker}", {"limit": 2})
+        cf          = cf_data[0] if cf_data else {}
+        cf_prev     = cf_data[1] if cf_data and len(cf_data) > 1 else {}
+        bs_data     = fmp_get(f"balance-sheet-statement/{ticker}", {"limit": 1})
+        bs          = bs_data[0] if bs_data else {}
 
-        try:
-            op_cf      = cashflow.loc['Operating Cash Flow'].iloc[0]
-            capex      = cashflow.loc['Capital Expenditure'].iloc[0]
-            fcf        = op_cf + capex
-            fcf_1yr    = op_cf + cashflow.loc['Capital Expenditure'].iloc[1] if len(cashflow.columns) > 1 else None
-            fcf_growth = ((fcf / fcf_1yr) - 1) if fcf_1yr and fcf_1yr != 0 else None
-        except:
-            fcf, fcf_growth = None, None
-
-        market_cap = info.get('marketCap')
-        fcf_yield  = (fcf / market_cap) if (fcf and market_cap) else None
-
-        try:
-            net_income   = financials.loc['Net Income'].iloc[0]
-            total_assets = balance.loc['Total Assets'].iloc[0]
-            current_liab = balance.loc['Current Liabilities'].iloc[0]
-            invested_cap = total_assets - current_liab
-            roic         = net_income / invested_cap if invested_cap != 0 else None
-        except:
-            net_income, roic = None, None
-
-        try:
-            total_debt  = balance.loc['Total Debt'].iloc[0]
-            debt_to_fcf = (total_debt / fcf) if (fcf and fcf > 0) else None
-        except:
-            total_debt, debt_to_fcf = None, None
-
-        try:
-            ebit              = financials.loc['EBIT'].iloc[0]
-            interest_expense  = abs(financials.loc['Interest Expense'].iloc[0])
-            interest_coverage = ebit / interest_expense if interest_expense != 0 else None
-        except:
-            interest_coverage = None
-
-        gross_margin = info.get('grossMargins')
-
-        try:
-            dna        = cashflow.loc['Depreciation And Amortization'].iloc[0]
-            capex_val  = abs(cashflow.loc['Capital Expenditure'].iloc[0])
-            owner_earn = net_income + dna - capex_val if net_income is not None else None
-            shares     = info.get('sharesOutstanding')
-            price      = info.get('currentPrice') or info.get('regularMarketPrice')
-            poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        except:
-            owner_earn, poe = None, None
+        market_cap   = quote.get('mktCap')
+        price        = quote.get('price')
+        op_cf        = cf.get('operatingCashFlow')
+        capex        = cf.get('capitalExpenditure', 0)
+        fcf          = (op_cf + capex) if op_cf is not None else None
+        op_cf_prev   = cf_prev.get('operatingCashFlow')
+        capex_prev   = cf_prev.get('capitalExpenditure', 0)
+        fcf_prev     = (op_cf_prev + capex_prev) if op_cf_prev is not None else None
+        fcf_growth   = ((fcf / fcf_prev) - 1) if (fcf and fcf_prev and fcf_prev != 0) else None
+        fcf_yield    = (fcf / market_cap) if (fcf and market_cap) else None
+        net_income   = income.get('netIncome')
+        total_assets = bs.get('totalAssets')
+        current_liab = bs.get('totalCurrentLiabilities')
+        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+        total_debt   = bs.get('totalDebt')
+        debt_to_fcf  = (total_debt / fcf) if (total_debt is not None and fcf and fcf > 0) else None
+        ebit             = (income.get('ebitda', 0) or 0) - (cf.get('depreciationAndAmortization', 0) or 0)
+        interest_expense = abs(income.get('interestExpense', 0) or 0)
+        interest_coverage= (ebit / interest_expense) if (ebit and interest_expense != 0) else None
+        gross_margin = income.get('grossProfitRatio')
+        dna          = cf.get('depreciationAndAmortization', 0) or 0
+        capex_abs    = abs(capex) if capex else 0
+        owner_earn   = (net_income + dna - capex_abs) if net_income is not None else None
+        shares       = quote.get('sharesOutstanding')
+        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+        div          = quote.get('lastDiv')
+        div_yield    = (div / price) if (div and price and price > 0) else None
 
         return {
-            "name":              info.get('longName', ticker),
-            "sector":            info.get('sector', 'N/A'),
+            "name":              quote.get('companyName', ticker),
+            "sector":            quote.get('sector', 'N/A'),
             "market_cap":        market_cap,
-            "price":             info.get('currentPrice') or info.get('regularMarketPrice'),
-            "pe_ratio":          info.get('trailingPE'),
+            "price":             price,
+            "pe_ratio":          quote.get('pe'),
             "fcf":               fcf,
             "fcf_yield":         fcf_yield,
             "fcf_growth":        fcf_growth,
@@ -118,8 +113,8 @@ def fetch_fundamentals(ticker: str) -> dict:
             "gross_margin":      gross_margin,
             "owner_earnings":    owner_earn,
             "price_owner_earn":  poe,
-            "dividend_yield":    info.get('dividendYield'),
-            "description":       info.get('longBusinessSummary', '')[:400] + '...' if info.get('longBusinessSummary') else '',
+            "dividend_yield":    div_yield,
+            "description":       (quote.get('description', '')[:400] + '...') if quote.get('description') else '',
         }
     except Exception as e:
         st.error(f"Could not fetch data for **{ticker}**: {e}")
@@ -228,21 +223,25 @@ def score_to_verdict(score: int) -> tuple[str, str]:
 
 
 # ─────────────────────────────────────────────
+# READ QUERY PARAMS (drill-through from Holdings)
+# ─────────────────────────────────────────────
+params       = st.query_params
+url_ticker   = params.get("ticker", "").upper().strip()
+auto_analyze = params.get("auto", "0") == "1"
+
+# ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
 st.title("🔍 Equity Scout")
 st.caption("Concentrated, Buffett-style fundamental analysis. One business at a time.")
-st.markdown("""
-> *"Price is what you pay. Value is what you get."* — Warren Buffett
-""")
+st.markdown("> *\"Price is what you pay. Value is what you get.\"* — Warren Buffett")
 
-# Show breadcrumb if we arrived from Holdings
 if url_ticker:
-    st.info(f"📌 Analyzing **{url_ticker}** — arrived from Holdings Explorer. [← Back to Dashboard](./../app)")
+    st.info(f"📌 Analyzing **{url_ticker}** — arrived from Holdings Explorer. [← Back to Dashboard]({APP_URL})")
 
 st.divider()
 
-# ── Scoring Weights ───────────────────────────────────────────────────────
+# Weights
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     st.caption("Adjust how much each metric contributes to the total score. Must add up to 100.")
     w_col1, w_col2 = st.columns(2)
@@ -263,21 +262,17 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         "Interest Coverage":      w_ic,
         "Price / Owner Earnings": w_poe,
     }
-
     total_weight = sum(weights.values())
-    if total_weight == 100:
-        st.success(f"✅ Total: {total_weight} / 100")
-    elif total_weight < 100:
-        st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
-    else:
-        st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
+    if total_weight == 100:   st.success(f"✅ Total: {total_weight} / 100")
+    elif total_weight < 100:  st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
+    else:                     st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
 
-# ── Ticker Input — pre-filled from URL if arriving from Holdings ──────────
+# Ticker input
 col_input, col_btn = st.columns([3, 1])
 with col_input:
     ticker_input = st.text_input(
         "Enter a stock ticker",
-        value=url_ticker,           # Pre-filled from query param
+        value=url_ticker,
         placeholder="e.g. ABBV, MSFT, KO, NVDA",
         label_visibility="collapsed"
     ).strip().upper()
@@ -290,24 +285,26 @@ with st.expander("💼 Position Sizing Context (optional)"):
         min_value=0, value=100000, step=10000, format="%d"
     )
 
-# Auto-trigger analysis if we arrived via drill-through link
+# Auto-trigger if arriving from Holdings drill-through
 if auto_analyze and url_ticker and not analyze:
     analyze      = True
     ticker_input = url_ticker
 
-# ── Analysis ──────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# ANALYSIS OUTPUT
+# ─────────────────────────────────────────────
 if analyze and ticker_input:
 
     if total_weight != 100:
         st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
 
-    with st.spinner(f"Fetching fundamentals for **{ticker_input}**..."):
+    with st.spinner(f"Fetching fundamentals for **{ticker_input}** via FMP..."):
         data = fetch_fundamentals(ticker_input)
 
     if not data:
         st.stop()
 
-    score, criteria      = score_stock(data, weights)
+    score, criteria              = score_stock(data, weights)
     verdict_label, verdict_color = score_to_verdict(score)
 
     st.markdown(f"## {data.get('name', ticker_input)}")
@@ -338,19 +335,14 @@ if analyze and ticker_input:
                     {'range': [65, 80],  'color': "#fef9e7"},
                     {'range': [80, 100], 'color': "#eafaf1"},
                 ],
-                'threshold': {
-                    'line': {'color': verdict_color, 'width': 4},
-                    'thickness': 0.75, 'value': score
-                }
+                'threshold': {'line': {'color': verdict_color, 'width': 4}, 'thickness': 0.75, 'value': score}
             }
         ))
         fig.update_layout(height=260, margin=dict(t=30, b=0, l=20, r=20))
         st.plotly_chart(fig, use_container_width=True)
-
         st.markdown(
             f"<div style='text-align:center; font-size:1.4em; font-weight:bold; color:{verdict_color}'>"
-            f"{verdict_label}</div>",
-            unsafe_allow_html=True
+            f"{verdict_label}</div>", unsafe_allow_html=True
         )
         st.markdown("**Active Weights**")
         for k, v in weights.items():
@@ -424,19 +416,13 @@ if analyze and ticker_input:
     weaknesses = [c['name'] for c in criteria if c['points_max'] > 0 and c['points_earned'] / c['points_max'] < 0.5 and c['value'] != 'N/A']
 
     verdict_text = f"**{data.get('name', ticker_input)}** scores **{score}/100** on the Voskuil Owner's Framework. "
-    if strengths:
-        verdict_text += f"Its strongest qualities are {', '.join(strengths)}. "
-    if weaknesses:
-        verdict_text += f"Areas of concern: {', '.join(weaknesses)}. "
+    if strengths:  verdict_text += f"Its strongest qualities are {', '.join(strengths)}. "
+    if weaknesses: verdict_text += f"Areas of concern: {', '.join(weaknesses)}. "
 
-    if score >= 80:
-        verdict_text += "This business passes the 'Would Buffett hold it for 10 years?' test. Consider a concentrated position."
-    elif score >= 65:
-        verdict_text += "Worth watching closely. Strong in some areas but not a slam dunk. Look for a better entry price."
-    elif score >= 45:
-        verdict_text += "Real weaknesses in the fundamentals. Not a fortress business. Proceed only with a significant margin of safety."
-    else:
-        verdict_text += "Does not meet the criteria for a concentrated bet. Risk of permanent capital loss outweighs the upside."
+    if score >= 80:   verdict_text += "This business passes the 'Would Buffett hold it for 10 years?' test. Consider a concentrated position."
+    elif score >= 65: verdict_text += "Worth watching closely. Strong in some areas but not a slam dunk. Look for a better entry price."
+    elif score >= 45: verdict_text += "Real weaknesses in the fundamentals. Not a fortress business. Proceed only with a significant margin of safety."
+    else:             verdict_text += "Does not meet the criteria for a concentrated bet. Risk of permanent capital loss outweighs the upside."
 
     st.markdown(verdict_text)
     st.info(
@@ -466,5 +452,5 @@ else:
     **Score guide:** 80-100 = Strong Buy · 65-79 = Watch · 45-64 = Caution · <45 = Avoid
 
     ---
-    *Data sourced from Yahoo Finance via yfinance. For proof-of-concept use.*
+    *Data sourced from Financial Modeling Prep (FMP).*
     """)
