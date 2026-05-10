@@ -19,18 +19,8 @@ TAX_FILE      = 'Realized GL 042626.csv'
 TRANS_FILE    = 'Transaction History 042626.csv'
 
 # ─────────────────────────────────────────────
-# SCORING CONFIG
-# Keep in sync with equity_scout.py
+# SCORING THRESHOLDS
 # ─────────────────────────────────────────────
-DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
-    "ROIC":                   10,
-    "Debt / FCF":             20,
-    "Gross Margin":           15,
-    "Interest Coverage":      10,
-    "Price / Owner Earnings": 15,
-}
-
 THRESHOLDS = {
     "fcf_yield_good":           0.04,
     "fcf_yield_great":          0.06,
@@ -44,6 +34,18 @@ THRESHOLDS = {
     "poe_bargain":              15.0,
     "poe_fair":                 25.0,
     "poe_stretched":            35.0,
+}
+
+# ─────────────────────────────────────────────
+# DEFAULT WEIGHTS
+# ─────────────────────────────────────────────
+DEFAULT_WEIGHTS = {
+    "FCF Yield":              30,
+    "ROIC":                   10,
+    "Debt / FCF":             20,
+    "Gross Margin":           15,
+    "Interest Coverage":      10,
+    "Price / Owner Earnings": 15,
 }
 
 # ─────────────────────────────────────────────
@@ -63,7 +65,7 @@ def fetch_sec_tickers():
 cik_map = fetch_sec_tickers()
 
 # ─────────────────────────────────────────────
-# MASTER INGESTION FUNCTION
+# MASTER INGESTION
 # ─────────────────────────────────────────────
 def get_clean_df(filename, anchor_text):
     try:
@@ -146,44 +148,43 @@ def fetch_score_data(ticker: str) -> dict | None:
 
 def score_stock(data: dict, weights: dict) -> int:
     pts = 0
-    w   = weights
 
     fcf_yield = data.get('fcf_yield')
     if fcf_yield:
-        if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts += w["FCF Yield"]
-        elif fcf_yield >= THRESHOLDS['fcf_yield_good']:  pts += round(w["FCF Yield"] * 0.60)
-        elif fcf_yield > 0:                              pts += round(w["FCF Yield"] * 0.15)
+        if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts += weights["FCF Yield"]
+        elif fcf_yield >= THRESHOLDS['fcf_yield_good']:  pts += round(weights["FCF Yield"] * 0.60)
+        elif fcf_yield > 0:                              pts += round(weights["FCF Yield"] * 0.15)
 
     roic = data.get('roic')
     if roic:
-        if roic >= THRESHOLDS['roic_great']:   pts += w["ROIC"]
-        elif roic >= THRESHOLDS['roic_good']:  pts += round(w["ROIC"] * 0.60)
-        elif roic > 0:                         pts += round(w["ROIC"] * 0.20)
+        if roic >= THRESHOLDS['roic_great']:   pts += weights["ROIC"]
+        elif roic >= THRESHOLDS['roic_good']:  pts += round(weights["ROIC"] * 0.60)
+        elif roic > 0:                         pts += round(weights["ROIC"] * 0.20)
 
     debt_fcf = data.get('debt_to_fcf')
     ic       = data.get('interest_coverage') or 0
     if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS['debt_fcf_safe']:       pts += w["Debt / FCF"]
-        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:  pts += round(w["Debt / FCF"] * 0.50)
-        elif ic >= THRESHOLDS['interest_coverage_safe']: pts += round(w["Debt / FCF"] * 0.50)
+        if debt_fcf < THRESHOLDS['debt_fcf_safe']:       pts += weights["Debt / FCF"]
+        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:  pts += round(weights["Debt / FCF"] * 0.50)
+        elif ic >= THRESHOLDS['interest_coverage_safe']: pts += round(weights["Debt / FCF"] * 0.50)
 
     gm = data.get('gross_margin')
     if gm:
-        if gm >= THRESHOLDS['gross_margin_great']:   pts += w["Gross Margin"]
-        elif gm >= THRESHOLDS['gross_margin_good']:  pts += round(w["Gross Margin"] * 0.67)
-        else:                                        pts += round(w["Gross Margin"] * 0.20)
+        if gm >= THRESHOLDS['gross_margin_great']:   pts += weights["Gross Margin"]
+        elif gm >= THRESHOLDS['gross_margin_good']:  pts += round(weights["Gross Margin"] * 0.67)
+        else:                                        pts += round(weights["Gross Margin"] * 0.20)
 
     ic_val = data.get('interest_coverage')
     if ic_val:
-        if ic_val >= THRESHOLDS['interest_coverage_safe']: pts += w["Interest Coverage"]
-        elif ic_val >= 2.5:                                pts += round(w["Interest Coverage"] * 0.50)
-        elif ic_val > 0:                                   pts += round(w["Interest Coverage"] * 0.15)
+        if ic_val >= THRESHOLDS['interest_coverage_safe']: pts += weights["Interest Coverage"]
+        elif ic_val >= 2.5:                                pts += round(weights["Interest Coverage"] * 0.50)
+        elif ic_val > 0:                                   pts += round(weights["Interest Coverage"] * 0.15)
 
     poe = data.get('price_owner_earn')
     if poe:
-        if poe <= THRESHOLDS['poe_bargain']:    pts += w["Price / Owner Earnings"]
-        elif poe <= THRESHOLDS['poe_fair']:     pts += round(w["Price / Owner Earnings"] * 0.67)
-        elif poe <= THRESHOLDS['poe_stretched']:pts += round(w["Price / Owner Earnings"] * 0.25)
+        if poe <= THRESHOLDS['poe_bargain']:    pts += weights["Price / Owner Earnings"]
+        elif poe <= THRESHOLDS['poe_fair']:     pts += round(weights["Price / Owner Earnings"] * 0.67)
+        elif poe <= THRESHOLDS['poe_stretched']:pts += round(weights["Price / Owner Earnings"] * 0.25)
 
     return pts
 
@@ -204,11 +205,11 @@ def score_to_badge(score) -> str:
 # ─────────────────────────────────────────────
 # DATA PROCESSING
 # ─────────────────────────────────────────────
-total_val, total_income                   = 0.0, 0.0
-ira_gain_total, taxable_gain_total        = 0.0, 0.0
-ytd_dividends, ytd_interest               = 0.0, 0.0
-df_holdings                               = None
-product_mix                               = pd.DataFrame()
+total_val, total_income            = 0.0, 0.0
+ira_gain_total, taxable_gain_total = 0.0, 0.0
+ytd_dividends, ytd_interest        = 0.0, 0.0
+product_mix                        = pd.DataFrame()
+df_holdings_raw                    = None
 
 # A. HOLDINGS
 df_holdings_raw = get_clean_df(HOLDINGS_FILE, "Account Number")
@@ -234,20 +235,20 @@ if df_holdings_raw is not None:
 # B. REALIZED GAINS
 df_tax = get_clean_df(TAX_FILE, "Account Number")
 if df_tax is not None:
-    df_tax.columns  = [c.strip() for c in df_tax.columns]
-    df_tax_clean    = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
+    df_tax.columns = [c.strip() for c in df_tax.columns]
+    df_tax_clean   = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     df_tax_clean['Numeric Gain'] = pd.to_numeric(
         df_tax_clean.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''),
         errors='coerce'
     )
-    ira_mask          = df_tax_clean.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
-    ira_gain_total    = df_tax_clean[ira_mask]['Numeric Gain'].sum()
-    taxable_gain_total= df_tax_clean[~ira_mask]['Numeric Gain'].sum()
+    ira_mask           = df_tax_clean.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
+    ira_gain_total     = df_tax_clean[ira_mask]['Numeric Gain'].sum()
+    taxable_gain_total = df_tax_clean[~ira_mask]['Numeric Gain'].sum()
 
 # C. DIVIDENDS & INTEREST
 df_trans = get_clean_df(TRANS_FILE, "Activity Date")
 if df_trans is not None:
-    df_trans.columns  = [c.strip() for c in df_trans.columns]
+    df_trans.columns = [c.strip() for c in df_trans.columns]
     df_trans['Amount($)'] = pd.to_numeric(
         df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''),
         errors='coerce'
@@ -259,11 +260,11 @@ if df_trans is not None:
 # POWER BAR
 # ─────────────────────────────────────────────
 col1, col2, col3, col4, col5 = st.columns(5)
-with col1: st.metric("Total Market Value",  f"${total_val:,.2f}")
-with col2: st.metric("Taxable G/L (YTD)",   f"${taxable_gain_total:,.2f}", help="Gains from non-IRA accounts.")
-with col3: st.metric("IRA G/L (YTD)",       f"${ira_gain_total:,.2f}",     help="Tax-deferred growth in IRA buckets.")
-with col4: st.metric("YTD Dividends",       f"${ytd_dividends:,.2f}")
-with col5: st.metric("YTD Interest",        f"${ytd_interest:,.2f}")
+with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
+with col2: st.metric("Taxable G/L (YTD)",  f"${taxable_gain_total:,.2f}", help="Gains from non-IRA accounts.")
+with col3: st.metric("IRA G/L (YTD)",      f"${ira_gain_total:,.2f}",     help="Tax-deferred growth in IRA buckets.")
+with col4: st.metric("YTD Dividends",      f"${ytd_dividends:,.2f}")
+with col5: st.metric("YTD Interest",       f"${ytd_interest:,.2f}")
 
 st.divider()
 
@@ -308,43 +309,76 @@ st.info("Targeting progress toward your **$37,386 income gap** toward legacy pre
 st.divider()
 
 # ─────────────────────────────────────────────
-# CONSOLIDATED HOLDINGS EXPLORER
+# HOLDINGS EXPLORER
 # ─────────────────────────────────────────────
 st.header("📋 Holdings Explorer")
 
 if df_holdings_raw is not None:
 
     # ── Consolidate by Symbol ─────────────────────────────────────────
-    # Sum market value across accounts, collect unique account numbers
     consolidated = (
         df_holdings_raw
         .groupby('Symbol')
         .agg(
-            Name            = ('Name',           'first'),
-            Product_Type    = ('Product Type',   'first'),
-            Total_Value     = ('Market Value ($)','sum'),
-            Accounts        = ('Account Number',  lambda x: ', '.join(x.astype(str).unique())),
-            Account_Count   = ('Account Number',  'nunique'),
+            Name          = ('Name',            'first'),
+            Product_Type  = ('Product Type',    'first'),
+            Total_Value   = ('Market Value ($)', 'sum'),
+            Accounts      = ('Account Number',   lambda x: ', '.join(x.astype(str).unique())),
+            Account_Count = ('Account Number',   'nunique'),
         )
         .reset_index()
         .sort_values('Total_Value', ascending=False)
     )
 
-    # Add SEC / Yahoo links
+    # SEC / Yahoo links
     def get_sec_link(symbol):
         cik = cik_map.get(symbol)
         return f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude" if cik else f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}"
 
-    consolidated['SEC Filings']  = consolidated['Symbol'].apply(get_sec_link)
-    consolidated['Market Data']  = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
+    consolidated['SEC Filings'] = consolidated['Symbol'].apply(get_sec_link)
+    consolidated['Market Data'] = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
 
-    # Add Score column — default to "—" until scored
+    # Restore cached scores if available
     if 'holding_scores' not in st.session_state:
         st.session_state.holding_scores = {}
+    if 'holding_weights' not in st.session_state:
+        st.session_state.holding_weights = DEFAULT_WEIGHTS.copy()
 
-    consolidated['Score'] = consolidated['Symbol'].apply(
-        lambda s: st.session_state.holding_scores.get(s, None)
-    )
+    # ── Weight Customizer ─────────────────────────────────────────────
+    st.subheader("⚙️ Scoring Weights")
+    st.caption("Set the weights used to score your holdings. Must add up to 100.")
+
+    w_col1, w_col2 = st.columns(2)
+    with w_col1:
+        w_fcf  = st.slider("FCF Yield",              0, 60, st.session_state.holding_weights["FCF Yield"],              step=5, key="w_fcf")
+        w_roic = st.slider("ROIC",                   0, 40, st.session_state.holding_weights["ROIC"],                   step=5, key="w_roic")
+        w_debt = st.slider("Debt / FCF",             0, 40, st.session_state.holding_weights["Debt / FCF"],             step=5, key="w_debt")
+    with w_col2:
+        w_gm   = st.slider("Gross Margin",           0, 40, st.session_state.holding_weights["Gross Margin"],           step=5, key="w_gm")
+        w_ic   = st.slider("Interest Coverage",      0, 40, st.session_state.holding_weights["Interest Coverage"],      step=5, key="w_ic")
+        w_poe  = st.slider("Price / Owner Earnings", 0, 40, st.session_state.holding_weights["Price / Owner Earnings"], step=5, key="w_poe")
+
+    active_weights = {
+        "FCF Yield":              w_fcf,
+        "ROIC":                   w_roic,
+        "Debt / FCF":             w_debt,
+        "Gross Margin":           w_gm,
+        "Interest Coverage":      w_ic,
+        "Price / Owner Earnings": w_poe,
+    }
+
+    # Save weights to session state so Score All uses them
+    st.session_state.holding_weights = active_weights
+
+    total_weight = sum(active_weights.values())
+    if total_weight == 100:
+        st.success(f"✅ Total: {total_weight} / 100")
+    elif total_weight < 100:
+        st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
+    else:
+        st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
+
+    st.divider()
 
     # ── Score All Button ──────────────────────────────────────────────
     unique_symbols = consolidated['Symbol'].tolist()
@@ -355,14 +389,15 @@ if df_holdings_raw is not None:
         run_scoring = st.button(
             f"⚡ Score All {n_symbols} Holdings",
             type="primary",
-            help="Fetches fundamentals and scores each unique holding. Takes 2-5 minutes."
+            disabled=(total_weight != 100),
+            help="Weights must add up to 100 before scoring." if total_weight != 100 else "Fetch fundamentals and score all holdings."
         )
     with info_col:
         scored_count = len(st.session_state.holding_scores)
         if scored_count > 0:
-            st.success(f"✅ {scored_count} holdings scored — click any ticker to drill into the full analysis.")
+            st.success(f"✅ {scored_count} holdings scored — sort by Score column to find your best opportunities.")
         else:
-            st.caption("Scores not yet loaded. Click the button to score all holdings.")
+            st.caption("Scores not yet loaded. Click the button above to score all holdings.")
 
     if run_scoring:
         progress_bar = st.progress(0)
@@ -375,76 +410,76 @@ if df_holdings_raw is not None:
             status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
 
             data = fetch_score_data(symbol)
-            if data:
-                scores[symbol] = score_stock(data, DEFAULT_WEIGHTS)
-            else:
-                scores[symbol] = None
-
+            scores[symbol] = score_stock(data, active_weights) if data else None
             time.sleep(0.15)
 
         st.session_state.holding_scores = scores
         progress_bar.progress(1.0)
-        status_text.markdown(f"✅ Done — {len([s for s in scores.values() if s is not None])} holdings scored successfully.")
-
-        # Refresh scores column
-        consolidated['Score'] = consolidated['Symbol'].apply(
-            lambda s: st.session_state.holding_scores.get(s, None)
-        )
+        status_text.markdown(f"✅ Done — {len([s for s in scores.values() if s is not None])} holdings scored.")
         st.rerun()
 
     st.divider()
 
-    # ── Holdings Table ────────────────────────────────────────────────
-    st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
+    # ── Build Sortable Display DataFrame ─────────────────────────────
+    # We use st.dataframe with column_config for a clean sortable table.
+    # The Analyze link is a separate clickable column.
 
-    # Build display dataframe
     display_df = consolidated.copy()
-    display_df['Score Badge'] = display_df['Score'].apply(score_to_badge)
-    display_df['Accounts']    = display_df.apply(
-        lambda r: f"{r['Account_Count']} account{'s' if r['Account_Count'] > 1 else ''}",
-        axis=1
+    display_df['Score']        = display_df['Symbol'].apply(
+        lambda s: st.session_state.holding_scores.get(s, None)
+    )
+    display_df['Score_Numeric']= display_df['Score'].apply(
+        lambda s: int(s) if s is not None and not (isinstance(s, float) and pd.isna(s)) else None
+    )
+    display_df['Verdict'] = display_df['Score_Numeric'].apply(
+        lambda s: ("🟢 Strong Buy" if s >= 80 else "🟡 Watch" if s >= 65 else "🟠 Caution" if s >= 45 else "🔴 Avoid") if s is not None else "—"
+    )
+    display_df['Accounts_Label'] = display_df['Account_Count'].apply(
+        lambda n: f"{n} account{'s' if n > 1 else ''}"
+    )
+    display_df['Analyze'] = display_df['Symbol'].apply(
+        lambda s: f"./Equity_Scout?ticker={s}&auto=1"
     )
 
-    # Render each row with a clickable drill-through button
-    # Header row
-    h1, h2, h3, h4, h5, h6, h7 = st.columns([1.5, 3, 2.5, 2, 1.5, 2, 2])
-    with h1: st.markdown("**Symbol**")
-    with h2: st.markdown("**Name**")
-    with h3: st.markdown("**Product Type**")
-    with h4: st.markdown("**Total Value**")
-    with h5: st.markdown("**Accounts**")
-    with h6: st.markdown("**Score**")
-    with h7: st.markdown("**Actions**")
+    # Columns to show in the sortable table
+    table_df = display_df[[
+        'Symbol', 'Name', 'Product_Type',
+        'Total_Value', 'Accounts_Label',
+        'Score_Numeric', 'Verdict',
+        'SEC Filings', 'Market Data', 'Analyze'
+    ]].copy()
 
-    st.markdown("---")
+    table_df.columns = [
+        'Symbol', 'Name', 'Product Type',
+        'Total Value ($)', 'Accounts',
+        'Score', 'Verdict',
+        'SEC Filings', 'Market Data', 'Deep Dive'
+    ]
 
-    for _, row in display_df.iterrows():
-        symbol = row['Symbol']
-        score  = row['Score']
+    st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
+    st.caption("Click any column header to sort. Use Deep Dive to open the full analysis.")
 
-        c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 3, 2.5, 2, 1.5, 2, 2])
-
-        with c1: st.markdown(f"**{symbol}**")
-        with c2: st.caption(row['Name'])
-        with c3: st.caption(row['Product_Type'])
-        with c4: st.markdown(f"${row['Total_Value']:,.0f}")
-        with c5: st.caption(row['Accounts'])
-        with c6:
-            badge = score_to_badge(score)
-            st.markdown(badge if badge != "—" else "—")
-        with c7:
-            # Build the Equity Scout URL with ticker pre-loaded
-            # Streamlit query params allow us to pass the ticker
-            drill_url = f"./Equity_Scout?ticker={symbol}&auto=1"
-            st.markdown(
-                f"[🔍 Analyze]({drill_url})",
-                unsafe_allow_html=True
-            )
+    st.dataframe(
+        table_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Symbol":         st.column_config.TextColumn("Symbol",       width="small"),
+            "Name":           st.column_config.TextColumn("Name",         width="medium"),
+            "Product Type":   st.column_config.TextColumn("Product Type", width="medium"),
+            "Total Value ($)":st.column_config.NumberColumn("Total Value ($)", format="$%,.0f", width="medium"),
+            "Accounts":       st.column_config.TextColumn("Accounts",     width="small"),
+            "Score":          st.column_config.NumberColumn("Score",      format="%d",          width="small"),
+            "Verdict":        st.column_config.TextColumn("Verdict",      width="medium"),
+            "SEC Filings":    st.column_config.LinkColumn("SEC Filings",  width="small"),
+            "Market Data":    st.column_config.LinkColumn("Market Data",  width="small"),
+            "Deep Dive":      st.column_config.LinkColumn("Deep Dive 🔍", width="small"),
+        }
+    )
 
     st.divider()
 
-    # ── Account Breakdown Section ────────────────────────────────────
-    # Shows value by account for any symbol the user wants to inspect
+    # ── Account Breakdown ─────────────────────────────────────────────
     st.subheader("🏦 Account Breakdown")
     st.caption("Select a holding to see how its value is distributed across your accounts.")
 
@@ -459,31 +494,24 @@ if df_holdings_raw is not None:
             df_holdings_raw[df_holdings_raw['Symbol'] == selected_symbol]
             [['Account Number', 'Name', 'Market Value ($)', 'Est. Annual Income ($)']]
             .copy()
+            .sort_values('Market Value ($)', ascending=False)
         )
-        account_detail = account_detail.sort_values('Market Value ($)', ascending=False)
 
         total_holding_val = account_detail['Market Value ($)'].sum()
 
         st.markdown(f"**{selected_symbol}** — Total Value: **${total_holding_val:,.2f}**")
 
-        # Score badge if available
-        if selected_symbol in st.session_state.holding_scores:
-            s = st.session_state.holding_scores[selected_symbol]
-            if s is not None:
-                st.markdown(f"Conviction Score: {score_to_badge(s)}")
+        score = st.session_state.holding_scores.get(selected_symbol)
+        if score is not None:
+            badge = score_to_badge(score)
+            st.markdown(f"Conviction Score: {badge}")
 
-        # Account table
         account_detail['% of Position'] = (
             account_detail['Market Value ($)'] / total_holding_val * 100
         ).round(1).astype(str) + '%'
 
-        st.dataframe(
-            account_detail,
-            hide_index=True,
-            use_container_width=True
-        )
+        st.dataframe(account_detail, hide_index=True, use_container_width=True)
 
-        # Link to full analysis
         st.markdown(
             f"[🔍 Open Full Analysis in Equity Scout](./Equity_Scout?ticker={selected_symbol}&auto=1)",
             unsafe_allow_html=True
