@@ -380,7 +380,6 @@ if df_holdings_raw is not None:
         if total_weight == 100:   st.success(f"✅ Total: {total_weight} / 100")
         elif total_weight < 100:  st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
         else:                     st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
-    else:
         active_weights = st.session_state.holding_weights
         total_weight   = sum(active_weights.values())
 
