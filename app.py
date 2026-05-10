@@ -18,7 +18,7 @@ TAX_FILE      = 'Realized GL 042626.csv'
 TRANS_FILE    = 'Transaction History 042626.csv'
 
 APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
-BASE_URL = "https://financialmodelingprep.com/api/v3"
+AV_URL   = "https://www.alphavantage.co/query"
 
 # ─────────────────────────────────────────────
 # SCORING CONFIG
@@ -48,100 +48,135 @@ THRESHOLDS = {
 }
 
 # ─────────────────────────────────────────────
-# FMP API HELPER
+# ALPHA VANTAGE FETCHER
+# Uses OVERVIEW endpoint — 1 call per ticker
+# returns most fundamentals we need
 # ─────────────────────────────────────────────
-def fmp_get(endpoint, params={}):
+def av_get_overview(ticker):
     try:
-        key = st.secrets["FMP_API_KEY"]
-        url = f"{BASE_URL}/{endpoint}"
-        all_params = {**params, "apikey": key}
-        response = requests.get(url, params=all_params, timeout=10)
-        if endpoint.startswith("profile/GOOGL"):
-            st.write(f"DEBUG status: {response.status_code}")
-            st.write(f"DEBUG response: {response.text[:500]}")
+        key = st.secrets["ALPHA_VANTAGE_KEY"]
+        params = {
+            "function": "OVERVIEW",
+            "symbol":   ticker,
+            "apikey":   key,
+        }
+        response = requests.get(AV_URL, params=params, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            return data
-        else:
-            return None
-    except Exception as e:
-        st.write(f"DEBUG exception: {e}")
+            if "Symbol" in data:
+                return data
+        return None
+    except Exception:
         return None
 
 
-# ─────────────────────────────────────────────
-# SCORE DATA FETCHER
-# ─────────────────────────────────────────────
-def fetch_score_data(ticker):
+def av_get_cashflow(ticker):
     try:
-        quote_data = fmp_get(f"profile/{ticker}")
-        if not quote_data:
+        key = st.secrets["ALPHA_VANTAGE_KEY"]
+        params = {
+            "function": "CASH_FLOW",
+            "symbol":   ticker,
+            "apikey":   key,
+        }
+        response = requests.get(AV_URL, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            reports = data.get("annualReports", [])
+            if reports:
+                return reports[0]
+        return None
+    except Exception:
+        return None
+
+
+def safe_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_score_data(ticker):
+    """
+    Fetches fundamentals using 2 Alpha Vantage calls:
+    1. OVERVIEW — gives market cap, PE, margins, ROIC proxy
+    2. CASH_FLOW — gives operating CF and capex for FCF
+    """
+    try:
+        overview = av_get_overview(ticker)
+        if not overview:
             return None
-        quote = quote_data[0]
 
-        income_data = fmp_get(f"income-statement/{ticker}", {"limit": 1})
-        if not income_data:
-            return None
-        income = income_data[0]
+        time.sleep(12)  # Respect 5 calls/minute limit
 
-        cf_data = fmp_get(f"cash-flow-statement/{ticker}", {"limit": 1})
-        if not cf_data:
-            return None
-        cf = cf_data[0]
+        cf = av_get_cashflow(ticker)
 
-        bs_data = fmp_get(f"balance-sheet-statement/{ticker}", {"limit": 1})
-        bs = bs_data[0] if bs_data else {}
+        # ── From OVERVIEW ────────────────────────────────────────────
+        market_cap   = safe_float(overview.get("MarketCapitalization"))
+        price        = safe_float(overview.get("AnalystTargetPrice")) or safe_float(overview.get("50DayMovingAverage"))
+        gross_margin = safe_float(overview.get("GrossProfitTTM"))
+        revenue      = safe_float(overview.get("RevenueTTM"))
+        gross_margin_pct = (gross_margin / revenue) if (gross_margin and revenue and revenue > 0) else None
 
-        market_cap = quote.get('mktCap')
-        price = quote.get('price')
-        op_cf = cf.get('operatingCashFlow')
-        capex = cf.get('capitalExpenditure', 0)
+        roic         = safe_float(overview.get("ReturnOnEquityTTM"))  # Proxy for ROIC
+        ebitda       = safe_float(overview.get("EBITDA"))
+        pe_ratio     = safe_float(overview.get("PERatio"))
+        shares       = safe_float(overview.get("SharesOutstanding"))
+        div_yield    = safe_float(overview.get("DividendYield"))
+        interest_exp = safe_float(overview.get("InterestExpense"))
 
-        if op_cf is None:
-            return None
+        # Interest coverage proxy using EBITDA
+        interest_coverage = None
+        if ebitda and interest_exp and interest_exp > 0:
+            interest_coverage = ebitda / interest_exp
 
-        fcf = op_cf + capex
-        if fcf <= 0:
-            return None
+        # ── From CASH_FLOW ───────────────────────────────────────────
+        fcf = None
+        debt_to_fcf = None
+        poe = None
+        owner_earn = None
 
-        fcf_yield = fcf / market_cap if (market_cap and market_cap > 0) else None
+        if cf:
+            op_cf  = safe_float(cf.get("operatingCashflow"))
+            capex  = safe_float(cf.get("capitalExpenditures"))
+            net_inc= safe_float(cf.get("netIncome"))
+            dna    = safe_float(cf.get("depreciationDepletionAndAmortization"))
 
-        net_income = income.get('netIncome')
-        total_assets = bs.get('totalAssets')
-        current_liab = bs.get('totalCurrentLiabilities')
-        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+            if op_cf is not None and capex is not None:
+                fcf = op_cf - capex  # AV capex is positive so subtract
 
-        total_debt = bs.get('totalDebt')
-        debt_to_fcf = (total_debt / fcf) if (total_debt is not None and fcf > 0) else None
+            if fcf and market_cap and market_cap > 0:
+                fcf_yield = fcf / market_cap
+            else:
+                fcf_yield = None
 
-        ebitda = income.get('ebitda', 0) or 0
-        dna = cf.get('depreciationAndAmortization', 0) or 0
-        ebit = ebitda - dna
-        interest_expense = abs(income.get('interestExpense', 0) or 0)
-        interest_coverage = (ebit / interest_expense) if (interest_expense != 0) else None
+            # Total debt from overview
+            total_debt = safe_float(overview.get("TotalDebt")) or safe_float(overview.get("LongTermDebtNoncurrent"))
+            if total_debt and fcf and fcf > 0:
+                debt_to_fcf = total_debt / fcf
 
-        gross_margin = income.get('grossProfitRatio')
+            # Owner earnings
+            if net_inc is not None and dna is not None and capex is not None:
+                owner_earn = net_inc + dna - capex
+                if owner_earn > 0 and shares and price:
+                    poe = price / (owner_earn / shares)
+        else:
+            fcf_yield = None
 
-        capex_abs = abs(capex) if capex else 0
-        owner_earn = (net_income + dna - capex_abs) if net_income is not None else None
-        shares = quote.get('sharesOutstanding')
-        poe = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-
-        div = quote.get('lastDiv')
-        div_yield = (div / price) if (div and price and price > 0) else None
+        if not fcf or fcf <= 0:
+            return None  # Auto-disqualify negative FCF
 
         return {
             "fcf_yield":         fcf_yield,
             "roic":              roic,
             "debt_to_fcf":       debt_to_fcf,
             "interest_coverage": interest_coverage,
-            "gross_margin":      gross_margin,
+            "gross_margin":      gross_margin_pct,
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
         }
 
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -502,6 +537,13 @@ if df_holdings_raw is not None:
     unique_symbols = consolidated['Symbol'].tolist()
     n_symbols = len(unique_symbols)
 
+    st.info(
+        f"⚠️ **API Limit Notice:** Alpha Vantage free tier allows 25 calls/day and 5/minute. "
+        f"Scoring all {n_symbols} holdings uses 2 calls each = ~{n_symbols * 2} calls total. "
+        f"The scan will take approximately {n_symbols * 25 // 60} minutes due to rate limiting. "
+        f"Consider scoring a subset by filtering your holdings first."
+    )
+
     score_col, info_col = st.columns([2, 5])
 
     with score_col:
@@ -509,7 +551,7 @@ if df_holdings_raw is not None:
             f"⚡ Score All {n_symbols} Holdings",
             type="primary",
             disabled=(total_weight != 100),
-            help="Weights must add up to 100." if total_weight != 100 else "Score all holdings using FMP data."
+            help="Weights must add up to 100." if total_weight != 100 else "Score all holdings using Alpha Vantage data."
         )
 
     with info_col:
@@ -527,13 +569,15 @@ if df_holdings_raw is not None:
         for i, symbol in enumerate(unique_symbols):
             pct = (i + 1) / n_symbols
             progress_bar.progress(pct)
-            status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
+            status_text.markdown(
+                f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols} "
+                f"(pausing 12s between calls to respect API limits)"
+            )
             data = fetch_score_data(symbol)
             if data is not None:
                 scores[symbol] = score_stock(data, active_weights)
             else:
                 scores[symbol] = None
-            time.sleep(0.05)
 
         st.session_state.holding_scores = scores
         progress_bar.progress(1.0)
