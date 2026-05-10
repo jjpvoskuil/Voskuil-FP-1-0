@@ -54,12 +54,15 @@ def av_get_overview(ticker):
         key = st.secrets["ALPHA_VANTAGE_KEY"]
         params = {"function": "OVERVIEW", "symbol": ticker, "apikey": key}
         response = requests.get(AV_URL, params=params, timeout=10)
+        st.write(f"DEBUG av_get_overview status: {response.status_code}")
+        st.write(f"DEBUG av_get_overview keys: {list(response.json().keys())[:5]}")
         if response.status_code == 200:
             data = response.json()
             if "Symbol" in data:
                 return data
         return None
-    except Exception:
+    except Exception as e:
+        st.write(f"DEBUG av_get_overview exception: {e}")
         return None
 
 
