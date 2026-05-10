@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import requests
-import yfinance as yf
 import time
+import sys
+import os
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG
@@ -19,8 +20,90 @@ TAX_FILE      = 'Realized GL 042626.csv'
 TRANS_FILE    = 'Transaction History 042626.csv'
 
 # ─────────────────────────────────────────────
-# SCORING THRESHOLDS
+# FMP FETCHER
 # ─────────────────────────────────────────────
+BASE_URL = "https://financialmodelingprep.com/api/v3"
+
+def fmp_get(endpoint: str, params: dict = {}) -> list | dict | None:
+    try:
+        key      = st.secrets["FMP_API_KEY"]
+        url      = f"{BASE_URL}/{endpoint}"
+        params   = {**params, "apikey": key}
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception:
+        return None
+
+
+def fetch_score_data(ticker: str) -> dict | None:
+    try:
+        quote_data  = fmp_get(f"profile/{ticker}")
+        quote       = quote_data[0] if quote_data else {}
+        income_data = fmp_get(f"income-statement/{ticker}", {"limit": 1})
+        income      = income_data[0] if income_data else {}
+        cf_data     = fmp_get(f"cash-flow-statement/{ticker}", {"limit": 1})
+        cf          = cf_data[0] if cf_data else {}
+        bs_data     = fmp_get(f"balance-sheet-statement/{ticker}", {"limit": 1})
+        bs          = bs_data[0] if bs_data else {}
+
+        if not quote or not income or not cf:
+            return None
+
+        market_cap = quote.get('mktCap')
+        price      = quote.get('price')
+        op_cf      = cf.get('operatingCashFlow')
+        capex      = cf.get('capitalExpenditure', 0)
+        fcf        = (op_cf + capex) if op_cf is not None else None
+
+        if not fcf or fcf <= 0:
+            return None
+
+        fcf_yield    = fcf / market_cap if (market_cap and market_cap > 0) else None
+        net_income   = income.get('netIncome')
+        total_assets = bs.get('totalAssets')
+        current_liab = bs.get('totalCurrentLiabilities')
+        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+        total_debt   = bs.get('totalDebt')
+        debt_to_fcf  = (total_debt / fcf) if total_debt is not None else None
+        ebit             = (income.get('ebitda', 0) or 0) - (cf.get('depreciationAndAmortization', 0) or 0)
+        interest_expense = abs(income.get('interestExpense', 0) or 0)
+        interest_coverage= (ebit / interest_expense) if (ebit and interest_expense != 0) else None
+        gross_margin = income.get('grossProfitRatio')
+        dna          = cf.get('depreciationAndAmortization', 0) or 0
+        capex_abs    = abs(capex) if capex else 0
+        owner_earn   = (net_income + dna - capex_abs) if net_income is not None else None
+        shares       = quote.get('sharesOutstanding')
+        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+        div          = quote.get('lastDiv')
+        div_yield    = (div / price) if (div and price and price > 0) else None
+
+        return {
+            "fcf_yield":         fcf_yield,
+            "roic":              roic,
+            "debt_to_fcf":       debt_to_fcf,
+            "interest_coverage": interest_coverage,
+            "gross_margin":      gross_margin,
+            "price_owner_earn":  poe,
+            "dividend_yield":    div_yield,
+        }
+    except Exception:
+        return None
+
+# ─────────────────────────────────────────────
+# SCORING CONFIG
+# ─────────────────────────────────────────────
+DEFAULT_WEIGHTS = {
+    "FCF Yield":              30,
+    "ROIC":                   10,
+    "Debt / FCF":             20,
+    "Gross Margin":           15,
+    "Interest Coverage":      10,
+    "Price / Owner Earnings": 15,
+}
+
 THRESHOLDS = {
     "fcf_yield_good":           0.04,
     "fcf_yield_great":          0.06,
@@ -35,115 +118,6 @@ THRESHOLDS = {
     "poe_fair":                 25.0,
     "poe_stretched":            35.0,
 }
-
-# ─────────────────────────────────────────────
-# DEFAULT WEIGHTS
-# ─────────────────────────────────────────────
-DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
-    "ROIC":                   10,
-    "Debt / FCF":             20,
-    "Gross Margin":           15,
-    "Interest Coverage":      10,
-    "Price / Owner Earnings": 15,
-}
-
-# ─────────────────────────────────────────────
-# SEC XREF
-# ─────────────────────────────────────────────
-@st.cache_data
-def fetch_sec_tickers():
-    try:
-        url      = "https://www.sec.gov/files/company_tickers.json"
-        headers  = {'User-Agent': 'Voskuil Wealth Engine (voskuil@example.com)'}
-        response = requests.get(url, headers=headers)
-        data     = response.json()
-        return {item['ticker']: str(item['cik_str']).zfill(10) for item in data.values()}
-    except:
-        return {}
-
-cik_map = fetch_sec_tickers()
-
-# ─────────────────────────────────────────────
-# MASTER INGESTION
-# ─────────────────────────────────────────────
-def get_clean_df(filename, anchor_text):
-    try:
-        with open(filename, 'r') as f:
-            lines = f.readlines()
-        header_idx = next(i for i, line in enumerate(lines) if anchor_text in line)
-        return pd.read_csv(filename, skiprows=header_idx)
-    except:
-        return None
-
-# ─────────────────────────────────────────────
-# SCORING ENGINE
-# ─────────────────────────────────────────────
-def fetch_score_data(ticker: str) -> dict | None:
-    try:
-        stock      = yf.Ticker(ticker)
-        info       = stock.info
-        cashflow   = stock.cashflow
-        financials = stock.financials
-        balance    = stock.balance_sheet
-
-        market_cap = info.get('marketCap')
-        if not market_cap:
-            return None
-
-        try:
-            op_cf = cashflow.loc['Operating Cash Flow'].iloc[0]
-            capex = cashflow.loc['Capital Expenditure'].iloc[0]
-            fcf   = op_cf + capex
-        except:
-            fcf = None
-
-        fcf_yield = (fcf / market_cap) if (fcf and market_cap) else None
-
-        try:
-            net_income   = financials.loc['Net Income'].iloc[0]
-            total_assets = balance.loc['Total Assets'].iloc[0]
-            current_liab = balance.loc['Current Liabilities'].iloc[0]
-            invested_cap = total_assets - current_liab
-            roic         = net_income / invested_cap if invested_cap != 0 else None
-        except:
-            net_income, roic = None, None
-
-        try:
-            total_debt  = balance.loc['Total Debt'].iloc[0]
-            debt_to_fcf = (total_debt / fcf) if (fcf and fcf > 0) else None
-        except:
-            debt_to_fcf = None
-
-        try:
-            ebit              = financials.loc['EBIT'].iloc[0]
-            interest_expense  = abs(financials.loc['Interest Expense'].iloc[0])
-            interest_coverage = ebit / interest_expense if interest_expense != 0 else None
-        except:
-            interest_coverage = None
-
-        gross_margin = info.get('grossMargins')
-
-        try:
-            dna        = cashflow.loc['Depreciation And Amortization'].iloc[0]
-            capex_val  = abs(cashflow.loc['Capital Expenditure'].iloc[0])
-            owner_earn = net_income + dna - capex_val if net_income is not None else None
-            shares     = info.get('sharesOutstanding')
-            price      = info.get('currentPrice') or info.get('regularMarketPrice')
-            poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        except:
-            poe = None
-
-        return {
-            "fcf_yield":         fcf_yield,
-            "roic":              roic,
-            "debt_to_fcf":       debt_to_fcf,
-            "interest_coverage": interest_coverage,
-            "gross_margin":      gross_margin,
-            "price_owner_earn":  poe,
-        }
-    except Exception as e:
-        return {"error": str(e)}
 
 
 def score_stock(data: dict, weights: dict) -> int:
@@ -182,9 +156,9 @@ def score_stock(data: dict, weights: dict) -> int:
 
     poe = data.get('price_owner_earn')
     if poe:
-        if poe <= THRESHOLDS['poe_bargain']:    pts += weights["Price / Owner Earnings"]
-        elif poe <= THRESHOLDS['poe_fair']:     pts += round(weights["Price / Owner Earnings"] * 0.67)
-        elif poe <= THRESHOLDS['poe_stretched']:pts += round(weights["Price / Owner Earnings"] * 0.25)
+        if poe <= THRESHOLDS['poe_bargain']:     pts += weights["Price / Owner Earnings"]
+        elif poe <= THRESHOLDS['poe_fair']:      pts += round(weights["Price / Owner Earnings"] * 0.67)
+        elif poe <= THRESHOLDS['poe_stretched']: pts += round(weights["Price / Owner Earnings"] * 0.25)
 
     return pts
 
@@ -201,6 +175,33 @@ def score_to_badge(score) -> str:
     except:
         return "—"
 
+# ─────────────────────────────────────────────
+# SEC XREF
+# ─────────────────────────────────────────────
+@st.cache_data
+def fetch_sec_tickers():
+    try:
+        url      = "https://www.sec.gov/files/company_tickers.json"
+        headers  = {'User-Agent': 'Voskuil Wealth Engine (voskuil@example.com)'}
+        response = requests.get(url, headers=headers)
+        data     = response.json()
+        return {item['ticker']: str(item['cik_str']).zfill(10) for item in data.values()}
+    except:
+        return {}
+
+cik_map = fetch_sec_tickers()
+
+# ─────────────────────────────────────────────
+# MASTER INGESTION
+# ─────────────────────────────────────────────
+def get_clean_df(filename, anchor_text):
+    try:
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+        header_idx = next(i for i, line in enumerate(lines) if anchor_text in line)
+        return pd.read_csv(filename, skiprows=header_idx)
+    except:
+        return None
 
 # ─────────────────────────────────────────────
 # DATA PROCESSING
@@ -211,7 +212,6 @@ ytd_dividends, ytd_interest        = 0.0, 0.0
 product_mix                        = pd.DataFrame()
 df_holdings_raw                    = None
 
-# A. HOLDINGS
 df_holdings_raw = get_clean_df(HOLDINGS_FILE, "Account Number")
 if df_holdings_raw is not None:
     df_holdings_raw.columns = [c.strip() for c in df_holdings_raw.columns]
@@ -232,7 +232,6 @@ if df_holdings_raw is not None:
     product_mix['color'] = [color_palette[i % len(color_palette)] for i in range(len(product_mix))]
     df_holdings_raw = df_holdings_raw.dropna(subset=['Symbol'])
 
-# B. REALIZED GAINS
 df_tax = get_clean_df(TAX_FILE, "Account Number")
 if df_tax is not None:
     df_tax.columns = [c.strip() for c in df_tax.columns]
@@ -245,7 +244,6 @@ if df_tax is not None:
     ira_gain_total     = df_tax_clean[ira_mask]['Numeric Gain'].sum()
     taxable_gain_total = df_tax_clean[~ira_mask]['Numeric Gain'].sum()
 
-# C. DIVIDENDS & INTEREST
 df_trans = get_clean_df(TRANS_FILE, "Activity Date")
 if df_trans is not None:
     df_trans.columns = [c.strip() for c in df_trans.columns]
@@ -273,7 +271,6 @@ st.divider()
 # ─────────────────────────────────────────────
 st.subheader("Institutional Asset Allocation")
 c1, c2, c3 = st.columns([3, 4, 5])
-
 with c1:
     if not product_mix.empty:
         fig = px.pie(
@@ -284,12 +281,10 @@ with c1:
         fig.update_traces(textinfo='percent', textposition='inside')
         fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=300)
         st.plotly_chart(fig, use_container_width=True)
-
 with c2:
     st.markdown("**Product Type**")
     for _, row in product_mix.iterrows():
         st.markdown(f"<span style='color:{row['color']};'>●</span> {row['Product Type']}", unsafe_allow_html=True)
-
 with c3:
     st.markdown("**Value ($)**")
     for _, row in product_mix.iterrows():
@@ -312,9 +307,9 @@ st.divider()
 # HOLDINGS EXPLORER
 # ─────────────────────────────────────────────
 st.header("📋 Holdings Explorer")
+
 st.markdown("""
 <style>
-/* Style dataframe link columns to look like buttons */
 .stDataFrame a {
     background-color: #1f6feb;
     color: white !important;
@@ -334,7 +329,7 @@ st.markdown("""
 
 if df_holdings_raw is not None:
 
-    # ── Consolidate by Symbol ─────────────────────────────────────────
+    # Consolidate by Symbol
     consolidated = (
         df_holdings_raw
         .groupby('Symbol')
@@ -349,7 +344,6 @@ if df_holdings_raw is not None:
         .sort_values('Total_Value', ascending=False)
     )
 
-    # SEC / Yahoo links
     def get_sec_link(symbol):
         cik = cik_map.get(symbol)
         return f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude" if cik else f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}"
@@ -357,47 +351,38 @@ if df_holdings_raw is not None:
     consolidated['SEC Filings'] = consolidated['Symbol'].apply(get_sec_link)
     consolidated['Market Data'] = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
 
-    # Restore cached scores if available
-    if 'holding_scores' not in st.session_state:
-        st.session_state.holding_scores = {}
-    if 'holding_weights' not in st.session_state:
-        st.session_state.holding_weights = DEFAULT_WEIGHTS.copy()
+    if 'holding_scores'  not in st.session_state: st.session_state.holding_scores  = {}
+    if 'holding_weights' not in st.session_state: st.session_state.holding_weights = DEFAULT_WEIGHTS.copy()
 
     # ── Weight Customizer ─────────────────────────────────────────────
-    st.subheader("⚙️ Scoring Weights")
-    st.caption("Set the weights used to score your holdings. Must add up to 100.")
+    with st.expander("⚙️ Scoring Weights", expanded=False):
+        st.caption("Set weights used to score your holdings. Must add up to 100.")
+        w_col1, w_col2 = st.columns(2)
+        with w_col1:
+            w_fcf  = st.slider("FCF Yield",              0, 60, st.session_state.holding_weights["FCF Yield"],              step=5, key="w_fcf")
+            w_roic = st.slider("ROIC",                   0, 40, st.session_state.holding_weights["ROIC"],                   step=5, key="w_roic")
+            w_debt = st.slider("Debt / FCF",             0, 40, st.session_state.holding_weights["Debt / FCF"],             step=5, key="w_debt")
+        with w_col2:
+            w_gm   = st.slider("Gross Margin",           0, 40, st.session_state.holding_weights["Gross Margin"],           step=5, key="w_gm")
+            w_ic   = st.slider("Interest Coverage",      0, 40, st.session_state.holding_weights["Interest Coverage"],      step=5, key="w_ic")
+            w_poe  = st.slider("Price / Owner Earnings", 0, 40, st.session_state.holding_weights["Price / Owner Earnings"], step=5, key="w_poe")
 
-    w_col1, w_col2 = st.columns(2)
-    with w_col1:
-        w_fcf  = st.slider("FCF Yield",              0, 60, st.session_state.holding_weights["FCF Yield"],              step=5, key="w_fcf")
-        w_roic = st.slider("ROIC",                   0, 40, st.session_state.holding_weights["ROIC"],                   step=5, key="w_roic")
-        w_debt = st.slider("Debt / FCF",             0, 40, st.session_state.holding_weights["Debt / FCF"],             step=5, key="w_debt")
-    with w_col2:
-        w_gm   = st.slider("Gross Margin",           0, 40, st.session_state.holding_weights["Gross Margin"],           step=5, key="w_gm")
-        w_ic   = st.slider("Interest Coverage",      0, 40, st.session_state.holding_weights["Interest Coverage"],      step=5, key="w_ic")
-        w_poe  = st.slider("Price / Owner Earnings", 0, 40, st.session_state.holding_weights["Price / Owner Earnings"], step=5, key="w_poe")
-
-    active_weights = {
-        "FCF Yield":              w_fcf,
-        "ROIC":                   w_roic,
-        "Debt / FCF":             w_debt,
-        "Gross Margin":           w_gm,
-        "Interest Coverage":      w_ic,
-        "Price / Owner Earnings": w_poe,
-    }
-
-    # Save weights to session state so Score All uses them
-    st.session_state.holding_weights = active_weights
-
-    total_weight = sum(active_weights.values())
-    if total_weight == 100:
-        st.success(f"✅ Total: {total_weight} / 100")
-    elif total_weight < 100:
-        st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
+        active_weights = {
+            "FCF Yield":              w_fcf,
+            "ROIC":                   w_roic,
+            "Debt / FCF":             w_debt,
+            "Gross Margin":           w_gm,
+            "Interest Coverage":      w_ic,
+            "Price / Owner Earnings": w_poe,
+        }
+        st.session_state.holding_weights = active_weights
+        total_weight = sum(active_weights.values())
+        if total_weight == 100:   st.success(f"✅ Total: {total_weight} / 100")
+        elif total_weight < 100:  st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
+        else:                     st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
     else:
-        st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
-
-    st.divider()
+        active_weights = st.session_state.holding_weights
+        total_weight   = sum(active_weights.values())
 
     # ── Score All Button ──────────────────────────────────────────────
     unique_symbols = consolidated['Symbol'].tolist()
@@ -409,14 +394,14 @@ if df_holdings_raw is not None:
             f"⚡ Score All {n_symbols} Holdings",
             type="primary",
             disabled=(total_weight != 100),
-            help="Weights must add up to 100 before scoring." if total_weight != 100 else "Fetch fundamentals and score all holdings."
+            help="Weights must add up to 100." if total_weight != 100 else "Score all holdings using FMP data."
         )
     with info_col:
         scored_count = len(st.session_state.holding_scores)
         if scored_count > 0:
-            st.success(f"✅ {scored_count} holdings scored — sort by Score column to find your best opportunities.")
+            st.success(f"✅ {scored_count} holdings scored — sort by Score to find your best opportunities.")
         else:
-            st.caption("Scores not yet loaded. Click the button above to score all holdings.")
+            st.caption("Scores not yet loaded. Click the button above.")
 
     if run_scoring:
         progress_bar = st.progress(0)
@@ -427,78 +412,65 @@ if df_holdings_raw is not None:
             pct = (i + 1) / n_symbols
             progress_bar.progress(pct)
             status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
-
             data = fetch_score_data(symbol)
-            if i == 0:
-                st.write(f"DEBUG — first ticker {symbol} data:", data)
-            if data and "error" not in data:
-                scores[symbol] = score_stock(data, active_weights)
-            else:
-                scores[symbol] = None
-            time.sleep(0.15)
+            scores[symbol] = score_stock(data, active_weights) if data else None
+            time.sleep(0.05)
 
         st.session_state.holding_scores = scores
         progress_bar.progress(1.0)
         scored_ok = len([s for s in scores.values() if s is not None])
-        status_text.markdown(f"✅ Done — {scored_ok} holdings scored.")
-        st.write("DEBUG sample:", {k: v for k, v in list(scores.items())[:3]})
+        status_text.markdown(f"✅ Done — {scored_ok} of {n_symbols} holdings scored successfully.")
 
     st.divider()
 
-    # ── Build Sortable Display DataFrame ─────────────────────────────
-    # We use st.dataframe with column_config for a clean sortable table.
-    # The Analyze link is a separate clickable column.
-
-    display_df = consolidated.copy()
-    display_df['Score']        = display_df['Symbol'].apply(
+    # ── Sortable Table ────────────────────────────────────────────────
+    APP_URL      = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
+    display_df   = consolidated.copy()
+    display_df['Score'] = display_df['Symbol'].apply(
         lambda s: st.session_state.holding_scores.get(s, None)
     )
-    display_df['Score_Numeric']= display_df['Score'].apply(
+    display_df['Score'] = display_df['Score'].apply(
         lambda s: int(s) if s is not None and not (isinstance(s, float) and pd.isna(s)) else None
     )
-    display_df['Verdict'] = display_df['Score_Numeric'].apply(
+    display_df['Verdict'] = display_df['Score'].apply(
         lambda s: ("🟢 Strong Buy" if s >= 80 else "🟡 Watch" if s >= 65 else "🟠 Caution" if s >= 45 else "🔴 Avoid") if s is not None else "—"
     )
-    display_df['Accounts_Label'] = display_df['Account_Count'].apply(
+    display_df['Accounts'] = display_df['Account_Count'].apply(
         lambda n: f"{n} account{'s' if n > 1 else ''}"
     )
-    display_df['Analyze'] = display_df['Symbol'].apply(
-        lambda s: f"https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/equity_scout?ticker={s}&auto=1"
+    display_df['Deep Dive'] = display_df['Symbol'].apply(
+        lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1"
     )
 
-    # Columns to show in the sortable table
     table_df = display_df[[
-        'Symbol', 'Name', 'Product_Type',
-        'Total_Value', 'Accounts_Label',
-        'Score_Numeric', 'Verdict',
-        'SEC Filings', 'Market Data', 'Analyze'
+        'Symbol', 'Name', 'Product_Type', 'Total_Value',
+        'Accounts', 'Score', 'Verdict',
+        'SEC Filings', 'Market Data', 'Deep Dive'
     ]].copy()
-
     table_df.columns = [
-        'Symbol', 'Name', 'Product Type',
-        'Total Value ($)', 'Accounts',
-        'Score', 'Verdict',
+        'Symbol', 'Name', 'Product Type', 'Total Value ($)',
+        'Accounts', 'Score', 'Verdict',
         'SEC Filings', 'Market Data', 'Deep Dive'
     ]
 
     st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
-    st.caption("Click any column header to sort. Use Deep Dive to open the full analysis.")
+    st.caption("Click any column header to sort. Click Deep Dive to open the full analysis.")
 
     st.dataframe(
         table_df,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Symbol":         st.column_config.TextColumn("Symbol",       width="small"),
-            "Name":           st.column_config.TextColumn("Name",         width="medium"),
-            "Product Type":   st.column_config.TextColumn("Product Type", width="medium"),
+            "Symbol":         st.column_config.TextColumn("Symbol",        width="small"),
+            "Name":           st.column_config.TextColumn("Name",          width="medium"),
+            "Product Type":   st.column_config.TextColumn("Product Type",  width="medium"),
             "Total Value ($)":st.column_config.NumberColumn("Total Value ($)", format="$%,.0f", width="medium"),
-            "Accounts":       st.column_config.TextColumn("Accounts",     width="small"),
-            "Score":          st.column_config.NumberColumn("Score",      format="%d",          width="small"),
-            "Verdict":        st.column_config.TextColumn("Verdict",      width="medium"),
-            "SEC Filings":    st.column_config.LinkColumn("SEC Filings",  width="small"),
-            "Market Data":    st.column_config.LinkColumn("Market Data",  width="small"),
-            "Deep Dive":      st.column_config.LinkColumn("Deep Dive 🔍", width="small"),
+            "Accounts":       st.column_config.TextColumn("Accounts",      width="small"),
+            "Score":          st.column_config.NumberColumn("Score",       format="%d",         width="small"),
+            "Verdict":        st.column_config.TextColumn("Verdict",       width="medium"),
+            "SEC Filings":    st.column_config.LinkColumn("SEC Filings",   width="small"),
+            "Market Data":    st.column_config.LinkColumn("Market Data",   width="small"),
+            "Deep Dive":      st.column_config.LinkColumn("Deep Dive 🔍",  width="small"),
         }
     )
 
@@ -521,23 +493,19 @@ if df_holdings_raw is not None:
             .copy()
             .sort_values('Market Value ($)', ascending=False)
         )
-
         total_holding_val = account_detail['Market Value ($)'].sum()
-
         st.markdown(f"**{selected_symbol}** — Total Value: **${total_holding_val:,.2f}**")
 
         score = st.session_state.holding_scores.get(selected_symbol)
         if score is not None:
-            badge = score_to_badge(score)
-            st.markdown(f"Conviction Score: {badge}")
+            st.markdown(f"Conviction Score: {score_to_badge(score)}")
 
         account_detail['% of Position'] = (
             account_detail['Market Value ($)'] / total_holding_val * 100
         ).round(1).astype(str) + '%'
 
         st.dataframe(account_detail, hide_index=True, use_container_width=True)
-
         st.markdown(
-            f"[🔍 Open Full Analysis in Equity Scout](https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/equity_scout?ticker={selected_symbol}&auto=1)",
+            f"[🔍 Open Full Analysis in Equity Scout]({APP_URL}/equity_scout?ticker={selected_symbol}&auto=1)",
             unsafe_allow_html=True
         )
