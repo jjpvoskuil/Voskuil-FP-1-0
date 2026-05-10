@@ -142,8 +142,8 @@ def fetch_score_data(ticker: str) -> dict | None:
             "gross_margin":      gross_margin,
             "price_owner_earn":  poe,
         }
-    except:
-        return None
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def score_stock(data: dict, weights: dict) -> int:
@@ -431,7 +431,10 @@ if df_holdings_raw is not None:
             data = fetch_score_data(symbol)
             if i == 0:
                 st.write(f"DEBUG — first ticker {symbol} data:", data)
-            scores[symbol] = score_stock(data, active_weights) if data else None
+            if data and "error" not in data:
+                scores[symbol] = score_stock(data, active_weights)
+            else:
+                scores[symbol] = None
             time.sleep(0.15)
 
         st.session_state.holding_scores = scores
