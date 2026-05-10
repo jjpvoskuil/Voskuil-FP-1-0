@@ -89,8 +89,8 @@ def fetch_score_data(ticker: str) -> dict | None:
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
         }
-    except Exception:
-        return None
+    except Exception as e:
+        return {"error": str(e)}
 
 # ─────────────────────────────────────────────
 # SCORING CONFIG
@@ -414,7 +414,10 @@ if df_holdings_raw is not None:
             data = fetch_score_data(symbol)
             if i == 0:
                 st.write(f"DEBUG {symbol}:", data)
-            scores[symbol] = score_stock(data, active_weights) if data else None
+            if data and "error" not in data:
+                scores[symbol] = score_stock(data, active_weights)
+            else:
+                scores[symbol] = None
             time.sleep(0.05)
 
         st.session_state.holding_scores = scores
