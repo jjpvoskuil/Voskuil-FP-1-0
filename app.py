@@ -40,55 +40,18 @@ def fmp_get(endpoint: str, params: dict = {}) -> list | dict | None:
 def fetch_score_data(ticker: str) -> dict | None:
     try:
         quote_data  = fmp_get(f"profile/{ticker}")
+        st.write(f"DEBUG quote_data for {ticker}:", quote_data)
         quote       = quote_data[0] if quote_data else {}
         income_data = fmp_get(f"income-statement/{ticker}", {"limit": 1})
-        income      = income_data[0] if income_data else {}
+        st.write(f"DEBUG income_data for {ticker}:", income_data)
         cf_data     = fmp_get(f"cash-flow-statement/{ticker}", {"limit": 1})
-        cf          = cf_data[0] if cf_data else {}
-        bs_data     = fmp_get(f"balance-sheet-statement/{ticker}", {"limit": 1})
-        bs          = bs_data[0] if bs_data else {}
+        st.write(f"DEBUG cf_data for {ticker}:", cf_data)
 
-        if not quote or not income or not cf:
+        if not quote_data or not income_data or not cf_data:
+            st.write("DEBUG: returning None because one of the above is empty")
             return None
 
-        market_cap = quote.get('mktCap')
-        price      = quote.get('price')
-        op_cf      = cf.get('operatingCashFlow')
-        capex      = cf.get('capitalExpenditure', 0)
-        fcf        = (op_cf + capex) if op_cf is not None else None
-
-        if not fcf or fcf <= 0:
-            return None
-
-        fcf_yield    = fcf / market_cap if (market_cap and market_cap > 0) else None
-        net_income   = income.get('netIncome')
-        total_assets = bs.get('totalAssets')
-        current_liab = bs.get('totalCurrentLiabilities')
-        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-        total_debt   = bs.get('totalDebt')
-        debt_to_fcf  = (total_debt / fcf) if total_debt is not None else None
-        ebit             = (income.get('ebitda', 0) or 0) - (cf.get('depreciationAndAmortization', 0) or 0)
-        interest_expense = abs(income.get('interestExpense', 0) or 0)
-        interest_coverage= (ebit / interest_expense) if (ebit and interest_expense != 0) else None
-        gross_margin = income.get('grossProfitRatio')
-        dna          = cf.get('depreciationAndAmortization', 0) or 0
-        capex_abs    = abs(capex) if capex else 0
-        owner_earn   = (net_income + dna - capex_abs) if net_income is not None else None
-        shares       = quote.get('sharesOutstanding')
-        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        div          = quote.get('lastDiv')
-        div_yield    = (div / price) if (div and price and price > 0) else None
-
-        return {
-            "fcf_yield":         fcf_yield,
-            "roic":              roic,
-            "debt_to_fcf":       debt_to_fcf,
-            "interest_coverage": interest_coverage,
-            "gross_margin":      gross_margin,
-            "price_owner_earn":  poe,
-            "dividend_yield":    div_yield,
-        }
+        return {"test": "data_reached"}
     except Exception as e:
         return {"error": str(e)}
 
