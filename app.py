@@ -35,6 +35,9 @@ def fmp_get(endpoint: str, params: dict = {}) -> list | dict | None:
         return None
     except Exception:
         return None
+# TEMPORARY API TEST - remove after debugging
+test_response = fmp_get("profile/AAPL")
+st.write("FMP API test:", test_response)
 
 
 def fetch_score_data(ticker: str) -> dict | None:
