@@ -206,23 +206,22 @@ def score_to_label(score):
 # S&P 500 TICKER LIST
 # ─────────────────────────────────────────────
 @st.cache_data(ttl=86400)
-@st.cache_data(ttl=86400)
 def get_sp500_tickers():
     try:
+        from io import StringIO
         headers = {"User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0)"}
         response = requests.get(
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
             headers=headers,
             timeout=10
         )
-        tables = pd.read_html(response.text)
+        tables = pd.read_html(StringIO(response.text))
         df = tables[0]
         tickers = df['Symbol'].str.replace('.', '-', regex=False).tolist()
         return tickers
     except Exception as e:
         st.error(f"Could not fetch S&P 500 list: {e}")
         return []
-
 
 # ─────────────────────────────────────────────
 # UI
