@@ -8,8 +8,8 @@ import time
 # ─────────────────────────────────────────────
 st.set_page_config(page_title="Market Screener | Voskuil FP", layout="wide")
 
-APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
-BASE_URL = "https://financialmodelingprep.com/api/v3"
+APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
+AV_URL  = "https://www.alphavantage.co/query"
 
 # ─────────────────────────────────────────────
 # DEFAULT WEIGHTS & THRESHOLDS
@@ -39,80 +39,101 @@ THRESHOLDS = {
 }
 
 # ─────────────────────────────────────────────
-# FMP FETCHER
+# ALPHA VANTAGE FETCHER
 # ─────────────────────────────────────────────
-def fmp_get(endpoint: str, params: dict = {}) -> list | dict | None:
+def safe_float(val):
     try:
-        key      = st.secrets["FMP_API_KEY"]
-        url      = f"{BASE_URL}/{endpoint}"
-        params   = {**params, "apikey": key}
-        response = requests.get(url, params=params, timeout=10)
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def av_get_overview(ticker):
+    try:
+        key = st.secrets["ALPHA_VANTAGE_KEY"]
+        params = {"function": "OVERVIEW", "symbol": ticker, "apikey": key}
+        response = requests.get(AV_URL, params=params, timeout=10)
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            if "Symbol" in data:
+                return data
         return None
     except Exception:
         return None
 
 
-@st.cache_data(ttl=86400)
-def get_sp500_tickers() -> list[str]:
+def av_get_cashflow(ticker):
     try:
-        table   = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
-        df      = table[0]
-        tickers = df['Symbol'].str.replace('.', '-', regex=False).tolist()
-        return tickers
-    except Exception as e:
-        st.error(f"Could not fetch S&P 500 list: {e}")
-        return []
+        key = st.secrets["ALPHA_VANTAGE_KEY"]
+        params = {"function": "CASH_FLOW", "symbol": ticker, "apikey": key}
+        response = requests.get(AV_URL, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            reports = data.get("annualReports", [])
+            if reports:
+                return reports[0]
+        return None
+    except Exception:
+        return None
 
 
-def fetch_score_data(ticker: str) -> dict | None:
+def fetch_score_data(ticker):
     try:
-        quote_data  = fmp_get(f"profile/{ticker}")
-        quote       = quote_data[0] if quote_data else {}
-        income_data = fmp_get(f"income-statement/{ticker}", {"limit": 1})
-        income      = income_data[0] if income_data else {}
-        cf_data     = fmp_get(f"cash-flow-statement/{ticker}", {"limit": 1})
-        cf          = cf_data[0] if cf_data else {}
-        bs_data     = fmp_get(f"balance-sheet-statement/{ticker}", {"limit": 1})
-        bs          = bs_data[0] if bs_data else {}
-
-        if not quote or not income or not cf:
+        overview = av_get_overview(ticker)
+        if not overview:
             return None
 
-        market_cap = quote.get('mktCap')
-        price      = quote.get('price')
-        op_cf      = cf.get('operatingCashFlow')
-        capex      = cf.get('capitalExpenditure', 0)
-        fcf        = (op_cf + capex) if op_cf is not None else None
+        time.sleep(12)
+        cf = av_get_cashflow(ticker)
+
+        market_cap   = safe_float(overview.get("MarketCapitalization"))
+        price        = safe_float(overview.get("50DayMovingAverage"))
+        gross_profit = safe_float(overview.get("GrossProfitTTM"))
+        revenue      = safe_float(overview.get("RevenueTTM"))
+        gross_margin = (gross_profit / revenue) if (gross_profit and revenue and revenue > 0) else None
+        roic         = safe_float(overview.get("ReturnOnEquityTTM"))
+        ebitda       = safe_float(overview.get("EBITDA"))
+        total_debt   = safe_float(overview.get("TotalDebt")) or safe_float(overview.get("LongTermDebtNoncurrent"))
+        div_yield    = safe_float(overview.get("DividendYield"))
+        shares       = safe_float(overview.get("SharesOutstanding"))
+
+        fcf = None
+        fcf_yield = None
+        debt_to_fcf = None
+        interest_coverage = None
+        poe = None
+
+        if cf:
+            op_cf   = safe_float(cf.get("operatingCashflow"))
+            capex   = safe_float(cf.get("capitalExpenditures"))
+            net_inc = safe_float(cf.get("netIncome"))
+            dna     = safe_float(cf.get("depreciationDepletionAndAmortization"))
+            int_exp = safe_float(cf.get("interestExpense")) or safe_float(cf.get("paymentsForInterest"))
+
+            if op_cf is not None and capex is not None:
+                fcf = op_cf - capex
+
+            if fcf and market_cap and market_cap > 0:
+                fcf_yield = fcf / market_cap
+
+            if fcf and total_debt and fcf > 0:
+                debt_to_fcf = total_debt / fcf
+
+            if ebitda and int_exp and int_exp > 0:
+                interest_coverage = ebitda / int_exp
+
+            if net_inc is not None and dna is not None and capex is not None:
+                owner_earn = net_inc + dna - capex
+                if owner_earn > 0 and shares and price:
+                    poe = price / (owner_earn / shares)
 
         if not fcf or fcf <= 0:
             return None
 
-        fcf_yield    = fcf / market_cap if (market_cap and market_cap > 0) else None
-        net_income   = income.get('netIncome')
-        total_assets = bs.get('totalAssets')
-        current_liab = bs.get('totalCurrentLiabilities')
-        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-        total_debt   = bs.get('totalDebt')
-        debt_to_fcf  = (total_debt / fcf) if total_debt is not None else None
-        ebit             = (income.get('ebitda', 0) or 0) - (cf.get('depreciationAndAmortization', 0) or 0)
-        interest_expense = abs(income.get('interestExpense', 0) or 0)
-        interest_coverage= (ebit / interest_expense) if (ebit and interest_expense != 0) else None
-        gross_margin = income.get('grossProfitRatio')
-        dna          = cf.get('depreciationAndAmortization', 0) or 0
-        capex_abs    = abs(capex) if capex else 0
-        owner_earn   = (net_income + dna - capex_abs) if net_income is not None else None
-        shares       = quote.get('sharesOutstanding')
-        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        div          = quote.get('lastDiv')
-        div_yield    = (div / price) if (div and price and price > 0) else None
-
         return {
             "ticker":            ticker,
-            "name":              quote.get('companyName', ticker),
-            "sector":            quote.get('sector', 'N/A'),
+            "name":              overview.get("Name", ticker),
+            "sector":            overview.get("Sector", "N/A"),
             "price":             price,
             "market_cap":        market_cap,
             "fcf_yield":         fcf_yield,
@@ -123,6 +144,7 @@ def fetch_score_data(ticker: str) -> dict | None:
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
         }
+
     except Exception:
         return None
 
@@ -130,7 +152,7 @@ def fetch_score_data(ticker: str) -> dict | None:
 # ─────────────────────────────────────────────
 # SCORING ENGINE
 # ─────────────────────────────────────────────
-def score_stock(data: dict, weights: dict) -> int:
+def score_stock(data, weights):
     pts = 0
 
     fcf_yield = data.get('fcf_yield')
@@ -173,7 +195,7 @@ def score_stock(data: dict, weights: dict) -> int:
     return pts
 
 
-def score_to_label(score: int) -> tuple[str, str]:
+def score_to_label(score):
     if score >= 80:   return "Strong Buy", "🟢"
     elif score >= 65: return "Watch",      "🟡"
     elif score >= 45: return "Caution",    "🟠"
@@ -181,17 +203,31 @@ def score_to_label(score: int) -> tuple[str, str]:
 
 
 # ─────────────────────────────────────────────
+# S&P 500 TICKER LIST
+# ─────────────────────────────────────────────
+@st.cache_data(ttl=86400)
+def get_sp500_tickers():
+    try:
+        table   = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+        df      = table[0]
+        tickers = df['Symbol'].str.replace('.', '-', regex=False).tolist()
+        return tickers
+    except Exception as e:
+        st.error(f"Could not fetch S&P 500 list: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────
 st.title("📡 Market Screener")
-st.caption("Scans the S&P 500 through the Voskuil Owner's Framework. Surfaces the top concentrated opportunities.")
+st.caption("Scans the S&P 500 through the Voskuil Owner's Framework.")
 
-st.info(
-    "**How this works:** The screener fetches fundamentals for each S&P 500 company via FMP, "
-    "scores them using the same 6-metric engine as Equity Scout, and returns the top results. "
-    "Stocks with negative Free Cash Flow are automatically eliminated. "
-    "⚠️ Note: The free FMP tier allows 250 calls/day. Each stock uses ~4 calls, so scanning "
-    "~60 stocks uses your full daily quota. Use the sector filter to focus your scan."
+st.warning(
+    "⚠️ **Alpha Vantage Free Tier Limits:** 25 API calls/day, 5 calls/minute. "
+    "Each stock uses 2 calls with a 12-second pause between them. "
+    "**Max recommended scan: 10-12 stocks per day** to leave calls for Equity Scout. "
+    "Use sector filters to focus on your highest-conviction areas."
 )
 
 st.divider()
@@ -225,9 +261,9 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
 # Screener controls
 col1, col2, col3 = st.columns(3)
 with col1:
-    top_n = st.number_input("How many top results?", min_value=5, max_value=50, value=15, step=5)
+    top_n = st.number_input("Top results to show", min_value=5, max_value=50, value=10, step=5)
 with col2:
-    sector_filter = st.selectbox("Filter by sector (optional)", [
+    sector_filter = st.selectbox("Filter by sector", [
         "All Sectors", "Technology", "Healthcare", "Financials",
         "Consumer Staples", "Consumer Discretionary", "Industrials",
         "Energy", "Utilities", "Real Estate", "Materials", "Communication Services"
@@ -235,8 +271,8 @@ with col2:
 with col3:
     max_scan = st.number_input(
         "Max stocks to scan",
-        min_value=10, max_value=500, value=60, step=10,
-        help="Keep under 60 on the free FMP tier to stay within daily API limits."
+        min_value=5, max_value=500, value=10, step=5,
+        help="Keep at 10-12 on the free Alpha Vantage tier."
     )
     min_div = st.checkbox("Dividend payers only", value=False)
 
@@ -257,11 +293,11 @@ if run_screen:
         st.error("Could not load S&P 500 ticker list.")
         st.stop()
 
-    # Limit scan to max_scan
     tickers_to_scan = tickers[:max_scan]
     total_tickers   = len(tickers_to_scan)
 
     st.markdown(f"### Scanning {total_tickers} companies...")
+    st.caption("Each stock takes ~25 seconds due to API rate limiting. Please be patient.")
     progress_bar = st.progress(0)
     status_text  = st.empty()
     results      = []
@@ -288,8 +324,6 @@ if run_screen:
         data['score'] = score
         results.append(data)
 
-        time.sleep(0.1)
-
     progress_bar.progress(1.0)
     status_text.markdown(f"✅ Scan complete — {len(results)} companies passed the FCF filter.")
 
@@ -302,15 +336,12 @@ if run_screen:
 
     st.divider()
     st.markdown(f"## 🏆 Top {min(top_n, len(results_df))} Concentrated Opportunities")
-    st.caption("Ranked by Voskuil Owner's Framework score. Click Deep Dive to open full analysis.")
 
     def fmt(val, fmt_type):
         if val is None or (isinstance(val, float) and pd.isna(val)):
             return "N/A"
         if fmt_type == "pct":   return f"{val:.1%}"
         if fmt_type == "ratio": return f"{val:.1f}x"
-        if fmt_type == "price": return f"${val:,.2f}"
-        if fmt_type == "mcap":  return f"${val/1e9:.1f}B"
         return str(val)
 
     for rank, row in results_df.iterrows():
@@ -351,10 +382,10 @@ if run_screen:
     # Summary
     st.markdown("### 📊 Screen Summary")
     s1, s2, s3, s4 = st.columns(4)
-    with s1: st.metric("Companies Scanned",    total_tickers)
-    with s2: st.metric("Passed FCF Filter",    len(results))
-    with s3: st.metric("Avg Score (Top List)", f"{results_df['score'].mean():.0f}")
-    with s4: st.metric("Strong Buys (80+)",    len(results_df[results_df['score'] >= 80]))
+    with s1: st.metric("Scanned",           total_tickers)
+    with s2: st.metric("Passed FCF Filter", len(results))
+    with s3: st.metric("Avg Score",         f"{results_df['score'].mean():.0f}")
+    with s4: st.metric("Strong Buys (80+)", len(results_df[results_df['score'] >= 80]))
 
     # Export
     st.markdown("### 💾 Export Results")
@@ -372,34 +403,28 @@ if run_screen:
     ]
     csv = export_df.to_csv(index=False)
     st.download_button(
-        label="⬇️ Download Top Results as CSV",
+        label="⬇️ Download Results as CSV",
         data=csv,
         file_name="voskuil_screen_results.csv",
         mime="text/csv"
     )
-    st.caption("💡 Take the top tickers into Equity Scout for the full deep-dive report.")
 
 else:
     st.markdown("""
     ### What this screener does
 
-    1. **Loads S&P 500 companies** from a live Wikipedia table
+    1. **Loads S&P 500 companies** from Wikipedia
     2. **Eliminates** companies with negative Free Cash Flow
-    3. **Scores** every remaining company on the 6-metric Owner's Framework
+    3. **Scores** remaining companies on the 6-metric Owner's Framework
     4. **Returns top results** ranked by conviction score
 
     ### ⚠️ Free tier API limits
-    The free FMP plan allows **250 API calls/day**. Each stock requires ~4 calls.
-    Use the **Max stocks to scan** control to stay within limits — 60 stocks = ~240 calls.
-    Upgrade to FMP paid tier for full S&P 500 scans.
-
-    ### Filters
-    - **Sector** — focus on industries you know well
-    - **Dividend payers only** — useful if income is your priority
-    - **Max stocks to scan** — controls API usage
+    Alpha Vantage free tier: **25 calls/day, 5 calls/minute**.
+    Each stock = 2 calls + 12 second pause.
+    **Recommended: scan 10-12 stocks per session** and use sector filters to focus.
 
     ---
     **Score guide:** 🟢 80+ Strong Buy · 🟡 65-79 Watch · 🟠 45-64 Caution · 🔴 <45 Avoid
 
-    *Data sourced from Financial Modeling Prep (FMP).*
+    *Data sourced from Alpha Vantage.*
     """)
