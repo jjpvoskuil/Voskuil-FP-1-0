@@ -56,12 +56,16 @@ def fmp_get(endpoint, params={}):
         url = f"{BASE_URL}/{endpoint}"
         all_params = {**params, "apikey": key}
         response = requests.get(url, params=all_params, timeout=10)
+        if endpoint.startswith("profile/GOOGL"):
+            st.write(f"DEBUG status: {response.status_code}")
+            st.write(f"DEBUG response: {response.text[:500]}")
         if response.status_code == 200:
             data = response.json()
             return data
         else:
             return None
     except Exception as e:
+        st.write(f"DEBUG exception: {e}")
         return None
 
 
