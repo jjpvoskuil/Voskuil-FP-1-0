@@ -412,6 +412,8 @@ if df_holdings_raw is not None:
             progress_bar.progress(pct)
             status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
             data = fetch_score_data(symbol)
+            if i == 0:
+                st.write(f"DEBUG {symbol}:", data)
             scores[symbol] = score_stock(data, active_weights) if data else None
             time.sleep(0.05)
 
