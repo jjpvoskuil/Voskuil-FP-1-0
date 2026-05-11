@@ -123,7 +123,7 @@ def fetch_fundamentals(ticker):
         invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
         roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
 
-        long_term_debt = fval(bs, "long_term_debt")
+        long_term_debt = fval(bs, "long_term_debt") or fval(bs, "noncurrent_liabilities")
         debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf and fcf > 0) else None
 
         interest_cov, is_net_creditor = calc_interest_coverage(inc)
