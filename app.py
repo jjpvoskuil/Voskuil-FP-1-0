@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import requests
+import sys
+import os
 import time
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
@@ -55,36 +57,76 @@ def safe_float(val):
     except (TypeError, ValueError):
         return None
 
+def fval(obj, key):
+    try:
+        return float(obj[key]["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
 def fetch_score_data(ticker):
     try:
-        ratios_data = poly_get("/stocks/fundamentals/ratios", {
-            "ticker": ticker, "limit": 1, "timeframe": "annual"
+        # Ticker details for market cap and shares
+        det_data = poly_get(f"/v3/reference/tickers/{ticker}")
+        det = det_data.get("results", {}) if det_data else {}
+        market_cap = safe_float(det.get("market_cap"))
+
+        # Price
+        price_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev")
+        price = None
+        try:
+            price = float(price_data["results"][0]["c"])
+        except (KeyError, TypeError, IndexError):
+            pass
+
+        # Financials
+        fin_data = poly_get("/vX/reference/financials", {
+            "ticker": ticker, "timeframe": "annual", "limit": 1,
+            "order": "desc", "sort": "period_of_report_date",
         })
-        if not ratios_data or not ratios_data.get("results"):
+        if not fin_data or not fin_data.get("results"):
             return None
-        r = ratios_data["results"][0]
-        fcf = safe_float(r.get("free_cash_flow"))
-        if fcf is not None and fcf <= 0:
+
+        f   = fin_data["results"][0]["financials"]
+        inc = f.get("income_statement",    {})
+        cf  = f.get("cash_flow_statement", {})
+        bs  = f.get("balance_sheet",       {})
+
+        op_cf  = fval(cf, "net_cash_flow_from_operating_activities")
+        inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
+        fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
+
+        if fcf is None or fcf <= 0:
             return None
-        fcf_yield    = safe_float(r.get("free_cash_flow_yield"))
-        gross_margin = safe_float(r.get("gross_profit_margin"))
-        roic         = safe_float(r.get("return_on_invested_capital")) or safe_float(r.get("return_on_equity"))
-        interest_cov = safe_float(r.get("interest_coverage_ratio"))
-        div_yield    = safe_float(r.get("dividend_yield"))
-        price_to_fcf = safe_float(r.get("price_to_free_cash_flow_ratio"))
-        bs_data = poly_get("/stocks/fundamentals/balance-sheets", {
-            "ticker": ticker, "limit": 1, "timeframe": "annual", "order": "desc"
-        })
-        bs = bs_data["results"][0] if (bs_data and bs_data.get("results")) else {}
-        total_debt  = safe_float(bs.get("total_debt")) or safe_float(r.get("total_debt"))
-        debt_to_fcf = (total_debt / fcf) if (total_debt and fcf and fcf > 0) else None
+
+        fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
+        gross_profit = fval(inc, "gross_profit")
+        revenues     = fval(inc, "revenues")
+        gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
+        net_income   = fval(inc, "net_income_loss")
+        total_assets = fval(bs,  "assets")
+        current_liab = fval(bs,  "current_liabilities")
+        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+        noncurrent_liab = fval(bs, "noncurrent_liabilities")
+        debt_to_fcf  = (noncurrent_liab / fcf) if (noncurrent_liab and fcf > 0) else None
+        op_income    = fval(inc, "operating_income_loss")
+        interest_exp = fval(inc, "interest_expense_operating")
+        interest_cov = (op_income / interest_exp) if (op_income and interest_exp and interest_exp > 0) else None
+        shares       = safe_float(det.get("weighted_shares_outstanding"))
+        dna_proxy    = (op_cf - net_income) if (op_cf and net_income) else None
+        capex_abs    = abs(inv_cf) if inv_cf else 0
+        owner_earn   = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+        div_ps       = fval(inc, "common_stock_dividends")
+        div_yield    = (div_ps / price) if (div_ps and price and price > 0) else None
+
         return {
             "fcf_yield":         fcf_yield,
             "roic":              roic,
             "debt_to_fcf":       debt_to_fcf,
             "interest_coverage": interest_cov,
             "gross_margin":      gross_margin,
-            "price_owner_earn":  price_to_fcf,
+            "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
         }
     except Exception:
@@ -171,15 +213,10 @@ df_holdings_raw = None
 df_holdings_raw = get_clean_df(HOLDINGS_FILE, "Account Number")
 if df_holdings_raw is not None:
     df_holdings_raw.columns = [c.strip() for c in df_holdings_raw.columns]
-    df_holdings_raw = df_holdings_raw[
-        ~df_holdings_raw.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)
-    ]
+    df_holdings_raw = df_holdings_raw[~df_holdings_raw.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     for col in ['Market Value ($)', 'Est. Annual Income ($)']:
         if col in df_holdings_raw.columns:
-            df_holdings_raw[col] = pd.to_numeric(
-                df_holdings_raw[col].astype(str).str.replace(',', '').str.replace('"', ''),
-                errors='coerce'
-            )
+            df_holdings_raw[col] = pd.to_numeric(df_holdings_raw[col].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     total_val = df_holdings_raw['Market Value ($)'].sum()
     total_income = df_holdings_raw['Est. Annual Income ($)'].sum()
     product_mix = df_holdings_raw.groupby('Product Type')['Market Value ($)'].sum().reset_index()
@@ -192,9 +229,7 @@ df_tax = get_clean_df(TAX_FILE, "Account Number")
 if df_tax is not None:
     df_tax.columns = [c.strip() for c in df_tax.columns]
     df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
-    df_tax_clean['Numeric Gain'] = pd.to_numeric(
-        df_tax_clean.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce'
-    )
+    df_tax_clean['Numeric Gain'] = pd.to_numeric(df_tax_clean.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     ira_mask = df_tax_clean.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
     ira_gain_total = df_tax_clean[ira_mask]['Numeric Gain'].sum()
     taxable_gain_total = df_tax_clean[~ira_mask]['Numeric Gain'].sum()
@@ -202,9 +237,7 @@ if df_tax is not None:
 df_trans = get_clean_df(TRANS_FILE, "Activity Date")
 if df_trans is not None:
     df_trans.columns = [c.strip() for c in df_trans.columns]
-    df_trans['Amount($)'] = pd.to_numeric(
-        df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce'
-    )
+    df_trans['Amount($)'] = pd.to_numeric(df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest  = df_trans[df_trans['Activity'].str.contains('Interest',  na=False, case=False)]['Amount($)'].sum()
 
@@ -214,15 +247,13 @@ with col2: st.metric("Taxable G/L (YTD)",  f"${taxable_gain_total:,.2f}", help="
 with col3: st.metric("IRA G/L (YTD)",      f"${ira_gain_total:,.2f}",     help="Tax-deferred growth in IRA buckets.")
 with col4: st.metric("YTD Dividends",      f"${ytd_dividends:,.2f}")
 with col5: st.metric("YTD Interest",       f"${ytd_interest:,.2f}")
-
 st.divider()
 
 st.subheader("Institutional Asset Allocation")
 c1, c2, c3 = st.columns([3, 4, 5])
 with c1:
     if not product_mix.empty:
-        fig = px.pie(product_mix, values='Market Value ($)', names='Product Type', hole=0.4,
-                     color='Product Type',
+        fig = px.pie(product_mix, values='Market Value ($)', names='Product Type', hole=0.4, color='Product Type',
                      color_discrete_map=dict(zip(product_mix['Product Type'], product_mix['color'])))
         fig.update_traces(textinfo='percent', textposition='inside')
         fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=300)
@@ -235,7 +266,6 @@ with c3:
     st.markdown("**Value ($)**")
     for _, row in product_mix.iterrows():
         st.markdown(f"<span style='color:{row['color']};'>●</span> ${row['Market Value ($)']:,.0f}", unsafe_allow_html=True)
-
 st.divider()
 
 st.subheader("Retirement Cash Flow Monitor")
@@ -243,7 +273,6 @@ total_ytd_cash = ytd_dividends + ytd_interest
 st.write(f"Passive Cash Flow YTD: **${total_ytd_cash:,.2f}**")
 st.progress(min(total_ytd_cash / 96000.0, 1.0))
 st.info("Targeting progress toward your **$37,386 income gap** toward legacy preservation.")
-
 st.divider()
 
 st.header("📋 Holdings Explorer")
@@ -332,7 +361,7 @@ if df_holdings_raw is not None:
             status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
             data = fetch_score_data(symbol)
             scores[symbol] = score_stock(data, active_weights) if data is not None else None
-            time.sleep(0.2)
+            time.sleep(0.1)
         st.session_state.holding_scores = scores
         progress_bar.progress(1.0)
         scored_ok = len([s for s in scores.values() if s is not None])
@@ -348,8 +377,8 @@ if df_holdings_raw is not None:
     display_df['Verdict'] = display_df['Score'].apply(
         lambda s: ("🟢 Strong Buy" if s >= 80 else "🟡 Watch" if s >= 65 else "🟠 Caution" if s >= 45 else "🔴 Avoid") if s is not None else "—"
     )
-    display_df['Accounts']   = display_df['Account_Count'].apply(lambda n: f"{n} account{'s' if n > 1 else ''}")
-    display_df['Deep Dive']  = display_df['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
+    display_df['Accounts']  = display_df['Account_Count'].apply(lambda n: f"{n} account{'s' if n > 1 else ''}")
+    display_df['Deep Dive'] = display_df['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
 
     table_df = display_df[['Symbol','Name','Product_Type','Total_Value','Accounts','Score','Verdict','SEC Filings','Market Data','Deep Dive']].copy()
     table_df.columns = ['Symbol','Name','Product Type','Total Value ($)','Accounts','Score','Verdict','SEC Filings','Market Data','Deep Dive']
