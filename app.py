@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import requests
-import sys
-import os
 import time
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
@@ -16,12 +14,12 @@ APP_URL       = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 POLY_URL      = "https://api.polygon.io"
 
 DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
+    "FCF Yield":              20,
     "ROIC":                   10,
     "Debt / FCF":             20,
     "Gross Margin":           15,
     "Interest Coverage":      10,
-    "Price / Owner Earnings": 15,
+    "Price / Owner Earnings": 25,
 }
 
 THRESHOLDS = {
@@ -63,14 +61,31 @@ def fval(obj, key):
     except (KeyError, TypeError, ValueError):
         return None
 
+def calc_interest_coverage(inc, cf):
+    """
+    Returns (interest_coverage, is_net_creditor).
+    If no interest expense but positive nonoperating income = net creditor = infinite coverage.
+    """
+    op_income    = fval(inc, "operating_income_loss")
+    interest_exp = fval(inc, "interest_expense_operating")
+
+    if interest_exp and interest_exp > 0 and op_income is not None:
+        return op_income / interest_exp, False
+
+    # No interest expense — check if net creditor
+    nonop = fval(inc, "nonoperating_income_loss")
+    if nonop is not None and nonop > 0:
+        return None, True   # Net creditor — score full points
+
+    return None, False
+
 def fetch_score_data(ticker):
     try:
-        # Ticker details for market cap and shares
         det_data = poly_get(f"/v3/reference/tickers/{ticker}")
         det = det_data.get("results", {}) if det_data else {}
         market_cap = safe_float(det.get("market_cap"))
+        shares     = safe_float(det.get("weighted_shares_outstanding"))
 
-        # Price
         price_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev")
         price = None
         try:
@@ -78,7 +93,6 @@ def fetch_score_data(ticker):
         except (KeyError, TypeError, IndexError):
             pass
 
-        # Financials
         fin_data = poly_get("/vX/reference/financials", {
             "ticker": ticker, "timeframe": "annual", "limit": 1,
             "order": "desc", "sort": "period_of_report_date",
@@ -107,24 +121,26 @@ def fetch_score_data(ticker):
         current_liab = fval(bs,  "current_liabilities")
         invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
         roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-        noncurrent_liab = fval(bs, "noncurrent_liabilities")
-        debt_to_fcf  = (noncurrent_liab / fcf) if (noncurrent_liab and fcf > 0) else None
-        op_income    = fval(inc, "operating_income_loss")
-        interest_exp = fval(inc, "interest_expense_operating")
-        interest_cov = (op_income / interest_exp) if (op_income and interest_exp and interest_exp > 0) else None
-        shares       = safe_float(det.get("weighted_shares_outstanding"))
-        dna_proxy    = (op_cf - net_income) if (op_cf and net_income) else None
-        capex_abs    = abs(inv_cf) if inv_cf else 0
-        owner_earn   = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
-        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        div_ps       = fval(inc, "common_stock_dividends")
-        div_yield    = (div_ps / price) if (div_ps and price and price > 0) else None
+
+        # Use long_term_debt directly — more accurate than noncurrent_liabilities
+        long_term_debt = fval(bs, "long_term_debt")
+        debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
+
+        interest_cov, is_net_creditor = calc_interest_coverage(inc, cf)
+
+        dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
+        capex_abs  = abs(inv_cf) if inv_cf else 0
+        owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+        poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+        div_ps     = fval(inc, "common_stock_dividends")
+        div_yield  = (div_ps / price) if (div_ps and price and price > 0) else None
 
         return {
             "fcf_yield":         fcf_yield,
             "roic":              roic,
             "debt_to_fcf":       debt_to_fcf,
             "interest_coverage": interest_cov,
+            "is_net_creditor":   is_net_creditor,
             "gross_margin":      gross_margin,
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
@@ -134,37 +150,48 @@ def fetch_score_data(ticker):
 
 def score_stock(data, weights):
     pts = 0
+
     fcf_yield = data.get('fcf_yield')
     if fcf_yield:
         if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts += weights["FCF Yield"]
         elif fcf_yield >= THRESHOLDS['fcf_yield_good']:  pts += round(weights["FCF Yield"] * 0.60)
         elif fcf_yield > 0:                              pts += round(weights["FCF Yield"] * 0.15)
+
     roic = data.get('roic')
     if roic:
         if roic >= THRESHOLDS['roic_great']:   pts += weights["ROIC"]
         elif roic >= THRESHOLDS['roic_good']:  pts += round(weights["ROIC"] * 0.60)
         elif roic > 0:                         pts += round(weights["ROIC"] * 0.20)
+
     debt_fcf = data.get('debt_to_fcf')
     ic = data.get('interest_coverage') or 0
+    is_nc = data.get('is_net_creditor', False)
     if debt_fcf is not None:
         if debt_fcf < THRESHOLDS['debt_fcf_safe']:       pts += weights["Debt / FCF"]
         elif debt_fcf < THRESHOLDS['debt_fcf_warning']:  pts += round(weights["Debt / FCF"] * 0.50)
-        elif ic >= THRESHOLDS['interest_coverage_safe']: pts += round(weights["Debt / FCF"] * 0.50)
+        elif ic >= THRESHOLDS['interest_coverage_safe'] or is_nc:
+                                                         pts += round(weights["Debt / FCF"] * 0.50)
+
     gm = data.get('gross_margin')
     if gm:
         if gm >= THRESHOLDS['gross_margin_great']:   pts += weights["Gross Margin"]
         elif gm >= THRESHOLDS['gross_margin_good']:  pts += round(weights["Gross Margin"] * 0.67)
         else:                                        pts += round(weights["Gross Margin"] * 0.20)
+
     ic_val = data.get('interest_coverage')
-    if ic_val:
+    if is_nc:
+        pts += weights["Interest Coverage"]   # Net creditor = full points
+    elif ic_val:
         if ic_val >= THRESHOLDS['interest_coverage_safe']: pts += weights["Interest Coverage"]
         elif ic_val >= 2.5:                                pts += round(weights["Interest Coverage"] * 0.50)
         elif ic_val > 0:                                   pts += round(weights["Interest Coverage"] * 0.15)
+
     poe = data.get('price_owner_earn')
     if poe:
         if poe <= THRESHOLDS['poe_bargain']:     pts += weights["Price / Owner Earnings"]
         elif poe <= THRESHOLDS['poe_fair']:      pts += round(weights["Price / Owner Earnings"] * 0.67)
         elif poe <= THRESHOLDS['poe_stretched']: pts += round(weights["Price / Owner Earnings"] * 0.25)
+
     return pts
 
 def score_to_badge(score):
@@ -321,7 +348,7 @@ if df_holdings_raw is not None:
         with w_col2:
             w_gm   = st.slider("Gross Margin",           0, 40, st.session_state.holding_weights["Gross Margin"],           step=5, key="w_gm")
             w_ic   = st.slider("Interest Coverage",      0, 40, st.session_state.holding_weights["Interest Coverage"],      step=5, key="w_ic")
-            w_poe  = st.slider("Price / Owner Earnings", 0, 40, st.session_state.holding_weights["Price / Owner Earnings"], step=5, key="w_poe")
+            w_poe  = st.slider("Price / Owner Earnings", 0, 60, st.session_state.holding_weights["Price / Owner Earnings"], step=5, key="w_poe")
         active_weights = {
             "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
             "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
