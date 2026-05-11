@@ -10,12 +10,12 @@ APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 POLY_URL = "https://api.polygon.io"
 
 DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
+    "FCF Yield":              20,
     "ROIC":                   10,
     "Debt / FCF":             20,
     "Gross Margin":           15,
     "Interest Coverage":      10,
-    "Price / Owner Earnings": 15,
+    "Price / Owner Earnings": 25,
 }
 
 THRESHOLDS = {
@@ -56,6 +56,16 @@ def fval(obj, key):
         return float(obj[key]["value"])
     except (KeyError, TypeError, ValueError):
         return None
+
+def calc_interest_coverage(inc):
+    op_income    = fval(inc, "operating_income_loss")
+    interest_exp = fval(inc, "interest_expense_operating")
+    if interest_exp and interest_exp > 0 and op_income is not None:
+        return op_income / interest_exp, False
+    nonop = fval(inc, "nonoperating_income_loss")
+    if nonop is not None and nonop > 0:
+        return None, True
+    return None, False
 
 @st.cache_data(ttl=86400)
 def get_sp500_tickers():
@@ -111,17 +121,15 @@ def fetch_score_data(ticker):
         current_liab = fval(bs,  "current_liabilities")
         invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
         roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-        noncurrent_liab = fval(bs, "noncurrent_liabilities")
-        debt_to_fcf  = (noncurrent_liab / fcf) if (noncurrent_liab and fcf > 0) else None
-        op_income    = fval(inc, "operating_income_loss")
-        interest_exp = fval(inc, "interest_expense_operating")
-        interest_cov = (op_income / interest_exp) if (op_income and interest_exp and interest_exp > 0) else None
-        dna_proxy    = (op_cf - net_income) if (op_cf and net_income) else None
-        capex_abs    = abs(inv_cf) if inv_cf else 0
-        owner_earn   = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
-        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        div_ps       = fval(inc, "common_stock_dividends")
-        div_yield    = (div_ps / price) if (div_ps and price and price > 0) else None
+        long_term_debt = fval(bs, "long_term_debt")
+        debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
+        interest_cov, is_net_creditor = calc_interest_coverage(inc)
+        dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
+        capex_abs  = abs(inv_cf) if inv_cf else 0
+        owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+        poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+        div_ps     = fval(inc, "common_stock_dividends")
+        div_yield  = (div_ps / price) if (div_ps and price and price > 0) else None
 
         return {
             "ticker":            ticker,
@@ -133,6 +141,7 @@ def fetch_score_data(ticker):
             "roic":              roic,
             "debt_to_fcf":       debt_to_fcf,
             "interest_coverage": interest_cov,
+            "is_net_creditor":   is_net_creditor,
             "gross_margin":      gross_margin,
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
@@ -154,17 +163,21 @@ def score_stock(data, weights):
         elif roic > 0:                         pts += round(weights["ROIC"] * 0.20)
     debt_fcf = data.get('debt_to_fcf')
     ic = data.get('interest_coverage') or 0
+    is_nc = data.get('is_net_creditor', False)
     if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS['debt_fcf_safe']:       pts += weights["Debt / FCF"]
-        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:  pts += round(weights["Debt / FCF"] * 0.50)
-        elif ic >= THRESHOLDS['interest_coverage_safe']: pts += round(weights["Debt / FCF"] * 0.50)
+        if debt_fcf < THRESHOLDS['debt_fcf_safe']:        pts += weights["Debt / FCF"]
+        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:   pts += round(weights["Debt / FCF"] * 0.50)
+        elif ic >= THRESHOLDS['interest_coverage_safe'] or is_nc:
+                                                          pts += round(weights["Debt / FCF"] * 0.50)
     gm = data.get('gross_margin')
     if gm:
         if gm >= THRESHOLDS['gross_margin_great']:   pts += weights["Gross Margin"]
         elif gm >= THRESHOLDS['gross_margin_good']:  pts += round(weights["Gross Margin"] * 0.67)
         else:                                        pts += round(weights["Gross Margin"] * 0.20)
     ic_val = data.get('interest_coverage')
-    if ic_val:
+    if is_nc:
+        pts += weights["Interest Coverage"]
+    elif ic_val:
         if ic_val >= THRESHOLDS['interest_coverage_safe']: pts += weights["Interest Coverage"]
         elif ic_val >= 2.5:                                pts += round(weights["Interest Coverage"] * 0.50)
         elif ic_val > 0:                                   pts += round(weights["Interest Coverage"] * 0.15)
@@ -183,7 +196,7 @@ def score_to_label(score):
 
 st.title("📡 Market Screener")
 st.caption("Scans the S&P 500 through the Voskuil Owner's Framework. Surfaces the top concentrated opportunities.")
-st.info("**How this works:** Fetches fundamentals from Polygon.io SEC filings data, scores each company on the 6-metric Owner's Framework, and surfaces the top results. Negative FCF companies are automatically eliminated.")
+st.info("**How this works:** Fetches fundamentals from Polygon.io SEC filings, scores each company on the 6-metric Owner's Framework, and surfaces the top results. Negative FCF companies are automatically eliminated.")
 st.divider()
 
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
@@ -196,7 +209,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     with w_col2:
         w_gm   = st.slider("Gross Margin",           0, 40, DEFAULT_WEIGHTS["Gross Margin"],           step=5)
         w_ic   = st.slider("Interest Coverage",      0, 40, DEFAULT_WEIGHTS["Interest Coverage"],      step=5)
-        w_poe  = st.slider("Price / Owner Earnings", 0, 40, DEFAULT_WEIGHTS["Price / Owner Earnings"], step=5)
+        w_poe  = st.slider("Price / Owner Earnings", 0, 60, DEFAULT_WEIGHTS["Price / Owner Earnings"], step=5)
     weights = {
         "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
         "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
@@ -234,7 +247,6 @@ if run_screen:
 
     tickers_to_scan = tickers[:max_scan]
     total_tickers   = len(tickers_to_scan)
-
     st.markdown(f"### Scanning {total_tickers} companies...")
     progress_bar = st.progress(0)
     status_text  = st.empty()
@@ -296,6 +308,8 @@ if run_screen:
             with c8: st.metric("P/OE",         fmt(row.get('price_owner_earn'),"ratio"))
             div = row.get('dividend_yield')
             if div: st.caption(f"💰 Dividend Yield: {div:.2%}")
+            ic_note = "Net Creditor" if row.get('is_net_creditor') else ""
+            if ic_note: st.caption(f"✨ {ic_note}")
             st.markdown(f"[🔍 Deep Dive in Equity Scout]({APP_URL}/equity_scout?ticker={row['ticker']}&auto=1)")
             st.divider()
 
@@ -323,10 +337,10 @@ else:
     3. **Scores** remaining companies on the 6-metric Owner's Framework
     4. **Returns top results** ranked by conviction score
 
-    ### Filters
-    - **Sector** — focus on industries you know well
-    - **Dividend payers only** — useful if income is your priority
-    - **Max stocks to scan** — start with 100, increase for broader coverage
+    ### What's new
+    - **Net Creditor detection** — companies that earn more interest than they pay score full points on Interest Coverage
+    - **Long-term debt** used instead of total noncurrent liabilities for more accurate Debt/FCF
+    - **Updated weights** — Price/Owner Earnings now 25 pts (was 15), FCF Yield 20 pts (was 30)
 
     ---
     **Score guide:** 🟢 80+ Strong Buy · 🟡 65-79 Watch · 🟠 45-64 Caution · 🔴 <45 Avoid
