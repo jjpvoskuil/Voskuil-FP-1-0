@@ -51,17 +51,19 @@ def safe_float(val):
     except (TypeError, ValueError):
         return None
 
+def fval(obj, key):
+    try:
+        return float(obj[key]["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
 @st.cache_data(ttl=86400)
 def get_sp500_tickers():
     try:
         headers  = {"User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0)"}
-        response = requests.get(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-            headers=headers, timeout=10
-        )
-        tables  = pd.read_html(StringIO(response.text))
-        df      = tables[0]
-        tickers = df['Symbol'].str.replace('.', '-', regex=False).tolist()
+        response = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=headers, timeout=10)
+        tables   = pd.read_html(StringIO(response.text))
+        tickers  = tables[0]['Symbol'].str.replace('.', '-', regex=False).tolist()
         return tickers
     except Exception as e:
         st.error(f"Could not fetch S&P 500 list: {e}")
@@ -69,35 +71,62 @@ def get_sp500_tickers():
 
 def fetch_score_data(ticker):
     try:
-        ratios_data = poly_get("/stocks/fundamentals/ratios", {
-            "ticker": ticker, "limit": 1, "timeframe": "annual"
+        det_data = poly_get(f"/v3/reference/tickers/{ticker}")
+        det = det_data.get("results", {}) if det_data else {}
+        market_cap = safe_float(det.get("market_cap"))
+        shares     = safe_float(det.get("weighted_shares_outstanding"))
+
+        price_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev")
+        price = None
+        try:
+            price = float(price_data["results"][0]["c"])
+        except (KeyError, TypeError, IndexError):
+            pass
+
+        fin_data = poly_get("/vX/reference/financials", {
+            "ticker": ticker, "timeframe": "annual", "limit": 1,
+            "order": "desc", "sort": "period_of_report_date",
         })
-        if not ratios_data or not ratios_data.get("results"):
+        if not fin_data or not fin_data.get("results"):
             return None
-        r   = ratios_data["results"][0]
-        fcf = safe_float(r.get("free_cash_flow"))
-        if fcf is not None and fcf <= 0:
+
+        f   = fin_data["results"][0]["financials"]
+        inc = f.get("income_statement",    {})
+        cf  = f.get("cash_flow_statement", {})
+        bs  = f.get("balance_sheet",       {})
+
+        op_cf  = fval(cf, "net_cash_flow_from_operating_activities")
+        inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
+        fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
+
+        if fcf is None or fcf <= 0:
             return None
-        fcf_yield    = safe_float(r.get("free_cash_flow_yield"))
-        gross_margin = safe_float(r.get("gross_profit_margin"))
-        roic         = safe_float(r.get("return_on_invested_capital")) or safe_float(r.get("return_on_equity"))
-        interest_cov = safe_float(r.get("interest_coverage_ratio"))
-        div_yield    = safe_float(r.get("dividend_yield"))
-        price_to_fcf = safe_float(r.get("price_to_free_cash_flow_ratio"))
-        market_cap   = safe_float(r.get("market_cap"))
-        price        = safe_float(r.get("price"))
-        bs_data = poly_get("/stocks/fundamentals/balance-sheets", {
-            "ticker": ticker, "limit": 1, "timeframe": "annual", "order": "desc"
-        })
-        bs = bs_data["results"][0] if (bs_data and bs_data.get("results")) else {}
-        total_debt  = safe_float(bs.get("total_debt")) or safe_float(r.get("total_debt"))
-        debt_to_fcf = (total_debt / fcf) if (total_debt and fcf and fcf > 0) else None
-        details_data = poly_get(f"/v3/reference/tickers/{ticker}")
-        d = details_data.get("results", {}) if details_data else {}
+
+        fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
+        gross_profit = fval(inc, "gross_profit")
+        revenues     = fval(inc, "revenues")
+        gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
+        net_income   = fval(inc, "net_income_loss")
+        total_assets = fval(bs,  "assets")
+        current_liab = fval(bs,  "current_liabilities")
+        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+        noncurrent_liab = fval(bs, "noncurrent_liabilities")
+        debt_to_fcf  = (noncurrent_liab / fcf) if (noncurrent_liab and fcf > 0) else None
+        op_income    = fval(inc, "operating_income_loss")
+        interest_exp = fval(inc, "interest_expense_operating")
+        interest_cov = (op_income / interest_exp) if (op_income and interest_exp and interest_exp > 0) else None
+        dna_proxy    = (op_cf - net_income) if (op_cf and net_income) else None
+        capex_abs    = abs(inv_cf) if inv_cf else 0
+        owner_earn   = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+        div_ps       = fval(inc, "common_stock_dividends")
+        div_yield    = (div_ps / price) if (div_ps and price and price > 0) else None
+
         return {
             "ticker":            ticker,
-            "name":              d.get("name", ticker),
-            "sector":            d.get("sic_description", "N/A"),
+            "name":              det.get("name", ticker),
+            "sector":            det.get("sic_description", "N/A"),
             "price":             price,
             "market_cap":        market_cap,
             "fcf_yield":         fcf_yield,
@@ -105,7 +134,7 @@ def fetch_score_data(ticker):
             "debt_to_fcf":       debt_to_fcf,
             "interest_coverage": interest_cov,
             "gross_margin":      gross_margin,
-            "price_owner_earn":  price_to_fcf,
+            "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
         }
     except Exception:
@@ -154,7 +183,7 @@ def score_to_label(score):
 
 st.title("📡 Market Screener")
 st.caption("Scans the S&P 500 through the Voskuil Owner's Framework. Surfaces the top concentrated opportunities.")
-st.info("**How this works:** Fetches fundamentals for each S&P 500 company via Polygon.io, scores them on the 6-metric Owner's Framework, and returns the top results. Stocks with negative FCF are automatically eliminated.")
+st.info("**How this works:** Fetches fundamentals from Polygon.io SEC filings data, scores each company on the 6-metric Owner's Framework, and surfaces the top results. Negative FCF companies are automatically eliminated.")
 st.divider()
 
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
@@ -187,8 +216,7 @@ with col2:
         "Energy", "Utilities", "Real Estate", "Materials", "Communication Services"
     ])
 with col3:
-    max_scan = st.number_input("Max stocks to scan", min_value=10, max_value=500, value=100, step=10,
-                                help="Polygon free tier is generous — 100+ stocks is fine.")
+    max_scan = st.number_input("Max stocks to scan", min_value=10, max_value=500, value=100, step=10)
     min_div  = st.checkbox("Dividend payers only", value=False)
 
 st.divider()
@@ -260,12 +288,12 @@ if run_screen:
                 st.markdown(f"**{row['ticker']}**")
                 st.caption(row.get('name', ''))
                 st.caption(row.get('sector', ''))
-            with c3: st.metric("Score",       f"{score}/100")
-            with c4: st.metric("FCF Yield",   fmt(row.get('fcf_yield'),       "pct"))
-            with c5: st.metric("ROIC",        fmt(row.get('roic'),            "pct"))
-            with c6: st.metric("Gross Margin",fmt(row.get('gross_margin'),    "pct"))
-            with c7: st.metric("Debt/FCF",    fmt(row.get('debt_to_fcf'),     "ratio"))
-            with c8: st.metric("P/OE",        fmt(row.get('price_owner_earn'),"ratio"))
+            with c3: st.metric("Score",        f"{score}/100")
+            with c4: st.metric("FCF Yield",    fmt(row.get('fcf_yield'),       "pct"))
+            with c5: st.metric("ROIC",         fmt(row.get('roic'),            "pct"))
+            with c6: st.metric("Gross Margin", fmt(row.get('gross_margin'),    "pct"))
+            with c7: st.metric("Debt/FCF",     fmt(row.get('debt_to_fcf'),     "ratio"))
+            with c8: st.metric("P/OE",         fmt(row.get('price_owner_earn'),"ratio"))
             div = row.get('dividend_yield')
             if div: st.caption(f"💰 Dividend Yield: {div:.2%}")
             st.markdown(f"[🔍 Deep Dive in Equity Scout]({APP_URL}/equity_scout?ticker={row['ticker']}&auto=1)")
@@ -298,10 +326,10 @@ else:
     ### Filters
     - **Sector** — focus on industries you know well
     - **Dividend payers only** — useful if income is your priority
-    - **Max stocks to scan** — Polygon free tier is generous, 100+ is fine
+    - **Max stocks to scan** — start with 100, increase for broader coverage
 
     ---
     **Score guide:** 🟢 80+ Strong Buy · 🟡 65-79 Watch · 🟠 45-64 Caution · 🔴 <45 Avoid
 
-    *Data sourced from Polygon.io.*
+    *Data sourced from Polygon.io SEC filings.*
     """)
