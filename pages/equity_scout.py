@@ -50,78 +50,112 @@ def safe_float(val):
     except (TypeError, ValueError):
         return None
 
+def fval(obj, key):
+    try:
+        return float(obj[key]["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
 @st.cache_data(ttl=3600)
 def fetch_fundamentals(ticker):
     try:
-        ratios_data  = poly_get("/stocks/fundamentals/ratios", {"ticker": ticker, "limit": 1, "timeframe": "annual"})
-        details_data = poly_get(f"/v3/reference/tickers/{ticker}")
-        income_data  = poly_get("/stocks/fundamentals/income-statements",    {"ticker": ticker, "limit": 2, "timeframe": "annual", "order": "desc"})
-        cf_data      = poly_get("/stocks/fundamentals/cash-flow-statements",  {"ticker": ticker, "limit": 2, "timeframe": "annual", "order": "desc"})
-        bs_data      = poly_get("/stocks/fundamentals/balance-sheets",        {"ticker": ticker, "limit": 1, "timeframe": "annual", "order": "desc"})
+        # Ticker details
+        det_data = poly_get(f"/v3/reference/tickers/{ticker}")
+        det = det_data.get("results", {}) if det_data else {}
+        market_cap = safe_float(det.get("market_cap"))
+        shares     = safe_float(det.get("weighted_shares_outstanding"))
+        name       = det.get("name", ticker)
+        sector     = det.get("sic_description", "N/A")
+        description= (det.get("description", "")[:400] + "...") if det.get("description") else ""
 
-        if not ratios_data or not ratios_data.get("results"):
+        # Price
+        price_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev")
+        price = None
+        try:
+            price = float(price_data["results"][0]["c"])
+        except (KeyError, TypeError, IndexError):
+            pass
+
+        # Financials — get 2 years for growth calc
+        fin_data = poly_get("/vX/reference/financials", {
+            "ticker": ticker, "timeframe": "annual", "limit": 2,
+            "order": "desc", "sort": "period_of_report_date",
+        })
+        if not fin_data or not fin_data.get("results"):
             return {}
 
-        r       = ratios_data["results"][0]
-        d       = details_data.get("results", {}) if details_data else {}
-        ic      = income_data["results"][0] if (income_data and income_data.get("results")) else {}
-        cf      = cf_data["results"][0]     if (cf_data    and cf_data.get("results"))     else {}
-        cf_prev = cf_data["results"][1]     if (cf_data    and len(cf_data.get("results", [])) > 1) else {}
-        bs      = bs_data["results"][0]     if (bs_data    and bs_data.get("results"))     else {}
+        results = fin_data["results"]
+        f  = results[0]["financials"]
+        f2 = results[1]["financials"] if len(results) > 1 else {}
 
-        fcf          = safe_float(r.get("free_cash_flow"))
-        market_cap   = safe_float(r.get("market_cap"))
-        fcf_yield    = safe_float(r.get("free_cash_flow_yield"))
-        gross_margin = safe_float(r.get("gross_profit_margin"))
-        roic         = safe_float(r.get("return_on_invested_capital")) or safe_float(r.get("return_on_equity"))
-        interest_cov = safe_float(r.get("interest_coverage_ratio"))
-        div_yield    = safe_float(r.get("dividend_yield"))
-        price        = safe_float(r.get("price"))
-        price_to_fcf = safe_float(r.get("price_to_free_cash_flow_ratio"))
-        pe_ratio     = safe_float(r.get("price_to_earnings_ratio"))
+        inc = f.get("income_statement",    {})
+        cf  = f.get("cash_flow_statement", {})
+        bs  = f.get("balance_sheet",       {})
+        cf2 = f2.get("cash_flow_statement", {}) if f2 else {}
 
-        total_debt  = safe_float(bs.get("total_debt")) or safe_float(r.get("total_debt"))
-        debt_to_fcf = (total_debt / fcf) if (total_debt and fcf and fcf > 0) else None
+        # FCF
+        op_cf  = fval(cf, "net_cash_flow_from_operating_activities")
+        inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
+        fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
-        net_income = safe_float(ic.get("net_income_loss"))
-        capex      = safe_float(cf.get("purchase_of_property_plant_and_equipment_net"))
-        dna        = safe_float(ic.get("depreciation_and_amortization"))
-        shares     = safe_float(r.get("weighted_average_shares_outstanding_diluted"))
+        # FCF growth
+        op_cf2  = fval(cf2, "net_cash_flow_from_operating_activities")
+        inv_cf2 = fval(cf2, "net_cash_flow_from_investing_activities")
+        fcf2    = (op_cf2 + inv_cf2) if (op_cf2 is not None and inv_cf2 is not None) else None
+        fcf_growth = ((fcf / fcf2) - 1) if (fcf and fcf2 and fcf2 != 0) else None
 
-        owner_earn = None
-        poe        = price_to_fcf
-        if net_income is not None and dna is not None and capex is not None:
-            owner_earn = net_income + dna - abs(capex)
-            if owner_earn > 0 and shares and price:
-                poe = price / (owner_earn / shares)
+        fcf_yield = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
 
-        fcf_growth = None
-        if cf_prev:
-            op_cf_prev  = safe_float(cf_prev.get("net_cash_flow_from_operating_activities"))
-            capex_prev  = safe_float(cf_prev.get("purchase_of_property_plant_and_equipment_net"))
-            if op_cf_prev and capex_prev and fcf:
-                fcf_prev_val = op_cf_prev - abs(capex_prev)
-                if fcf_prev_val != 0:
-                    fcf_growth = (fcf / fcf_prev_val) - 1
+        # Gross margin
+        gross_profit = fval(inc, "gross_profit")
+        revenues     = fval(inc, "revenues")
+        gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
+
+        # ROIC
+        net_income   = fval(inc, "net_income_loss")
+        total_assets = fval(bs,  "assets")
+        current_liab = fval(bs,  "current_liabilities")
+        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+
+        # Debt / FCF
+        noncurrent_liab = fval(bs, "noncurrent_liabilities")
+        debt_to_fcf     = (noncurrent_liab / fcf) if (noncurrent_liab and fcf and fcf > 0) else None
+
+        # Interest coverage
+        op_income    = fval(inc, "operating_income_loss")
+        interest_exp = fval(inc, "interest_expense_operating")
+        interest_cov = (op_income / interest_exp) if (op_income and interest_exp and interest_exp > 0) else None
+
+        # Owner earnings & P/OE
+        dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
+        capex_abs  = abs(inv_cf) if inv_cf else 0
+        owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+        poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+
+        # Dividend yield
+        div_ps    = fval(inc, "common_stock_dividends")
+        div_yield = (div_ps / price) if (div_ps and price and price > 0) else None
 
         return {
-            "name":              d.get("name", ticker),
-            "sector":            d.get("sic_description", "N/A"),
-            "description":       (d.get("description", "")[:400] + "...") if d.get("description") else "",
+            "name":              name,
+            "sector":            sector,
+            "description":       description,
             "market_cap":        market_cap,
             "price":             price,
-            "pe_ratio":          pe_ratio,
             "fcf":               fcf,
             "fcf_yield":         fcf_yield,
             "fcf_growth":        fcf_growth,
-            "roic":              roic,
-            "debt_to_fcf":       debt_to_fcf,
-            "total_debt":        total_debt,
-            "interest_coverage": interest_cov,
             "gross_margin":      gross_margin,
+            "roic":              roic,
+            "total_debt":        noncurrent_liab,
+            "debt_to_fcf":       debt_to_fcf,
+            "interest_coverage": interest_cov,
             "owner_earnings":    owner_earn,
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
+            "net_income":        net_income,
+            "revenues":          revenues,
         }
     except Exception as e:
         st.error(f"Could not fetch data for **{ticker}**: {e}")
@@ -130,7 +164,7 @@ def fetch_fundamentals(ticker):
 def score_stock(data, weights):
     criteria = []
 
-    max_pts   = weights["FCF Yield"]
+    max_pts = weights["FCF Yield"]
     fcf_yield = data.get('fcf_yield')
     if fcf_yield is not None:
         if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts, verdict = max_pts, "Excellent"
@@ -144,7 +178,7 @@ def score_stock(data, weights):
                       "note": "What you earn as an owner relative to price. Buffett wants real cash, not accounting earnings."})
 
     max_pts = weights["ROIC"]
-    roic    = data.get('roic')
+    roic = data.get('roic')
     if roic is not None:
         if roic >= THRESHOLDS['roic_great']:   pts, verdict = max_pts, "Exceptional"
         elif roic >= THRESHOLDS['roic_good']:  pts, verdict = round(max_pts * 0.60), "Strong"
