@@ -61,22 +61,14 @@ def fval(obj, key):
     except (KeyError, TypeError, ValueError):
         return None
 
-def calc_interest_coverage(inc, cf):
-    """
-    Returns (interest_coverage, is_net_creditor).
-    If no interest expense but positive nonoperating income = net creditor = infinite coverage.
-    """
+def calc_interest_coverage(inc):
     op_income    = fval(inc, "operating_income_loss")
     interest_exp = fval(inc, "interest_expense_operating")
-
     if interest_exp and interest_exp > 0 and op_income is not None:
         return op_income / interest_exp, False
-
-    # No interest expense — check if net creditor
     nonop = fval(inc, "nonoperating_income_loss")
     if nonop is not None and nonop > 0:
-        return None, True   # Net creditor — score full points
-
+        return None, True
     return None, False
 
 def fetch_score_data(ticker):
@@ -121,13 +113,9 @@ def fetch_score_data(ticker):
         current_liab = fval(bs,  "current_liabilities")
         invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
         roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-
-        # Use long_term_debt directly — more accurate than noncurrent_liabilities
         long_term_debt = fval(bs, "long_term_debt") or fval(bs, "noncurrent_liabilities")
         debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
-
-        interest_cov, is_net_creditor = calc_interest_coverage(inc, cf)
-
+        interest_cov, is_net_creditor = calc_interest_coverage(inc)
         dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
         capex_abs  = abs(inv_cf) if inv_cf else 0
         owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
@@ -150,48 +138,41 @@ def fetch_score_data(ticker):
 
 def score_stock(data, weights):
     pts = 0
-
     fcf_yield = data.get('fcf_yield')
     if fcf_yield:
         if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts += weights["FCF Yield"]
         elif fcf_yield >= THRESHOLDS['fcf_yield_good']:  pts += round(weights["FCF Yield"] * 0.60)
         elif fcf_yield > 0:                              pts += round(weights["FCF Yield"] * 0.15)
-
     roic = data.get('roic')
     if roic:
         if roic >= THRESHOLDS['roic_great']:   pts += weights["ROIC"]
         elif roic >= THRESHOLDS['roic_good']:  pts += round(weights["ROIC"] * 0.60)
         elif roic > 0:                         pts += round(weights["ROIC"] * 0.20)
-
     debt_fcf = data.get('debt_to_fcf')
     ic = data.get('interest_coverage') or 0
     is_nc = data.get('is_net_creditor', False)
     if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS['debt_fcf_safe']:       pts += weights["Debt / FCF"]
-        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:  pts += round(weights["Debt / FCF"] * 0.50)
+        if debt_fcf < THRESHOLDS['debt_fcf_safe']:        pts += weights["Debt / FCF"]
+        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:   pts += round(weights["Debt / FCF"] * 0.50)
         elif ic >= THRESHOLDS['interest_coverage_safe'] or is_nc:
-                                                         pts += round(weights["Debt / FCF"] * 0.50)
-
+                                                          pts += round(weights["Debt / FCF"] * 0.50)
     gm = data.get('gross_margin')
     if gm:
         if gm >= THRESHOLDS['gross_margin_great']:   pts += weights["Gross Margin"]
         elif gm >= THRESHOLDS['gross_margin_good']:  pts += round(weights["Gross Margin"] * 0.67)
         else:                                        pts += round(weights["Gross Margin"] * 0.20)
-
     ic_val = data.get('interest_coverage')
     if is_nc:
-        pts += weights["Interest Coverage"]   # Net creditor = full points
+        pts += weights["Interest Coverage"]
     elif ic_val:
         if ic_val >= THRESHOLDS['interest_coverage_safe']: pts += weights["Interest Coverage"]
         elif ic_val >= 2.5:                                pts += round(weights["Interest Coverage"] * 0.50)
         elif ic_val > 0:                                   pts += round(weights["Interest Coverage"] * 0.15)
-
     poe = data.get('price_owner_earn')
     if poe:
         if poe <= THRESHOLDS['poe_bargain']:     pts += weights["Price / Owner Earnings"]
         elif poe <= THRESHOLDS['poe_fair']:      pts += round(weights["Price / Owner Earnings"] * 0.67)
         elif poe <= THRESHOLDS['poe_stretched']: pts += round(weights["Price / Owner Earnings"] * 0.25)
-
     return pts
 
 def score_to_badge(score):
@@ -228,6 +209,7 @@ def get_clean_df(filename, anchor_text):
     except Exception:
         return None
 
+# ── Data processing ───────────────────────────────────────────────────────
 total_val = 0.0
 total_income = 0.0
 ira_gain_total = 0.0
@@ -268,6 +250,7 @@ if df_trans is not None:
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest  = df_trans[df_trans['Activity'].str.contains('Interest',  na=False, case=False)]['Amount($)'].sum()
 
+# ── Power Bar ─────────────────────────────────────────────────────────────
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
 with col2: st.metric("Taxable G/L (YTD)",  f"${taxable_gain_total:,.2f}", help="Gains from non-IRA accounts.")
@@ -276,6 +259,7 @@ with col4: st.metric("YTD Dividends",      f"${ytd_dividends:,.2f}")
 with col5: st.metric("YTD Interest",       f"${ytd_interest:,.2f}")
 st.divider()
 
+# ── Asset Allocation ──────────────────────────────────────────────────────
 st.subheader("Institutional Asset Allocation")
 c1, c2, c3 = st.columns([3, 4, 5])
 with c1:
@@ -295,6 +279,7 @@ with c3:
         st.markdown(f"<span style='color:{row['color']};'>●</span> ${row['Market Value ($)']:,.0f}", unsafe_allow_html=True)
 st.divider()
 
+# ── Cash Flow Monitor ─────────────────────────────────────────────────────
 st.subheader("Retirement Cash Flow Monitor")
 total_ytd_cash = ytd_dividends + ytd_interest
 st.write(f"Passive Cash Flow YTD: **${total_ytd_cash:,.2f}**")
@@ -302,17 +287,8 @@ st.progress(min(total_ytd_cash / 96000.0, 1.0))
 st.info("Targeting progress toward your **$37,386 income gap** toward legacy preservation.")
 st.divider()
 
+# ── Holdings Explorer ─────────────────────────────────────────────────────
 st.header("📋 Holdings Explorer")
-st.markdown("""
-<style>
-.stDataFrame a {
-    background-color: #1f6feb; color: white !important; padding: 3px 10px;
-    border-radius: 12px; text-decoration: none !important;
-    font-size: 0.78em; font-weight: 500; white-space: nowrap;
-}
-.stDataFrame a:hover { background-color: #388bfd; color: white !important; }
-</style>
-""", unsafe_allow_html=True)
 
 if df_holdings_raw is not None:
     consolidated = (
@@ -332,12 +308,14 @@ if df_holdings_raw is not None:
         cik = cik_map.get(symbol)
         return f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude" if cik else f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}"
 
-    consolidated['SEC Filings'] = consolidated['Symbol'].apply(get_sec_link)
-    consolidated['Market Data'] = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
+    consolidated['SEC Link']   = consolidated['Symbol'].apply(get_sec_link)
+    consolidated['Yahoo Link'] = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
+    consolidated['Dive Link']  = consolidated['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
 
     if 'holding_scores'  not in st.session_state: st.session_state.holding_scores  = {}
     if 'holding_weights' not in st.session_state: st.session_state.holding_weights = DEFAULT_WEIGHTS.copy()
 
+    # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
         st.caption("Set weights used to score your holdings. Must add up to 100.")
         w_col1, w_col2 = st.columns(2)
@@ -364,6 +342,7 @@ if df_holdings_raw is not None:
     unique_symbols = consolidated['Symbol'].tolist()
     n_symbols      = len(unique_symbols)
 
+    # ── Score All Button ───────────────────────────────────────────────────
     score_col, info_col = st.columns([2, 5])
     with score_col:
         run_scoring = st.button(
@@ -374,7 +353,7 @@ if df_holdings_raw is not None:
     with info_col:
         scored_count = len(st.session_state.holding_scores)
         if scored_count > 0:
-            st.success(f"✅ {scored_count} holdings scored — sort by Score to find your best opportunities.")
+            st.success(f"✅ {scored_count} holdings scored.")
         else:
             st.caption("Scores not yet loaded. Click the button above.")
 
@@ -396,40 +375,98 @@ if df_holdings_raw is not None:
 
     st.divider()
 
+    # ── Build display dataframe ────────────────────────────────────────────
     display_df = consolidated.copy()
-    display_df['Score'] = display_df['Symbol'].apply(lambda s: st.session_state.holding_scores.get(s, None))
-    display_df['Score'] = display_df['Score'].apply(
+    display_df['Score_Num'] = display_df['Symbol'].apply(
+        lambda s: st.session_state.holding_scores.get(s, None)
+    )
+    display_df['Score_Num'] = display_df['Score_Num'].apply(
         lambda s: int(s) if s is not None and not (isinstance(s, float) and pd.isna(s)) else None
     )
-    display_df['Verdict'] = display_df['Score'].apply(
-        lambda s: ("🟢 Strong Buy" if s >= 80 else "🟡 Watch" if s >= 65 else "🟠 Caution" if s >= 45 else "🔴 Avoid") if s is not None else "—"
+    display_df['Badge'] = display_df['Score_Num'].apply(score_to_badge)
+    display_df['Accounts_Label'] = display_df['Account_Count'].apply(
+        lambda n: f"{n} acct{'s' if n > 1 else ''}"
     )
-    display_df['Accounts']  = display_df['Account_Count'].apply(lambda n: f"{n} account{'s' if n > 1 else ''}")
-    display_df['Deep Dive'] = display_df['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
 
-    table_df = display_df[['Symbol','Name','Product_Type','Total_Value','Accounts','Score','Verdict','SEC Filings','Market Data','Deep Dive']].copy()
-    table_df.columns = ['Symbol','Name','Product Type','Total Value ($)','Accounts','Score','Verdict','SEC Filings','Market Data','Deep Dive']
-
+    # ── Sort Controls ──────────────────────────────────────────────────────
     st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
-    st.caption("Click any column header to sort. Click Deep Dive to open the full analysis.")
-    st.dataframe(table_df, use_container_width=True, hide_index=True, column_config={
-        "Symbol":          st.column_config.TextColumn("Symbol",        width="small"),
-        "Name":            st.column_config.TextColumn("Name",          width="medium"),
-        "Product Type":    st.column_config.TextColumn("Product Type",  width="medium"),
-        "Total Value ($)": st.column_config.NumberColumn("Total Value ($)", format="$%,.0f", width="medium"),
-        "Accounts":        st.column_config.TextColumn("Accounts",      width="small"),
-        "Score":           st.column_config.NumberColumn("Score",       format="%d",         width="small"),
-        "Verdict":         st.column_config.TextColumn("Verdict",       width="medium"),
-        "SEC Filings":     st.column_config.LinkColumn("SEC Filings",   width="small"),
-        "Market Data":     st.column_config.LinkColumn("Market Data",   width="small"),
-        "Deep Dive":       st.column_config.LinkColumn("Deep Dive 🔍",  width="small"),
-    })
+
+    sort_col, order_col = st.columns([3, 1])
+    with sort_col:
+        sort_by = st.selectbox(
+            "Sort by",
+            options=["Total Value (High→Low)", "Total Value (Low→High)",
+                     "Score (High→Low)", "Score (Low→High)",
+                     "Symbol (A→Z)", "Symbol (Z→A)"],
+            label_visibility="collapsed"
+        )
+    with order_col:
+        st.markdown("<div style='padding-top:8px; color:#888; font-size:0.85em;'>Sort order</div>", unsafe_allow_html=True)
+
+    # Apply sort
+    if sort_by == "Total Value (High→Low)":
+        display_df = display_df.sort_values('Total_Value', ascending=False)
+    elif sort_by == "Total Value (Low→High)":
+        display_df = display_df.sort_values('Total_Value', ascending=True)
+    elif sort_by == "Score (High→Low)":
+        display_df = display_df.sort_values('Score_Num', ascending=False, na_position='last')
+    elif sort_by == "Score (Low→High)":
+        display_df = display_df.sort_values('Score_Num', ascending=True, na_position='last')
+    elif sort_by == "Symbol (A→Z)":
+        display_df = display_df.sort_values('Symbol', ascending=True)
+    elif sort_by == "Symbol (Z→A)":
+        display_df = display_df.sort_values('Symbol', ascending=False)
+
+    # ── Column Headers ─────────────────────────────────────────────────────
+    h1, h2, h3, h4, h5, h6, h7, h8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.5, 1.5])
+    with h1: st.markdown("**Symbol**")
+    with h2: st.markdown("**Name**")
+    with h3: st.markdown("**Type**")
+    with h4: st.markdown("**Value**")
+    with h5: st.markdown("**Accts**")
+    with h6: st.markdown("**Score**")
+    with h7: st.markdown("**Research**")
+    with h8: st.markdown("**Analysis**")
+    st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
+
+    # ── Rows ───────────────────────────────────────────────────────────────
+    for _, row in display_df.iterrows():
+        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.5, 1.5])
+        with c1:
+            st.markdown(f"**{row['Symbol']}**")
+        with c2:
+            st.caption(row['Name'])
+        with c3:
+            st.caption(row['Product_Type'])
+        with c4:
+            st.markdown(f"${row['Total_Value']:,.0f}")
+        with c5:
+            st.caption(row['Accounts_Label'])
+        with c6:
+            badge = row['Badge']
+            if badge != "—":
+                color = "#2ecc71" if badge.startswith("🟢") else "#f39c12" if badge.startswith("🟡") else "#e67e22" if badge.startswith("🟠") else "#e74c3c"
+                st.markdown(f"<span style='font-weight:bold; color:{color}'>{badge}</span>", unsafe_allow_html=True)
+            else:
+                st.caption("—")
+        with c7:
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                st.link_button("SEC", row['SEC Link'], use_container_width=True)
+            with btn_col2:
+                st.link_button("Yahoo", row['Yahoo Link'], use_container_width=True)
+        with c8:
+            st.link_button("🔍 Deep Dive", row['Dive Link'], use_container_width=True, type="primary")
 
     st.divider()
+
+    # ── Account Breakdown ──────────────────────────────────────────────────
     st.subheader("🏦 Account Breakdown")
     st.caption("Select a holding to see how its value is distributed across your accounts.")
-    selected_symbol = st.selectbox("Select a holding", options=[""] + unique_symbols,
-                                   format_func=lambda x: x if x else "— choose a symbol —")
+    selected_symbol = st.selectbox(
+        "Select a holding", options=[""] + unique_symbols,
+        format_func=lambda x: x if x else "— choose a symbol —"
+    )
     if selected_symbol:
         account_detail = (
             df_holdings_raw[df_holdings_raw['Symbol'] == selected_symbol]
@@ -441,6 +478,12 @@ if df_holdings_raw is not None:
         score = st.session_state.holding_scores.get(selected_symbol)
         if score is not None:
             st.markdown(f"Conviction Score: {score_to_badge(score)}")
-        account_detail['% of Position'] = (account_detail['Market Value ($)'] / total_holding_val * 100).round(1).astype(str) + '%'
+        account_detail['% of Position'] = (
+            account_detail['Market Value ($)'] / total_holding_val * 100
+        ).round(1).astype(str) + '%'
         st.dataframe(account_detail, hide_index=True, use_container_width=True)
-        st.markdown(f"[🔍 Open Full Analysis in Equity Scout]({APP_URL}/equity_scout?ticker={selected_symbol}&auto=1)", unsafe_allow_html=True)
+        st.link_button(
+            "🔍 Open Full Analysis in Equity Scout",
+            f"{APP_URL}/equity_scout?ticker={selected_symbol}&auto=1",
+            type="primary"
+        )
