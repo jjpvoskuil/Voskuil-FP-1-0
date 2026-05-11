@@ -8,12 +8,12 @@ APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 POLY_URL = "https://api.polygon.io"
 
 DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
+    "FCF Yield":              20,
     "ROIC":                   10,
     "Debt / FCF":             20,
     "Gross Margin":           15,
     "Interest Coverage":      10,
-    "Price / Owner Earnings": 15,
+    "Price / Owner Earnings": 25,
 }
 
 THRESHOLDS = {
@@ -56,19 +56,31 @@ def fval(obj, key):
     except (KeyError, TypeError, ValueError):
         return None
 
+def calc_interest_coverage(inc):
+    """
+    Returns (coverage_value_or_None, is_net_creditor bool).
+    Net creditor = positive nonoperating income with no interest expense = full points.
+    """
+    op_income    = fval(inc, "operating_income_loss")
+    interest_exp = fval(inc, "interest_expense_operating")
+    if interest_exp and interest_exp > 0 and op_income is not None:
+        return op_income / interest_exp, False
+    nonop = fval(inc, "nonoperating_income_loss")
+    if nonop is not None and nonop > 0:
+        return None, True
+    return None, False
+
 @st.cache_data(ttl=3600)
 def fetch_fundamentals(ticker):
     try:
-        # Ticker details
         det_data = poly_get(f"/v3/reference/tickers/{ticker}")
         det = det_data.get("results", {}) if det_data else {}
-        market_cap = safe_float(det.get("market_cap"))
-        shares     = safe_float(det.get("weighted_shares_outstanding"))
-        name       = det.get("name", ticker)
-        sector     = det.get("sic_description", "N/A")
-        description= (det.get("description", "")[:400] + "...") if det.get("description") else ""
+        market_cap  = safe_float(det.get("market_cap"))
+        shares      = safe_float(det.get("weighted_shares_outstanding"))
+        name        = det.get("name", ticker)
+        sector      = det.get("sic_description", "N/A")
+        description = (det.get("description", "")[:400] + "...") if det.get("description") else ""
 
-        # Price
         price_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev")
         price = None
         try:
@@ -76,7 +88,6 @@ def fetch_fundamentals(ticker):
         except (KeyError, TypeError, IndexError):
             pass
 
-        # Financials — get 2 years for growth calc
         fin_data = poly_get("/vX/reference/financials", {
             "ticker": ticker, "timeframe": "annual", "limit": 2,
             "order": "desc", "sort": "period_of_report_date",
@@ -93,47 +104,35 @@ def fetch_fundamentals(ticker):
         bs  = f.get("balance_sheet",       {})
         cf2 = f2.get("cash_flow_statement", {}) if f2 else {}
 
-        # FCF
         op_cf  = fval(cf, "net_cash_flow_from_operating_activities")
         inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
         fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
-        # FCF growth
         op_cf2  = fval(cf2, "net_cash_flow_from_operating_activities")
         inv_cf2 = fval(cf2, "net_cash_flow_from_investing_activities")
         fcf2    = (op_cf2 + inv_cf2) if (op_cf2 is not None and inv_cf2 is not None) else None
         fcf_growth = ((fcf / fcf2) - 1) if (fcf and fcf2 and fcf2 != 0) else None
 
-        fcf_yield = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
-
-        # Gross margin
+        fcf_yield    = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
         gross_profit = fval(inc, "gross_profit")
         revenues     = fval(inc, "revenues")
         gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
-
-        # ROIC
         net_income   = fval(inc, "net_income_loss")
         total_assets = fval(bs,  "assets")
         current_liab = fval(bs,  "current_liabilities")
         invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
         roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
 
-        # Debt / FCF
-        noncurrent_liab = fval(bs, "noncurrent_liabilities")
-        debt_to_fcf     = (noncurrent_liab / fcf) if (noncurrent_liab and fcf and fcf > 0) else None
+        long_term_debt = fval(bs, "long_term_debt")
+        debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf and fcf > 0) else None
 
-        # Interest coverage
-        op_income    = fval(inc, "operating_income_loss")
-        interest_exp = fval(inc, "interest_expense_operating")
-        interest_cov = (op_income / interest_exp) if (op_income and interest_exp and interest_exp > 0) else None
+        interest_cov, is_net_creditor = calc_interest_coverage(inc)
 
-        # Owner earnings & P/OE
         dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
         capex_abs  = abs(inv_cf) if inv_cf else 0
         owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
         poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
 
-        # Dividend yield
         div_ps    = fval(inc, "common_stock_dividends")
         div_yield = (div_ps / price) if (div_ps and price and price > 0) else None
 
@@ -148,9 +147,10 @@ def fetch_fundamentals(ticker):
             "fcf_growth":        fcf_growth,
             "gross_margin":      gross_margin,
             "roic":              roic,
-            "total_debt":        noncurrent_liab,
+            "long_term_debt":    long_term_debt,
             "debt_to_fcf":       debt_to_fcf,
             "interest_coverage": interest_cov,
+            "is_net_creditor":   is_net_creditor,
             "owner_earnings":    owner_earn,
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
@@ -164,7 +164,8 @@ def fetch_fundamentals(ticker):
 def score_stock(data, weights):
     criteria = []
 
-    max_pts = weights["FCF Yield"]
+    # ── FCF Yield ─────────────────────────────────────────────────────
+    max_pts   = weights["FCF Yield"]
     fcf_yield = data.get('fcf_yield')
     if fcf_yield is not None:
         if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts, verdict = max_pts, "Excellent"
@@ -173,12 +174,15 @@ def score_stock(data, weights):
         else:                                            pts, verdict = 0, "Negative FCF"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Free Cash Flow Yield", "value": f"{fcf_yield:.1%}" if fcf_yield is not None else "N/A",
+    criteria.append({"name": "Free Cash Flow Yield",
+                      "value": f"{fcf_yield:.1%}" if fcf_yield is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "What you earn as an owner relative to price. Buffett wants real cash, not accounting earnings."})
+                      "note": "What you earn as an owner relative to price. Buffett wants real cash, not accounting earnings.",
+                      "missing": fcf_yield is None})
 
+    # ── ROIC ──────────────────────────────────────────────────────────
     max_pts = weights["ROIC"]
-    roic = data.get('roic')
+    roic    = data.get('roic')
     if roic is not None:
         if roic >= THRESHOLDS['roic_great']:   pts, verdict = max_pts, "Exceptional"
         elif roic >= THRESHOLDS['roic_good']:  pts, verdict = round(max_pts * 0.60), "Strong"
@@ -186,24 +190,32 @@ def score_stock(data, weights):
         else:                                  pts, verdict = 0, "Destroying Capital"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Return on Invested Capital (ROIC)", "value": f"{roic:.1%}" if roic is not None else "N/A",
+    criteria.append({"name": "Return on Invested Capital (ROIC)",
+                      "value": f"{roic:.1%}" if roic is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Munger: 'Show me the incentives and I'll show you the outcome.' ROIC shows if management deploys capital wisely."})
+                      "note": "Munger: 'Show me the incentives and I'll show you the outcome.' ROIC shows if management deploys capital wisely.",
+                      "missing": roic is None})
 
+    # ── Debt / FCF ────────────────────────────────────────────────────
     max_pts  = weights["Debt / FCF"]
     debt_fcf = data.get('debt_to_fcf')
     ic       = data.get('interest_coverage') or 0
+    is_nc    = data.get('is_net_creditor', False)
     if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS['debt_fcf_safe']:       pts, verdict = max_pts, "Fortress"
-        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:  pts, verdict = round(max_pts * 0.50), "Manageable"
-        elif ic >= THRESHOLDS['interest_coverage_safe']: pts, verdict = round(max_pts * 0.50), "High Debt, Well Covered"
-        else:                                            pts, verdict = 0, "Overleveraged"
+        if debt_fcf < THRESHOLDS['debt_fcf_safe']:        pts, verdict = max_pts, "Fortress"
+        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:   pts, verdict = round(max_pts * 0.50), "Manageable"
+        elif ic >= THRESHOLDS['interest_coverage_safe'] or is_nc:
+                                                          pts, verdict = round(max_pts * 0.50), "High Debt, Well Covered"
+        else:                                             pts, verdict = 0, "Overleveraged"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Debt / Free Cash Flow", "value": f"{debt_fcf:.1f}x" if debt_fcf is not None else "N/A",
+    criteria.append({"name": "Debt / Free Cash Flow",
+                      "value": f"{debt_fcf:.1f}x" if debt_fcf is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Years of FCF needed to pay off all debt. In a credit crunch, this is the survival metric."})
+                      "note": "Years of FCF needed to pay off long-term debt. In a credit crunch, this is the survival metric.",
+                      "missing": debt_fcf is None})
 
+    # ── Gross Margin ──────────────────────────────────────────────────
     max_pts = weights["Gross Margin"]
     gm      = data.get('gross_margin')
     if gm is not None:
@@ -212,23 +224,33 @@ def score_stock(data, weights):
         else:                                        pts, verdict = round(max_pts * 0.20), "Commodity Risk"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Gross Margin (Pricing Power)", "value": f"{gm:.1%}" if gm is not None else "N/A",
+    criteria.append({"name": "Gross Margin (Pricing Power)",
+                      "value": f"{gm:.1%}" if gm is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Buffett's favorite moat signal. Can the company raise prices without losing customers?"})
+                      "note": "Buffett's favorite moat signal. Can the company raise prices without losing customers?",
+                      "missing": gm is None})
 
+    # ── Interest Coverage ─────────────────────────────────────────────
     max_pts = weights["Interest Coverage"]
     ic_val  = data.get('interest_coverage')
-    if ic_val is not None:
+    is_nc   = data.get('is_net_creditor', False)
+    if is_nc:
+        pts, verdict = max_pts, "Net Creditor ✨"
+    elif ic_val is not None:
         if ic_val >= THRESHOLDS['interest_coverage_safe']: pts, verdict = max_pts, "Safe"
         elif ic_val >= 2.5:                                pts, verdict = round(max_pts * 0.50), "Adequate"
         elif ic_val > 0:                                   pts, verdict = round(max_pts * 0.15), "Tight"
         else:                                              pts, verdict = 0, "Danger"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Interest Coverage Ratio", "value": f"{ic_val:.1f}x" if ic_val is not None else "N/A",
+    display_val = "Net Creditor" if is_nc else (f"{ic_val:.1f}x" if ic_val is not None else "N/A")
+    criteria.append({"name": "Interest Coverage Ratio",
+                      "value": display_val,
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "How many times can earnings cover interest payments? Critical in a Long Squeeze environment."})
+                      "note": "How many times can earnings cover interest payments? 'Net Creditor' means the company earns more interest than it pays.",
+                      "missing": (not is_nc and ic_val is None)})
 
+    # ── Price / Owner Earnings ────────────────────────────────────────
     max_pts = weights["Price / Owner Earnings"]
     poe     = data.get('price_owner_earn')
     if poe is not None:
@@ -238,12 +260,22 @@ def score_stock(data, weights):
         else:                                   pts, verdict = 0, "Expensive"
     else:
         pts, verdict = 0, "No Data"
-    criteria.append({"name": "Price / Owner Earnings", "value": f"{poe:.1f}x" if poe is not None else "N/A",
+    criteria.append({"name": "Price / Owner Earnings",
+                      "value": f"{poe:.1f}x" if poe is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Buffett's valuation test. What are you paying per dollar of real owner earnings? Under 15x is a bargain."})
+                      "note": "Buffett's valuation test. What are you paying per dollar of real owner earnings? Under 15x is a bargain.",
+                      "missing": poe is None})
 
-    total = sum(c['points_earned'] for c in criteria)
-    return total, criteria
+    # ── Totals ────────────────────────────────────────────────────────
+    raw_score      = sum(c['points_earned'] for c in criteria)
+    missing_pts    = sum(c['points_max'] for c in criteria if c.get('missing'))
+    missing_names  = [c['name'] for c in criteria if c.get('missing')]
+
+    # Rebalanced score: redistribute missing points proportionally
+    available_pts  = 100 - missing_pts
+    rebalanced     = round(raw_score / available_pts * 100) if available_pts > 0 else raw_score
+
+    return raw_score, rebalanced, missing_names, criteria
 
 def score_to_verdict(score):
     if score >= 80:   return "Strong Buy", "#2ecc71"
@@ -251,6 +283,7 @@ def score_to_verdict(score):
     elif score >= 45: return "Proceed with Caution", "#e67e22"
     else:             return "Avoid", "#e74c3c"
 
+# ── Query params ──────────────────────────────────────────────────────
 params       = st.query_params
 url_ticker   = params.get("ticker", "").upper().strip()
 auto_analyze = params.get("auto", "0") == "1"
@@ -274,7 +307,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     with w_col2:
         w_gm   = st.slider("Gross Margin",           0, 40, DEFAULT_WEIGHTS["Gross Margin"],           step=5)
         w_ic   = st.slider("Interest Coverage",      0, 40, DEFAULT_WEIGHTS["Interest Coverage"],      step=5)
-        w_poe  = st.slider("Price / Owner Earnings", 0, 40, DEFAULT_WEIGHTS["Price / Owner Earnings"], step=5)
+        w_poe  = st.slider("Price / Owner Earnings", 0, 60, DEFAULT_WEIGHTS["Price / Owner Earnings"], step=5)
     weights = {
         "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
         "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
@@ -311,8 +344,8 @@ if analyze and ticker_input:
         st.error(f"No data returned for {ticker_input}. Check the ticker symbol and try again.")
         st.stop()
 
-    score, criteria              = score_stock(data, weights)
-    verdict_label, verdict_color = score_to_verdict(score)
+    raw_score, rebalanced_score, missing_names, criteria = score_stock(data, weights)
+    verdict_label, verdict_color = score_to_verdict(rebalanced_score)
 
     st.markdown(f"## {data.get('name', ticker_input)}")
     st.caption(f"{data.get('sector','')}  ·  ${data.get('price',0) or 0:,.2f} per share  ·  Market Cap: ${(data.get('market_cap') or 0)/1e9:.1f}B")
@@ -323,7 +356,7 @@ if analyze and ticker_input:
     left, right = st.columns([1, 2])
     with left:
         fig = go.Figure(go.Indicator(
-            mode="gauge+number", value=score,
+            mode="gauge+number", value=rebalanced_score,
             domain={'x': [0, 1], 'y': [0, 1]},
             title={'text': "Conviction Score", 'font': {'size': 16}},
             gauge={
@@ -335,12 +368,21 @@ if analyze and ticker_input:
                     {'range': [65, 80],  'color': "#fef9e7"},
                     {'range': [80, 100], 'color': "#eafaf1"},
                 ],
-                'threshold': {'line': {'color': verdict_color, 'width': 4}, 'thickness': 0.75, 'value': score}
+                'threshold': {'line': {'color': verdict_color, 'width': 4}, 'thickness': 0.75, 'value': rebalanced_score}
             }
         ))
         fig.update_layout(height=260, margin=dict(t=30, b=0, l=20, r=20))
         st.plotly_chart(fig, use_container_width=True)
         st.markdown(f"<div style='text-align:center; font-size:1.4em; font-weight:bold; color:{verdict_color}'>{verdict_label}</div>", unsafe_allow_html=True)
+
+        # Show both scores if any data is missing
+        if missing_names:
+            st.markdown(f"**Rebalanced Score:** {rebalanced_score}/100")
+            st.markdown(f"**Raw Score:** {raw_score}/100")
+            st.warning(f"⚠️ Missing data: {', '.join(missing_names)}. Score rebalanced across available metrics.")
+        else:
+            st.markdown(f"**Score:** {rebalanced_score}/100")
+
         st.markdown("**Active Weights**")
         for k, v in weights.items():
             st.caption(f"{k}: {v} pts")
@@ -351,9 +393,11 @@ if analyze and ticker_input:
             earned  = c['points_earned']
             maximum = c['points_max']
             pct     = earned / maximum if maximum > 0 else 0
-            if pct >= 0.8:   bar_color, icon = "#2ecc71", "✅"
-            elif pct >= 0.5: bar_color, icon = "#f39c12", "⚠️"
-            else:            bar_color, icon = "#e74c3c", "❌"
+            if c.get('missing'):
+                bar_color, icon = "#888888", "⬜"
+            elif pct >= 0.8:   bar_color, icon = "#2ecc71", "✅"
+            elif pct >= 0.5:   bar_color, icon = "#f39c12", "⚠️"
+            else:              bar_color, icon = "#e74c3c", "❌"
             st.markdown(
                 f"{icon} **{c['name']}** — `{c['value']}` &nbsp;&nbsp;<span style='color:{bar_color}'>{c['verdict']}</span> &nbsp;·&nbsp; {earned}/{maximum} pts",
                 unsafe_allow_html=True
@@ -382,7 +426,7 @@ if analyze and ticker_input:
         st.metric("ROIC",                 fmt_val(data.get('roic'), "pct"))
         st.metric("Gross Margin",         fmt_val(data.get('gross_margin'), "pct"))
     with m4:
-        st.metric("Debt / FCF",           fmt_val(data.get('debt_to_fcf'), "ratio"))
+        st.metric("Long-Term Debt/FCF",   fmt_val(data.get('debt_to_fcf'), "ratio"))
         st.metric("Price/Owner Earnings", fmt_val(data.get('price_owner_earn'), "ratio"))
 
     st.divider()
@@ -403,15 +447,17 @@ if analyze and ticker_input:
 
     st.divider()
     st.markdown("### 📝 The Verdict")
-    strengths  = [c['name'] for c in criteria if c['points_max'] > 0 and c['points_earned'] / c['points_max'] >= 0.8]
-    weaknesses = [c['name'] for c in criteria if c['points_max'] > 0 and c['points_earned'] / c['points_max'] < 0.5 and c['value'] != 'N/A']
-    verdict_text = f"**{data.get('name', ticker_input)}** scores **{score}/100** on the Voskuil Owner's Framework. "
+    strengths  = [c['name'] for c in criteria if not c.get('missing') and c['points_max'] > 0 and c['points_earned'] / c['points_max'] >= 0.8]
+    weaknesses = [c['name'] for c in criteria if not c.get('missing') and c['points_max'] > 0 and c['points_earned'] / c['points_max'] < 0.5 and c['value'] != 'N/A']
+    verdict_text = f"**{data.get('name', ticker_input)}** scores **{rebalanced_score}/100** on the Voskuil Owner's Framework. "
+    if missing_names:
+        verdict_text += f"Note: {', '.join(missing_names)} had no data and were excluded from scoring. "
     if strengths:  verdict_text += f"Its strongest qualities are {', '.join(strengths)}. "
     if weaknesses: verdict_text += f"Areas of concern: {', '.join(weaknesses)}. "
-    if score >= 80:   verdict_text += "This business passes the 'Would Buffett hold it for 10 years?' test. Consider a concentrated position."
-    elif score >= 65: verdict_text += "Worth watching closely. Strong in some areas but not a slam dunk. Look for a better entry price."
-    elif score >= 45: verdict_text += "Real weaknesses in the fundamentals. Not a fortress business. Proceed only with a significant margin of safety."
-    else:             verdict_text += "Does not meet the criteria for a concentrated bet. Risk of permanent capital loss outweighs the upside."
+    if rebalanced_score >= 80:   verdict_text += "This business passes the 'Would Buffett hold it for 10 years?' test. Consider a concentrated position."
+    elif rebalanced_score >= 65: verdict_text += "Worth watching closely. Strong in some areas but not a slam dunk. Look for a better entry price."
+    elif rebalanced_score >= 45: verdict_text += "Real weaknesses in the fundamentals. Not a fortress business. Proceed only with a significant margin of safety."
+    else:                        verdict_text += "Does not meet the criteria for a concentrated bet. Risk of permanent capital loss outweighs the upside."
     st.markdown(verdict_text)
     st.info("⚠️ **Macro Overlay Reminder:** In a 'Long Squeeze' environment, prioritize companies with low debt, strong FCF, and pricing power. Your $8K/month withdrawal target requires this portfolio to be recession-resistant, not just return-maximizing.")
 
@@ -424,14 +470,17 @@ else:
 
     | Metric | Default Weight | What it measures |
     |--------|---------------|-----------------|
-    | Free Cash Flow Yield | 30 pts | Real owner earnings relative to price |
+    | Free Cash Flow Yield | 20 pts | Real owner earnings relative to price |
     | ROIC | 10 pts | How wisely management deploys your capital |
     | Debt / FCF | 20 pts | Survival capacity in a credit crunch |
     | Gross Margin | 15 pts | Pricing power and moat durability |
     | Interest Coverage | 10 pts | Ability to service debt in a Long Squeeze |
-    | Price / Owner Earnings | 15 pts | What you're paying per dollar of real earnings |
+    | Price / Owner Earnings | 25 pts | What you're paying per dollar of real earnings |
 
     **Score guide:** 80-100 = Strong Buy · 65-79 = Watch · 45-64 = Caution · <45 = Avoid
 
-    *Data sourced from Polygon.io.*
+    When data is missing for a metric, the score is **rebalanced** across available metrics so companies
+    aren't unfairly penalized for data gaps. Missing metrics are highlighted in grey.
+
+    *Data sourced from Polygon.io SEC filings.*
     """)
