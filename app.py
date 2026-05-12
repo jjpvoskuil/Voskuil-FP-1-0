@@ -37,6 +37,9 @@ THRESHOLDS = {
     "poe_stretched":            35.0,
 }
 
+# ─────────────────────────────────────────────
+# POLYGON FETCHER
+# ─────────────────────────────────────────────
 def poly_get(endpoint, params={}):
     try:
         key = st.secrets["POLYGON_KEY"]
@@ -71,7 +74,73 @@ def calc_interest_coverage(inc):
         return None, True
     return None, False
 
+# ─────────────────────────────────────────────
+# YFINANCE FALLBACK (for foreign ADRs)
+# ─────────────────────────────────────────────
+def fetch_score_data_yfinance(ticker):
+    """Fallback for foreign ADRs not in Polygon SEC database."""
+    try:
+        import yfinance as yf
+        stock = yf.Ticker(ticker)
+        info  = stock.info
+
+        market_cap = safe_float(info.get('marketCap'))
+        price      = safe_float(info.get('currentPrice') or info.get('regularMarketPrice'))
+
+        cashflow   = stock.cashflow
+        financials = stock.financials
+        balance    = stock.balance_sheet
+
+        op_cf  = safe_float(cashflow.loc['Operating Cash Flow'].iloc[0]) if 'Operating Cash Flow' in cashflow.index else None
+        capex  = safe_float(cashflow.loc['Capital Expenditure'].iloc[0]) if 'Capital Expenditure' in cashflow.index else None
+        fcf    = (op_cf + capex) if (op_cf is not None and capex is not None) else None
+
+        if fcf is None or fcf <= 0:
+            return None
+
+        fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
+        gross_margin = safe_float(info.get('grossMargins'))
+        net_income   = safe_float(financials.loc['Net Income'].iloc[0]) if 'Net Income' in financials.index else None
+        total_assets = safe_float(balance.loc['Total Assets'].iloc[0]) if 'Total Assets' in balance.index else None
+        current_liab = safe_float(balance.loc['Current Liabilities'].iloc[0]) if 'Current Liabilities' in balance.index else None
+        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+
+        total_debt   = safe_float(balance.loc['Total Debt'].iloc[0]) if 'Total Debt' in balance.index else None
+        debt_to_fcf  = (total_debt / fcf) if (total_debt is not None and fcf > 0) else None
+
+        ebit         = safe_float(financials.loc['EBIT'].iloc[0]) if 'EBIT' in financials.index else None
+        int_exp      = abs(safe_float(financials.loc['Interest Expense'].iloc[0])) if 'Interest Expense' in financials.index else None
+        interest_cov = (ebit / int_exp) if (ebit and int_exp and int_exp > 0) else None
+        is_net_creditor = False
+
+        shares       = safe_float(info.get('sharesOutstanding'))
+        dna          = safe_float(cashflow.loc['Depreciation And Amortization'].iloc[0]) if 'Depreciation And Amortization' in cashflow.index else None
+        capex_abs    = abs(capex) if capex else 0
+        owner_earn   = (net_income + (dna or 0) - capex_abs) if net_income is not None else None
+        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+
+        div_yield    = safe_float(info.get('dividendYield'))
+
+        return {
+            "fcf_yield":         fcf_yield,
+            "roic":              roic,
+            "debt_to_fcf":       debt_to_fcf,
+            "interest_coverage": interest_cov,
+            "is_net_creditor":   is_net_creditor,
+            "gross_margin":      gross_margin,
+            "price_owner_earn":  poe,
+            "dividend_yield":    div_yield,
+            "source":            "yfinance",
+        }
+    except Exception:
+        return None
+
+# ─────────────────────────────────────────────
+# PRIMARY POLYGON FETCHER
+# ─────────────────────────────────────────────
 def fetch_score_data(ticker):
+    """Try Polygon first; fall back to yfinance for foreign ADRs."""
     try:
         det_data = poly_get(f"/v3/reference/tickers/{ticker}")
         det = det_data.get("results", {}) if det_data else {}
@@ -89,8 +158,10 @@ def fetch_score_data(ticker):
             "ticker": ticker, "timeframe": "annual", "limit": 1,
             "order": "desc", "sort": "period_of_report_date",
         })
+
+        # No SEC filings found — fall back to yfinance
         if not fin_data or not fin_data.get("results"):
-            return None
+            return fetch_score_data_yfinance(ticker)
 
         f   = fin_data["results"][0]["financials"]
         inc = f.get("income_statement",    {})
@@ -102,7 +173,7 @@ def fetch_score_data(ticker):
         fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
         if fcf is None or fcf <= 0:
-            return None
+            return fetch_score_data_yfinance(ticker)
 
         fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
         gross_profit = fval(inc, "gross_profit")
@@ -132,10 +203,14 @@ def fetch_score_data(ticker):
             "gross_margin":      gross_margin,
             "price_owner_earn":  poe,
             "dividend_yield":    div_yield,
+            "source":            "polygon",
         }
     except Exception:
-        return None
+        return fetch_score_data_yfinance(ticker)
 
+# ─────────────────────────────────────────────
+# SCORING ENGINE
+# ─────────────────────────────────────────────
 def score_stock(data, weights):
     pts = 0
     fcf_yield = data.get('fcf_yield')
@@ -209,7 +284,9 @@ def get_clean_df(filename, anchor_text):
     except Exception:
         return None
 
-# ── Data processing ───────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# DATA PROCESSING
+# ─────────────────────────────────────────────
 total_val = 0.0
 total_income = 0.0
 ira_gain_total = 0.0
@@ -250,7 +327,9 @@ if df_trans is not None:
     ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
     ytd_interest  = df_trans[df_trans['Activity'].str.contains('Interest',  na=False, case=False)]['Amount($)'].sum()
 
-# ── Power Bar ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# POWER BAR
+# ─────────────────────────────────────────────
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
 with col2: st.metric("Taxable G/L (YTD)",  f"${taxable_gain_total:,.2f}", help="Gains from non-IRA accounts.")
@@ -259,7 +338,9 @@ with col4: st.metric("YTD Dividends",      f"${ytd_dividends:,.2f}")
 with col5: st.metric("YTD Interest",       f"${ytd_interest:,.2f}")
 st.divider()
 
-# ── Asset Allocation ──────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# ASSET ALLOCATION
+# ─────────────────────────────────────────────
 st.subheader("Institutional Asset Allocation")
 c1, c2, c3 = st.columns([3, 4, 5])
 with c1:
@@ -279,7 +360,9 @@ with c3:
         st.markdown(f"<span style='color:{row['color']};'>●</span> ${row['Market Value ($)']:,.0f}", unsafe_allow_html=True)
 st.divider()
 
-# ── Cash Flow Monitor ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# CASH FLOW MONITOR
+# ─────────────────────────────────────────────
 st.subheader("Retirement Cash Flow Monitor")
 total_ytd_cash = ytd_dividends + ytd_interest
 st.write(f"Passive Cash Flow YTD: **${total_ytd_cash:,.2f}**")
@@ -287,23 +370,23 @@ st.progress(min(total_ytd_cash / 96000.0, 1.0))
 st.info("Targeting progress toward your **$37,386 income gap** toward legacy preservation.")
 st.divider()
 
-# ── Holdings Explorer ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# HOLDINGS EXPLORER
+# ─────────────────────────────────────────────
 st.header("📋 Holdings Explorer")
+
 st.markdown("""
 <style>
-/* SEC button - green */
 div[data-testid="stLinkButton"] a[href*="sec.gov"] {
     background-color: #27ae60 !important;
     color: white !important;
     border-color: #27ae60 !important;
 }
-/* Yahoo button - purple */
 div[data-testid="stLinkButton"] a[href*="yahoo.com"] {
     background-color: #8e44ad !important;
     color: white !important;
     border-color: #8e44ad !important;
 }
-/* Deep Dive button - already primary blue, boost it */
 div[data-testid="stLinkButton"] a[href*="equity_scout"] {
     background-color: #1f6feb !important;
     color: white !important;
@@ -336,6 +419,7 @@ if df_holdings_raw is not None:
 
     if 'holding_scores'  not in st.session_state: st.session_state.holding_scores  = {}
     if 'holding_weights' not in st.session_state: st.session_state.holding_weights = DEFAULT_WEIGHTS.copy()
+    if 'holding_sources' not in st.session_state: st.session_state.holding_sources = {}
 
     # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
@@ -370,30 +454,46 @@ if df_holdings_raw is not None:
         run_scoring = st.button(
             f"⚡ Score All {n_symbols} Holdings", type="primary",
             disabled=(total_weight != 100),
-            help="Weights must add up to 100." if total_weight != 100 else "Score all holdings using Polygon data."
+            help="Weights must add up to 100." if total_weight != 100 else "Score using Polygon (with yfinance fallback for foreign ADRs)."
         )
     with info_col:
         scored_count = len(st.session_state.holding_scores)
         if scored_count > 0:
-            st.success(f"✅ {scored_count} holdings scored.")
+            poly_count = sum(1 for s in st.session_state.holding_sources.values() if s == "polygon")
+            yf_count   = sum(1 for s in st.session_state.holding_sources.values() if s == "yfinance")
+            msg = f"✅ {scored_count} holdings scored"
+            if yf_count > 0:
+                msg += f" — {poly_count} via Polygon, {yf_count} via yfinance (foreign ADRs)"
+            st.success(msg)
         else:
             st.caption("Scores not yet loaded. Click the button above.")
 
     if run_scoring:
         progress_bar = st.progress(0)
         status_text  = st.empty()
-        scores       = {}
+        scores  = {}
+        sources = {}
         for i, symbol in enumerate(unique_symbols):
             pct = (i + 1) / n_symbols
             progress_bar.progress(pct)
             status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
             data = fetch_score_data(symbol)
-            scores[symbol] = score_stock(data, active_weights) if data is not None else None
+            if data is not None:
+                scores[symbol]  = score_stock(data, active_weights)
+                sources[symbol] = data.get("source", "polygon")
+            else:
+                scores[symbol]  = None
+                sources[symbol] = None
             time.sleep(0.1)
-        st.session_state.holding_scores = scores
+        st.session_state.holding_scores  = scores
+        st.session_state.holding_sources = sources
         progress_bar.progress(1.0)
         scored_ok = len([s for s in scores.values() if s is not None])
-        status_text.markdown(f"✅ Done — {scored_ok} of {n_symbols} holdings scored successfully.")
+        yf_ok     = sum(1 for s in sources.values() if s == "yfinance")
+        status_text.markdown(
+            f"✅ Done — {scored_ok} of {n_symbols} scored "
+            f"({yf_ok} via yfinance fallback for foreign ADRs)."
+        )
 
     st.divider()
 
@@ -405,15 +505,17 @@ if df_holdings_raw is not None:
     display_df['Score_Num'] = display_df['Score_Num'].apply(
         lambda s: int(s) if s is not None and not (isinstance(s, float) and pd.isna(s)) else None
     )
-    display_df['Badge'] = display_df['Score_Num'].apply(score_to_badge)
+    display_df['Badge']   = display_df['Score_Num'].apply(score_to_badge)
+    display_df['Source']  = display_df['Symbol'].apply(
+        lambda s: st.session_state.holding_sources.get(s, None)
+    )
     display_df['Accounts_Label'] = display_df['Account_Count'].apply(
         lambda n: f"{n} acct{'s' if n > 1 else ''}"
     )
 
     # ── Sort Controls ──────────────────────────────────────────────────────
     st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
-
-    sort_col, order_col = st.columns([3, 1])
+    sort_col, _ = st.columns([3, 1])
     with sort_col:
         sort_by = st.selectbox(
             "Sort by",
@@ -422,10 +524,7 @@ if df_holdings_raw is not None:
                      "Symbol (A→Z)", "Symbol (Z→A)"],
             label_visibility="collapsed"
         )
-    with order_col:
-        st.markdown("<div style='padding-top:8px; color:#888; font-size:0.85em;'>Sort order</div>", unsafe_allow_html=True)
 
-    # Apply sort
     if sort_by == "Total Value (High→Low)":
         display_df = display_df.sort_values('Total_Value', ascending=False)
     elif sort_by == "Total Value (Low→High)":
@@ -455,7 +554,11 @@ if df_holdings_raw is not None:
     for _, row in display_df.iterrows():
         c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.5, 1.5])
         with c1:
-            st.markdown(f"**{row['Symbol']}**")
+            src = row.get('Source')
+            sym_label = f"**{row['Symbol']}**"
+            if src == "yfinance":
+                sym_label += " 🌐"   # Globe = foreign ADR scored via yfinance
+            st.markdown(sym_label)
         with c2:
             st.caption(row['Name'])
         with c3:
@@ -480,6 +583,7 @@ if df_holdings_raw is not None:
         with c8:
             st.link_button("🔍 Deep Dive", row['Dive Link'], use_container_width=True, type="primary")
 
+    st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database)")
     st.divider()
 
     # ── Account Breakdown ──────────────────────────────────────────────────
@@ -497,9 +601,11 @@ if df_holdings_raw is not None:
         )
         total_holding_val = account_detail['Market Value ($)'].sum()
         st.markdown(f"**{selected_symbol}** — Total Value: **${total_holding_val:,.2f}**")
-        score = st.session_state.holding_scores.get(selected_symbol)
+        score  = st.session_state.holding_scores.get(selected_symbol)
+        source = st.session_state.holding_sources.get(selected_symbol)
         if score is not None:
-            st.markdown(f"Conviction Score: {score_to_badge(score)}")
+            src_label = " (via yfinance — foreign ADR)" if source == "yfinance" else " (via Polygon)"
+            st.markdown(f"Conviction Score: {score_to_badge(score)}{src_label}")
         account_detail['% of Position'] = (
             account_detail['Market Value ($)'] / total_holding_val * 100
         ).round(1).astype(str) + '%'
