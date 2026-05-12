@@ -289,6 +289,28 @@ st.divider()
 
 # ── Holdings Explorer ─────────────────────────────────────────────────────
 st.header("📋 Holdings Explorer")
+st.markdown("""
+<style>
+/* SEC button - green */
+div[data-testid="stLinkButton"] a[href*="sec.gov"] {
+    background-color: #27ae60 !important;
+    color: white !important;
+    border-color: #27ae60 !important;
+}
+/* Yahoo button - purple */
+div[data-testid="stLinkButton"] a[href*="yahoo.com"] {
+    background-color: #8e44ad !important;
+    color: white !important;
+    border-color: #8e44ad !important;
+}
+/* Deep Dive button - already primary blue, boost it */
+div[data-testid="stLinkButton"] a[href*="equity_scout"] {
+    background-color: #1f6feb !important;
+    color: white !important;
+    border-color: #1f6feb !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 if df_holdings_raw is not None:
     consolidated = (
