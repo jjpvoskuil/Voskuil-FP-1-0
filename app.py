@@ -202,7 +202,11 @@ def fetch_score_data(ticker):
         inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
         fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
-        if fcf is None or fcf <= 0:
+        # Do NOT gate on fcf <= 0 here — heavy-capex companies like AMZN legitimately
+        # have negative FCF by this measure yet are scoreable on other metrics.
+        # A None fcf just means fcf_yield scores 0 pts, which is correct and meaningful.
+        # Only fall back to yfinance if we got absolutely no financials data at all.
+        if fcf is None and op_cf is None:
             return fetch_score_data_yfinance(ticker)
 
         fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
@@ -325,71 +329,86 @@ def is_fund(product_type: str) -> bool:
 # ─────────────────────────────────────────────
 def fetch_score_data_fund(ticker):
     """Fetch fund-specific metrics via yfinance for ETFs and mutual funds.
-    Returns a dict in all cases (never bare None) so the scoring loop can
-    surface debug info when data is missing rather than silently showing '—'.
+    Retries up to 3 times with exponential backoff on rate-limit errors.
+    Returns a dict in all cases — never bare None — so the scoring loop
+    can surface debug info when data is missing.
     """
-    try:
-        import yfinance as yf
-        info = yf.Ticker(ticker).info
+    import time as _time
 
-        # ── Expense Ratio ────────────────────────────────────────────────
-        expense_ratio = safe_float(info.get('expenseRatio'))
+    max_attempts = 3
+    last_error   = None
 
-        # ── Distribution / Dividend Yield ────────────────────────────────
-        # yfinance uses different keys by fund type and library version.
-        raw_yield = (
-            info.get('yield')
-            or info.get('dividendYield')
-            or info.get('trailingAnnualDividendYield')
-        )
-        dist_yield = safe_float(raw_yield)
-        # Normalise: sometimes returned as decimal (0.04), sometimes percent (4.0)
-        if dist_yield is not None and dist_yield > 1.0:
-            dist_yield = dist_yield / 100.0
+    for attempt in range(max_attempts):
+        try:
+            import yfinance as yf
+            info = yf.Ticker(ticker).info
 
-        # ── 3-Year / 5-Year Return ───────────────────────────────────────
-        return_3yr = safe_float(info.get('threeYearAverageReturn'))
-        if return_3yr is None:
-            return_3yr = safe_float(info.get('fiveYearAverageReturn'))   # acceptable proxy
-        if return_3yr is not None and return_3yr > 1.0:
-            return_3yr = return_3yr / 100.0
+            # ── Expense Ratio ────────────────────────────────────────────
+            expense_ratio = safe_float(info.get('expenseRatio'))
 
-        # ── Beta ─────────────────────────────────────────────────────────
-        beta = safe_float(info.get('beta3Year') or info.get('beta'))
+            # ── Distribution / Dividend Yield ────────────────────────────
+            raw_yield = (
+                info.get('yield')
+                or info.get('dividendYield')
+                or info.get('trailingAnnualDividendYield')
+            )
+            dist_yield = safe_float(raw_yield)
+            if dist_yield is not None and dist_yield > 1.0:
+                dist_yield = dist_yield / 100.0
 
-        # ── Concentration ─────────────────────────────────────────────────
-        concentration = None   # yfinance doesn't expose holdings weights yet
+            # ── 3-Year / 5-Year Return ───────────────────────────────────
+            return_3yr = safe_float(info.get('threeYearAverageReturn'))
+            if return_3yr is None:
+                return_3yr = safe_float(info.get('fiveYearAverageReturn'))
+            if return_3yr is not None and return_3yr > 1.0:
+                return_3yr = return_3yr / 100.0
 
-        # ── Debug payload — always captured ─────────────────────────────
-        yield_key_used = (
-            "yield" if info.get('yield') else
-            "dividendYield" if info.get('dividendYield') else
-            "trailingAnnualDividendYield" if info.get('trailingAnnualDividendYield') else
-            "none"
-        )
-        debug = {
-            "quoteType":     info.get('quoteType', '?'),
-            "expense_ratio": expense_ratio,
-            "dist_yield":    dist_yield,
-            "return_3yr":    return_3yr,
-            "beta":          beta,
-            "yield_key":     yield_key_used,
-        }
+            # ── Beta ─────────────────────────────────────────────────────
+            beta = safe_float(info.get('beta3Year') or info.get('beta'))
 
-        if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
-            return {"source": "fund_no_data", "debug": debug}
+            # ── Concentration ─────────────────────────────────────────────
+            concentration = None
 
-        return {
-            "expense_ratio":  expense_ratio,
-            "dist_yield":     dist_yield,
-            "return_3yr":     return_3yr,
-            "beta":           beta,
-            "concentration":  concentration,
-            "source":         "fund",
-            "debug":          debug,
-        }
-    except Exception as e:
-        return {"source": "fund_error", "error": str(e)}
+            yield_key_used = (
+                "yield" if info.get('yield') else
+                "dividendYield" if info.get('dividendYield') else
+                "trailingAnnualDividendYield" if info.get('trailingAnnualDividendYield') else
+                "none"
+            )
+            debug = {
+                "quoteType":     info.get('quoteType', '?'),
+                "expense_ratio": expense_ratio,
+                "dist_yield":    dist_yield,
+                "return_3yr":    return_3yr,
+                "beta":          beta,
+                "yield_key":     yield_key_used,
+                "attempt":       attempt + 1,
+            }
+
+            if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
+                return {"source": "fund_no_data", "debug": debug}
+
+            return {
+                "expense_ratio":  expense_ratio,
+                "dist_yield":     dist_yield,
+                "return_3yr":     return_3yr,
+                "beta":           beta,
+                "concentration":  concentration,
+                "source":         "fund",
+                "debug":          debug,
+            }
+
+        except Exception as e:
+            last_error = str(e)
+            is_rate_limit = any(phrase in last_error.lower()
+                                for phrase in ["too many requests", "rate limit", "429"])
+            if is_rate_limit and attempt < max_attempts - 1:
+                wait = 3 * (2 ** attempt)   # 3s, 6s, 12s
+                _time.sleep(wait)
+                continue
+            break   # non-rate-limit error or final attempt — give up
+
+    return {"source": "fund_error", "error": last_error}
 
 
 # ─────────────────────────────────────────────
@@ -762,7 +781,9 @@ if df_holdings_raw is not None:
                 else:
                     scores[symbol]  = None
                     sources[symbol] = None
-            time.sleep(0.1)
+            # Funds use yfinance (rate-limited scraper) → longer pause.
+            # Stocks use Polygon (paid API) → short pause is fine.
+            time.sleep(1.5 if is_fund(sym_to_type.get(symbol, "")) else 0.1)
         st.session_state.holding_scores      = scores
         st.session_state.holding_sources     = sources
         st.session_state.holding_fund_scores = fund_scores
