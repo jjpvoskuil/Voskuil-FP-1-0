@@ -327,56 +327,96 @@ def is_fund(product_type: str) -> bool:
 # ─────────────────────────────────────────────
 # FUND DATA FETCHER (yfinance)
 # ─────────────────────────────────────────────
+
+# Tickers whose quoteType yfinance returns as MONEYMARKET — scored differently
+MONEY_MARKET_TICKERS = {"SPAXX", "VMFXX", "VMMXX", "FDRXX", "SPRXX", "SWVXX",
+                         "VUSXX", "FDLXX", "FZFXX", "TFDXX"}
+
+def _yf_info_with_session(ticker):
+    """Fetch yfinance .info using a requests session with a browser User-Agent.
+    Yahoo Finance is more tolerant of requests that look like a real browser.
+    """
+    import yfinance as yf
+    import requests
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
+    })
+    return yf.Ticker(ticker, session=session).info
+
+
 def fetch_score_data_fund(ticker):
     """Fetch fund-specific metrics via yfinance for ETFs and mutual funds.
-    Retries up to 3 times with exponential backoff on rate-limit errors.
-    Returns a dict in all cases — never bare None — so the scoring loop
-    can surface debug info when data is missing.
+    - Uses a browser User-Agent session to reduce Yahoo rate-limiting
+    - Retries up to 4 times with exponential backoff (5s, 10s, 20s, 40s)
+    - Special-cases money market funds (SPAXX etc.) — no beta/return, score on yield+expense
+    - Bond/alt funds often have no beta — scores on remaining metrics with rebalancing
+    - Returns a dict always (never bare None) so diagnostics expander can show what happened
     """
     import time as _time
 
-    max_attempts = 3
+    max_attempts = 4
     last_error   = None
 
     for attempt in range(max_attempts):
         try:
-            import yfinance as yf
-            info = yf.Ticker(ticker).info
+            info = _yf_info_with_session(ticker)
 
-            # ── Expense Ratio ────────────────────────────────────────────
+            quote_type = info.get('quoteType', '').upper()
+
+            # ── Expense Ratio ─────────────────────────────────────────────
             expense_ratio = safe_float(info.get('expenseRatio'))
 
-            # ── Distribution / Dividend Yield ────────────────────────────
+            # ── Distribution / Dividend Yield ─────────────────────────────
+            # Priority order: ETF 'yield' → mutual fund 'dividendYield'
+            # → trailing annual → 7-day yield (money markets)
             raw_yield = (
                 info.get('yield')
                 or info.get('dividendYield')
                 or info.get('trailingAnnualDividendYield')
+                or info.get('sevenDayYield')        # money market funds
             )
             dist_yield = safe_float(raw_yield)
+            # Normalise: sometimes decimal (0.045), sometimes percent (4.5)
             if dist_yield is not None and dist_yield > 1.0:
                 dist_yield = dist_yield / 100.0
 
-            # ── 3-Year / 5-Year Return ───────────────────────────────────
-            return_3yr = safe_float(info.get('threeYearAverageReturn'))
-            if return_3yr is None:
-                return_3yr = safe_float(info.get('fiveYearAverageReturn'))
-            if return_3yr is not None and return_3yr > 1.0:
-                return_3yr = return_3yr / 100.0
+            # ── 3-Year / 5-Year Return ────────────────────────────────────
+            # Money market funds have no meaningful multi-year return (NAV = $1 always)
+            if ticker.upper() in MONEY_MARKET_TICKERS or quote_type == "MONEYMARKET":
+                return_3yr = None   # excluded — rebalanced out cleanly
+            else:
+                return_3yr = safe_float(info.get('threeYearAverageReturn'))
+                if return_3yr is None:
+                    return_3yr = safe_float(info.get('fiveYearAverageReturn'))
+                if return_3yr is not None and return_3yr > 1.0:
+                    return_3yr = return_3yr / 100.0
 
             # ── Beta ─────────────────────────────────────────────────────
-            beta = safe_float(info.get('beta3Year') or info.get('beta'))
+            # Bond funds and money markets have no equity beta — that's fine,
+            # it just gets rebalanced out. Don't force a 0 here.
+            if ticker.upper() in MONEY_MARKET_TICKERS or quote_type == "MONEYMARKET":
+                beta = None   # excluded — rebalanced out cleanly
+            else:
+                beta = safe_float(info.get('beta3Year') or info.get('beta'))
 
             # ── Concentration ─────────────────────────────────────────────
-            concentration = None
+            concentration = None   # yfinance doesn't expose holdings weights yet
 
+            # ── Debug payload ─────────────────────────────────────────────
             yield_key_used = (
                 "yield" if info.get('yield') else
                 "dividendYield" if info.get('dividendYield') else
                 "trailingAnnualDividendYield" if info.get('trailingAnnualDividendYield') else
+                "sevenDayYield" if info.get('sevenDayYield') else
                 "none"
             )
             debug = {
-                "quoteType":     info.get('quoteType', '?'),
+                "quoteType":     quote_type or "?",
                 "expense_ratio": expense_ratio,
                 "dist_yield":    dist_yield,
                 "return_3yr":    return_3yr,
@@ -403,10 +443,10 @@ def fetch_score_data_fund(ticker):
             is_rate_limit = any(phrase in last_error.lower()
                                 for phrase in ["too many requests", "rate limit", "429"])
             if is_rate_limit and attempt < max_attempts - 1:
-                wait = 3 * (2 ** attempt)   # 3s, 6s, 12s
+                wait = 5 * (2 ** attempt)   # 5s → 10s → 20s → 40s
                 _time.sleep(wait)
                 continue
-            break   # non-rate-limit error or final attempt — give up
+            break   # non-rate-limit error or exhausted retries
 
     return {"source": "fund_error", "error": last_error}
 
@@ -783,7 +823,7 @@ if df_holdings_raw is not None:
                     sources[symbol] = None
             # Funds use yfinance (rate-limited scraper) → longer pause.
             # Stocks use Polygon (paid API) → short pause is fine.
-            time.sleep(1.5 if is_fund(sym_to_type.get(symbol, "")) else 0.1)
+            time.sleep(2.5 if is_fund(sym_to_type.get(symbol, "")) else 0.1)
         st.session_state.holding_scores      = scores
         st.session_state.holding_sources     = sources
         st.session_state.holding_fund_scores = fund_scores
