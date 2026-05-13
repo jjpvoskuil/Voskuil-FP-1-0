@@ -173,7 +173,8 @@ def fetch_score_data_yfinance(ticker):
 # PRIMARY POLYGON FETCHER
 # ─────────────────────────────────────────────
 def fetch_score_data(ticker):
-    """Try Polygon first; fall back to yfinance for foreign ADRs."""
+    """Polygon-only stock scorer. Returns None on any failure — never calls yfinance.
+    ADRs and other yfinance-needed tickers are handled in Pass 2 of the scoring loop."""
     try:
         det_data = poly_get(f"/v3/reference/tickers/{ticker}")
         det = det_data.get("results", {}) if det_data else {}
@@ -192,9 +193,8 @@ def fetch_score_data(ticker):
             "order": "desc", "sort": "period_of_report_date",
         })
 
-        # No SEC filings found — fall back to yfinance
         if not fin_data or not fin_data.get("results"):
-            return fetch_score_data_yfinance(ticker)
+            return None   # no SEC filings — ADR queued for Pass 2 via locale check
 
         f   = fin_data["results"][0]["financials"]
         inc = f.get("income_statement",    {})
@@ -205,14 +205,10 @@ def fetch_score_data(ticker):
         inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
         fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
-        # Do NOT gate on fcf <= 0 here — heavy-capex companies like AMZN legitimately
-        # have negative FCF by this measure yet are scoreable on other metrics.
-        # A None fcf just means fcf_yield scores 0 pts, which is correct and meaningful.
-        # Only fall back to yfinance if we got absolutely no financials data at all.
         if fcf is None and op_cf is None:
-            return fetch_score_data_yfinance(ticker)
+            return None   # no cash flow data at all — queue for Pass 2
 
-        fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
+        fcf_yield    = (fcf / market_cap) if (fcf and fcf > 0 and market_cap and market_cap > 0) else None
         gross_profit = fval(inc, "gross_profit")
         revenues     = fval(inc, "revenues")
         gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
@@ -243,7 +239,7 @@ def fetch_score_data(ticker):
             "source":            "polygon",
         }
     except Exception:
-        return fetch_score_data_yfinance(ticker)
+        return None   # any exception — let Pass 2 handle via locale detection
 
 # ─────────────────────────────────────────────
 # SCORING ENGINE
