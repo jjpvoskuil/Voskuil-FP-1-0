@@ -421,59 +421,72 @@ def _poly_beta_vs_spy(ticker, days=756):
 
 
 def _yf_fund_fallback(ticker):
-    """yfinance fallback for mutual fund share classes and money markets
-    that have no Polygon ETF data. Returns fund data dict or error dict."""
-    import time as _time
-    import yfinance as yf
+    """Score mutual fund share classes using:
+    - Static expense ratio lookup (stable, changes ~annually, no API needed)
+    - Polygon price history for trailing return and beta (same as ETF path)
+    - Static 7-day yield for money market funds
 
-    max_attempts = 3
-    last_error   = None
+    This eliminates yfinance entirely, removing all rate limit exposure.
+    To update expense ratios: edit MUTUAL_FUND_EXPENSE_RATIOS below.
+    """
 
-    for attempt in range(max_attempts):
-        try:
-            info       = yf.Ticker(ticker).info
-            quote_type = info.get('quoteType', '').upper()
-            is_mm      = ticker.upper() in MONEY_MARKET_TICKERS or quote_type == "MONEYMARKET"
+    # ── Static expense ratio table ────────────────────────────────────────
+    # Source: fund prospectuses / Morningstar. Update annually or when rebalancing.
+    # Key = ticker, value = annual expense ratio as decimal (0.0048 = 0.48%)
+    MUTUAL_FUND_EXPENSE_RATIOS = {
+        "GIBIX": 0.0048,   # Guggenheim Total Return Bond Instl
+        "CMNIX": 0.0099,   # Calamos Market Neutral Income I
+        "SPAXX": 0.0000,   # Fidelity Govt Money Market (no expense ratio)
+        "ABYIX": 0.0179,   # Abbey Capital Futures Strategy I
+        "GIBLX": 0.0073,   # Guggenheim Total Return Bond Class A (alt share class)
+        "CMNAX": 0.0124,   # Calamos Market Neutral Income A (alt share class)
+    }
 
-            expense_ratio = safe_float(info.get('expenseRatio'))
-            raw_yield = (
-                info.get('yield') or info.get('dividendYield')
-                or info.get('trailingAnnualDividendYield')
-                or info.get('sevenDayYield')
-            )
-            dist_yield = safe_float(raw_yield)
-            if dist_yield is not None and dist_yield > 1.0:
-                dist_yield = dist_yield / 100.0
+    # ── Static 7-day yield for money markets ─────────────────────────────
+    # Approximate — update manually when interest rate environment shifts significantly
+    MONEY_MARKET_YIELDS = {
+        "SPAXX": 0.0430,   # ~4.3% as of mid-2025 (Fidelity Govt MM)
+        "VMFXX": 0.0425,
+        "VUSXX": 0.0430,
+    }
 
-            return_3yr = None
-            beta       = None
-            if not is_mm:
-                return_3yr = safe_float(info.get('threeYearAverageReturn') or info.get('fiveYearAverageReturn'))
-                if return_3yr is not None and return_3yr > 1.0:
-                    return_3yr = return_3yr / 100.0
-                beta = safe_float(info.get('beta3Year') or info.get('beta'))
+    t = ticker.upper()
+    is_mm = t in MONEY_MARKET_TICKERS
 
-            if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
-                return {"source": "fund_no_data",
-                        "debug": {"quoteType": quote_type, "expense_ratio": None,
-                                  "dist_yield": None, "return_3yr": None, "beta": None,
-                                  "yield_key": "none", "attempt": attempt + 1}}
-            return {
-                "expense_ratio": expense_ratio, "dist_yield":   dist_yield,
-                "return_3yr":    return_3yr,    "beta":         beta,
-                "concentration": None,          "source":       "fund_yf",
-                "debug": {"quoteType": quote_type, "expense_ratio": expense_ratio,
-                          "dist_yield": dist_yield, "return_3yr": return_3yr,
-                          "beta": beta, "yield_key": "yfinance", "attempt": attempt + 1},
-            }
-        except Exception as e:
-            last_error = str(e)
-            is_rl = any(p in last_error.lower() for p in ["too many requests", "rate limit", "429"])
-            if is_rl and attempt < max_attempts - 1:
-                _time.sleep(5 * (2 ** attempt))
-                continue
-            break
-    return {"source": "fund_error", "error": last_error}
+    expense_ratio = MUTUAL_FUND_EXPENSE_RATIOS.get(t)
+
+    # ── Yield ─────────────────────────────────────────────────────────────
+    if is_mm:
+        dist_yield = MONEY_MARKET_YIELDS.get(t)
+        return_3yr = None   # NAV = $1 always — trailing return meaningless
+        beta       = None   # no equity beta for money markets
+    else:
+        dist_yield = None   # mutual fund distributions vary — skip, rebalance out
+        return_3yr = _poly_trailing_return(ticker, years=3)
+        beta       = _poly_beta_vs_spy(ticker)
+
+    debug = {
+        "quoteType":     "MUTUALFUND (static lookup)",
+        "expense_ratio": expense_ratio,
+        "dist_yield":    dist_yield,
+        "return_3yr":    return_3yr,
+        "beta":          beta,
+        "yield_key":     "static" if is_mm else "polygon_aggs",
+        "attempt":       1,
+    }
+
+    if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
+        return {"source": "fund_no_data", "debug": debug}
+
+    return {
+        "expense_ratio": expense_ratio,
+        "dist_yield":    dist_yield,
+        "return_3yr":    return_3yr,
+        "beta":          beta,
+        "concentration": None,
+        "source":        "fund_yf",   # keep same source tag so badge/display logic unchanged
+        "debug":         debug,
+    }
 
 
 def fetch_score_data_fund(ticker):
