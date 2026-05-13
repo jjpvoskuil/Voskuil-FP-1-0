@@ -295,34 +295,89 @@ def score_to_badge(score):
 # ─────────────────────────────────────────────
 # FUND DETECTION
 # ─────────────────────────────────────────────
+# Exact matches (lowercase) for known MS product type strings
+FUND_PRODUCT_TYPES = {
+    "mutual fund", "mutual funds",
+    "etf", "etfs",
+    "exchange traded fund", "exchange traded funds",
+    "exchange-traded fund", "exchange-traded funds",
+    "money market", "money market fund", "money market funds",
+    "closed-end fund", "closed-end funds",
+    "unit investment trust",
+    "529", "529 plan",
+    "annuity",
+}
+
+# Keyword fragments — if any of these appear anywhere in the product type string it's a fund
+FUND_KEYWORDS = ("fund", "etf", "money market", "annuity", "trust", "529")
+
 def is_fund(product_type: str) -> bool:
-    """True if the Product Type from the MS CSV identifies this holding as a fund/ETF."""
-    return str(product_type).strip().lower() in FUND_PRODUCT_TYPES
+    """True if the Product Type from the MS CSV identifies this holding as a fund/ETF.
+    Uses exact-match set first, then keyword fallback for unexpected MS label variants."""
+    pt = str(product_type).strip().lower()
+    if pt in FUND_PRODUCT_TYPES:
+        return True
+    return any(kw in pt for kw in FUND_KEYWORDS)
 
 
 # ─────────────────────────────────────────────
 # FUND DATA FETCHER (yfinance)
 # ─────────────────────────────────────────────
 def fetch_score_data_fund(ticker):
-    """Fetch fund-specific metrics via yfinance for ETFs and mutual funds."""
+    """Fetch fund-specific metrics via yfinance for ETFs and mutual funds.
+    Returns a dict in all cases (never bare None) so the scoring loop can
+    surface debug info when data is missing rather than silently showing '—'.
+    """
     try:
         import yfinance as yf
         info = yf.Ticker(ticker).info
 
-        expense_ratio  = safe_float(info.get('expenseRatio'))
-        dist_yield     = safe_float(info.get('yield') or info.get('dividendYield'))
-        return_3yr     = safe_float(info.get('threeYearAverageReturn'))
-        beta           = safe_float(info.get('beta3Year') or info.get('beta'))
+        # ── Expense Ratio ────────────────────────────────────────────────
+        expense_ratio = safe_float(info.get('expenseRatio'))
 
-        # Concentration: yfinance doesn't expose holdings weights, but
-        # heuristicaly flag concentration via category name + beta.
-        # We'll leave this as None when not computable; score_fund handles missing gracefully.
-        concentration  = None   # future: wire to holdings API if available
+        # ── Distribution / Dividend Yield ────────────────────────────────
+        # yfinance uses different keys by fund type and library version.
+        raw_yield = (
+            info.get('yield')
+            or info.get('dividendYield')
+            or info.get('trailingAnnualDividendYield')
+        )
+        dist_yield = safe_float(raw_yield)
+        # Normalise: sometimes returned as decimal (0.04), sometimes percent (4.0)
+        if dist_yield is not None and dist_yield > 1.0:
+            dist_yield = dist_yield / 100.0
 
-        # Sanity-check: if absolutely nothing came back, return None so the
-        # holding stays unscored rather than showing a misleading zero.
+        # ── 3-Year / 5-Year Return ───────────────────────────────────────
+        return_3yr = safe_float(info.get('threeYearAverageReturn'))
+        if return_3yr is None:
+            return_3yr = safe_float(info.get('fiveYearAverageReturn'))   # acceptable proxy
+        if return_3yr is not None and return_3yr > 1.0:
+            return_3yr = return_3yr / 100.0
+
+        # ── Beta ─────────────────────────────────────────────────────────
+        beta = safe_float(info.get('beta3Year') or info.get('beta'))
+
+        # ── Concentration ─────────────────────────────────────────────────
+        concentration = None   # yfinance doesn't expose holdings weights yet
+
+        # ── Debug payload — always captured ─────────────────────────────
+        yield_key_used = (
+            "yield" if info.get('yield') else
+            "dividendYield" if info.get('dividendYield') else
+            "trailingAnnualDividendYield" if info.get('trailingAnnualDividendYield') else
+            "none"
+        )
+        debug = {
+            "quoteType":     info.get('quoteType', '?'),
+            "expense_ratio": expense_ratio,
+            "dist_yield":    dist_yield,
+            "return_3yr":    return_3yr,
+            "beta":          beta,
+            "yield_key":     yield_key_used,
+        }
+
         if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
-            return None
+            return {"source": "fund_no_data", "debug": debug}
 
         return {
             "expense_ratio":  expense_ratio,
@@ -331,9 +386,10 @@ def fetch_score_data_fund(ticker):
             "beta":           beta,
             "concentration":  concentration,
             "source":         "fund",
+            "debug":          debug,
         }
-    except Exception:
-        return None
+    except Exception as e:
+        return {"source": "fund_error", "error": str(e)}
 
 
 # ─────────────────────────────────────────────
@@ -581,6 +637,7 @@ if df_holdings_raw is not None:
     if 'holding_sources'      not in st.session_state: st.session_state.holding_sources      = {}
     if 'holding_fund_weights' not in st.session_state: st.session_state.holding_fund_weights = DEFAULT_FUND_WEIGHTS.copy()
     if 'holding_fund_scores'  not in st.session_state: st.session_state.holding_fund_scores  = {}
+    if 'holding_fund_debug'   not in st.session_state: st.session_state.holding_fund_debug   = {}
 
     # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
@@ -669,9 +726,10 @@ if df_holdings_raw is not None:
     if run_scoring:
         progress_bar = st.progress(0)
         status_text  = st.empty()
-        scores  = {}
-        sources = {}
-        fund_scores = {}
+        scores       = {}
+        sources      = {}
+        fund_scores  = {}
+        fund_debug   = {}   # symbol → debug payload for the diagnostics expander
         # Build a symbol→product_type lookup for routing
         sym_to_type = dict(zip(consolidated['Symbol'], consolidated['Product_Type']))
         for i, symbol in enumerate(unique_symbols):
@@ -679,16 +737,22 @@ if df_holdings_raw is not None:
             progress_bar.progress(pct)
             product_type = sym_to_type.get(symbol, "")
             if is_fund(product_type):
-                status_text.markdown(f"⏳ Scoring fund **{symbol}** — {i+1} of {n_symbols}")
+                status_text.markdown(f"⏳ Scoring fund **{symbol}** ({product_type}) — {i+1} of {n_symbols}")
                 data = fetch_score_data_fund(symbol)
-                if data is not None:
-                    _, rebalanced = score_fund(data, active_fund_weights)
-                    fund_scores[symbol]  = rebalanced
-                    scores[symbol]       = rebalanced   # unified dict for badge lookup
-                    sources[symbol]      = "fund"
+                src  = data.get("source", "fund_error") if data else "fund_error"
+                if src == "fund":
+                    _, rebalanced    = score_fund(data, active_fund_weights)
+                    fund_scores[symbol] = rebalanced
+                    scores[symbol]      = rebalanced
+                    sources[symbol]     = "fund"
                 else:
                     scores[symbol]  = None
-                    sources[symbol] = None
+                    sources[symbol] = src   # "fund_no_data" or "fund_error"
+                fund_debug[symbol] = {
+                    "product_type": product_type,
+                    "is_fund_detected": True,
+                    **(data or {}),
+                }
             else:
                 status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
                 data = fetch_score_data(symbol)
@@ -702,14 +766,39 @@ if df_holdings_raw is not None:
         st.session_state.holding_scores      = scores
         st.session_state.holding_sources     = sources
         st.session_state.holding_fund_scores = fund_scores
+        st.session_state.holding_fund_debug  = fund_debug
         progress_bar.progress(1.0)
-        scored_ok  = len([s for s in scores.values() if s is not None])
-        fund_ok    = len(fund_scores)
-        yf_ok      = sum(1 for s in sources.values() if s == "yfinance")
-        status_text.markdown(
-            f"✅ Done — {scored_ok} of {n_symbols} scored "
-            f"({fund_ok} funds via Fund Health, {yf_ok} ADRs via yfinance fallback)."
-        )
+        scored_ok      = len([s for s in scores.values() if s is not None])
+        fund_ok        = len(fund_scores)
+        fund_no_data   = sum(1 for s in sources.values() if s == "fund_no_data")
+        fund_err       = sum(1 for s in sources.values() if s == "fund_error")
+        yf_ok          = sum(1 for s in sources.values() if s == "yfinance")
+        summary = f"✅ Done — {scored_ok} of {n_symbols} scored ({fund_ok} funds via Fund Health, {yf_ok} ADRs via yfinance fallback)"
+        if fund_no_data or fund_err:
+            summary += f" · ⚠️ {fund_no_data + fund_err} fund(s) returned no data — see diagnostics below"
+        status_text.markdown(summary)
+
+    # ── Fund Diagnostics expander (only shown after a scoring run with fund debug data) ──
+    if 'holding_fund_debug' in st.session_state and st.session_state.holding_fund_debug:
+        with st.expander("🔬 Fund Scoring Diagnostics", expanded=False):
+            st.caption("Shows exactly what yfinance returned for each fund ticker. Useful for debugging missing scores.")
+            for sym, dbg in st.session_state.holding_fund_debug.items():
+                src = st.session_state.holding_sources.get(sym, "?")
+                score_val = st.session_state.holding_fund_scores.get(sym, None)
+                inner = dbg.get("debug", dbg)
+                st.markdown(
+                    f"**{sym}** ({dbg.get('product_type','?')}) — "
+                    f"source: `{src}` — "
+                    f"score: `{score_val if score_val is not None else 'unscored'}`"
+                )
+                cols = st.columns(5)
+                labels = ["Expense Ratio", "Dist Yield", "3-Yr Return", "Beta", "yield_key"]
+                keys   = ["expense_ratio", "dist_yield", "return_3yr", "beta", "yield_key"]
+                for col, lbl, key in zip(cols, labels, keys):
+                    val = inner.get(key)
+                    col.metric(lbl, f"{val:.4f}" if isinstance(val, float) else str(val) if val is not None else "None")
+                if dbg.get("error"):
+                    st.error(f"Exception: {dbg['error']}")
 
     st.divider()
 
