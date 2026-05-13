@@ -325,130 +325,221 @@ def is_fund(product_type: str) -> bool:
 
 
 # ─────────────────────────────────────────────
-# FUND DATA FETCHER (yfinance)
+# FUND DATA FETCHER
+# Primary path : Polygon (ETFs with exchange listing)
+# Fallback path: yfinance (mutual fund share classes, money markets)
 # ─────────────────────────────────────────────
 
-# Tickers whose quoteType yfinance returns as MONEYMARKET — scored differently
+# Money market tickers — no beta or trailing return (NAV always $1).
+# Scored on expense ratio + yield only; other metrics rebalanced out.
 MONEY_MARKET_TICKERS = {"SPAXX", "VMFXX", "VMMXX", "FDRXX", "SPRXX", "SWVXX",
                          "VUSXX", "FDLXX", "FZFXX", "TFDXX"}
 
-def _yf_info_with_session(ticker):
-    """Fetch yfinance .info using a requests session with a browser User-Agent.
-    Yahoo Finance is more tolerant of requests that look like a real browser.
-    """
-    import yfinance as yf
-    import requests
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        )
-    })
-    return yf.Ticker(ticker, session=session).info
+def _poly_fund_expense_and_yield(ticker):
+    """Pull expense ratio and distribution yield from Polygon ticker details."""
+    det_data = poly_get(f"/v3/reference/tickers/{ticker}")
+    if not det_data:
+        return None, None, None
+    det          = det_data.get("results", {})
+    poly_type    = det.get("type", "")          # "ETF", "CS", "FUND", etc.
+    expense_ratio = safe_float(det.get("expense_ratio") or det.get("annual_report_expense_ratio"))
+    # Polygon stores yield in a non-standard place for ETFs — use price/dividend agg as fallback
+    dist_yield   = safe_float(det.get("distribution_yield") or det.get("yield"))
+    return poly_type, expense_ratio, dist_yield
 
 
-def fetch_score_data_fund(ticker):
-    """Fetch fund-specific metrics via yfinance for ETFs and mutual funds.
-    - Uses a browser User-Agent session to reduce Yahoo rate-limiting
-    - Retries up to 4 times with exponential backoff (5s, 10s, 20s, 40s)
-    - Special-cases money market funds (SPAXX etc.) — no beta/return, score on yield+expense
-    - Bond/alt funds often have no beta — scores on remaining metrics with rebalancing
-    - Returns a dict always (never bare None) so diagnostics expander can show what happened
+def _poly_trailing_return(ticker, years=3):
+    """Compute annualised trailing return from Polygon daily aggs.
+    Uses adjusted close (adjusted=true) over the requested window.
+    Returns decimal (e.g. 0.12 = 12%) or None if data unavailable.
     """
+    import datetime
+    end_dt   = datetime.date.today()
+    start_dt = end_dt.replace(year=end_dt.year - years)
+
+    # Start price — earliest bar in window
+    start_data = poly_get(
+        f"/v2/aggs/ticker/{ticker}/range/1/day/{start_dt}/{start_dt + datetime.timedelta(days=7)}",
+        {"adjusted": "true", "sort": "asc", "limit": 1}
+    )
+    # End price — most recent bar
+    end_data = poly_get(
+        f"/v2/aggs/ticker/{ticker}/range/1/day/{end_dt - datetime.timedelta(days=7)}/{end_dt}",
+        {"adjusted": "true", "sort": "desc", "limit": 1}
+    )
+    try:
+        p_start = float(start_data["results"][0]["c"])
+        p_end   = float(end_data["results"][0]["c"])
+        if p_start > 0:
+            total_return = (p_end / p_start) - 1.0
+            # Annualise
+            annualised   = (1 + total_return) ** (1 / years) - 1
+            return annualised
+    except (KeyError, TypeError, IndexError, ZeroDivisionError):
+        pass
+    return None
+
+
+def _poly_beta_vs_spy(ticker, days=756):
+    """Compute beta against SPY from Polygon daily aggs (~3 years of trading days).
+    Returns float or None.
+    """
+    import datetime
+    end_dt   = datetime.date.today()
+    start_dt = end_dt - datetime.timedelta(days=days + 30)   # buffer for weekends
+
+    fund_data = poly_get(
+        f"/v2/aggs/ticker/{ticker}/range/1/day/{start_dt}/{end_dt}",
+        {"adjusted": "true", "sort": "asc", "limit": days}
+    )
+    spy_data = poly_get(
+        f"/v2/aggs/ticker/SPY/range/1/day/{start_dt}/{end_dt}",
+        {"adjusted": "true", "sort": "asc", "limit": days}
+    )
+    try:
+        fund_closes = [r["c"] for r in fund_data["results"]]
+        spy_closes  = [r["c"] for r in spy_data["results"]]
+        # Align lengths — use the shorter series
+        n = min(len(fund_closes), len(spy_closes))
+        if n < 60:   # need at least ~3 months of data
+            return None
+        fund_closes = fund_closes[-n:]
+        spy_closes  = spy_closes[-n:]
+        # Daily returns
+        fund_ret = [(fund_closes[i] / fund_closes[i-1]) - 1 for i in range(1, n)]
+        spy_ret  = [(spy_closes[i]  / spy_closes[i-1])  - 1 for i in range(1, n)]
+        # Beta = Cov(fund, spy) / Var(spy)
+        n2       = len(fund_ret)
+        mean_f   = sum(fund_ret) / n2
+        mean_s   = sum(spy_ret)  / n2
+        cov      = sum((fund_ret[i] - mean_f) * (spy_ret[i] - mean_s) for i in range(n2)) / n2
+        var_spy  = sum((spy_ret[i] - mean_s) ** 2 for i in range(n2)) / n2
+        if var_spy > 0:
+            return cov / var_spy
+    except (KeyError, TypeError, IndexError, ZeroDivisionError):
+        pass
+    return None
+
+
+def _yf_fund_fallback(ticker):
+    """yfinance fallback for mutual fund share classes and money markets
+    that have no Polygon ETF data. Returns fund data dict or error dict."""
     import time as _time
-
-    max_attempts = 4
+    max_attempts = 3
     last_error   = None
 
     for attempt in range(max_attempts):
         try:
-            info = _yf_info_with_session(ticker)
-
+            import yfinance as yf
+            info       = yf.Ticker(ticker).info
             quote_type = info.get('quoteType', '').upper()
+            is_mm      = ticker.upper() in MONEY_MARKET_TICKERS or quote_type == "MONEYMARKET"
 
-            # ── Expense Ratio ─────────────────────────────────────────────
             expense_ratio = safe_float(info.get('expenseRatio'))
-
-            # ── Distribution / Dividend Yield ─────────────────────────────
-            # Priority order: ETF 'yield' → mutual fund 'dividendYield'
-            # → trailing annual → 7-day yield (money markets)
             raw_yield = (
-                info.get('yield')
-                or info.get('dividendYield')
+                info.get('yield') or info.get('dividendYield')
                 or info.get('trailingAnnualDividendYield')
-                or info.get('sevenDayYield')        # money market funds
+                or info.get('sevenDayYield')
             )
             dist_yield = safe_float(raw_yield)
-            # Normalise: sometimes decimal (0.045), sometimes percent (4.5)
             if dist_yield is not None and dist_yield > 1.0:
                 dist_yield = dist_yield / 100.0
 
-            # ── 3-Year / 5-Year Return ────────────────────────────────────
-            # Money market funds have no meaningful multi-year return (NAV = $1 always)
-            if ticker.upper() in MONEY_MARKET_TICKERS or quote_type == "MONEYMARKET":
-                return_3yr = None   # excluded — rebalanced out cleanly
-            else:
-                return_3yr = safe_float(info.get('threeYearAverageReturn'))
-                if return_3yr is None:
-                    return_3yr = safe_float(info.get('fiveYearAverageReturn'))
+            return_3yr = None
+            beta       = None
+            if not is_mm:
+                return_3yr = safe_float(info.get('threeYearAverageReturn') or info.get('fiveYearAverageReturn'))
                 if return_3yr is not None and return_3yr > 1.0:
                     return_3yr = return_3yr / 100.0
-
-            # ── Beta ─────────────────────────────────────────────────────
-            # Bond funds and money markets have no equity beta — that's fine,
-            # it just gets rebalanced out. Don't force a 0 here.
-            if ticker.upper() in MONEY_MARKET_TICKERS or quote_type == "MONEYMARKET":
-                beta = None   # excluded — rebalanced out cleanly
-            else:
                 beta = safe_float(info.get('beta3Year') or info.get('beta'))
 
-            # ── Concentration ─────────────────────────────────────────────
-            concentration = None   # yfinance doesn't expose holdings weights yet
+            if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
+                return {"source": "fund_no_data",
+                        "debug": {"quoteType": quote_type, "expense_ratio": None,
+                                  "dist_yield": None, "return_3yr": None, "beta": None,
+                                  "yield_key": "none", "attempt": attempt + 1}}
+            return {
+                "expense_ratio": expense_ratio, "dist_yield":   dist_yield,
+                "return_3yr":    return_3yr,    "beta":         beta,
+                "concentration": None,          "source":       "fund_yf",
+                "debug": {"quoteType": quote_type, "expense_ratio": expense_ratio,
+                          "dist_yield": dist_yield, "return_3yr": return_3yr,
+                          "beta": beta, "yield_key": "yfinance", "attempt": attempt + 1},
+            }
+        except Exception as e:
+            last_error = str(e)
+            is_rl = any(p in last_error.lower() for p in ["too many requests", "rate limit", "429"])
+            if is_rl and attempt < max_attempts - 1:
+                _time.sleep(5 * (2 ** attempt))
+                continue
+            break
+    return {"source": "fund_error", "error": last_error}
 
-            # ── Debug payload ─────────────────────────────────────────────
-            yield_key_used = (
-                "yield" if info.get('yield') else
-                "dividendYield" if info.get('dividendYield') else
-                "trailingAnnualDividendYield" if info.get('trailingAnnualDividendYield') else
-                "sevenDayYield" if info.get('sevenDayYield') else
-                "none"
-            )
+
+def fetch_score_data_fund(ticker):
+    """Route fund data fetching: Polygon for ETFs, yfinance for mutual funds/money markets.
+
+    Polygon path (fast, no rate limits):
+      - Uses /v3/reference/tickers for expense_ratio + type detection
+      - Computes 3yr trailing return from /v2/aggs daily price history
+      - Computes beta vs SPY from same price history
+
+    yfinance fallback (mutual fund share classes, money markets):
+      - Used when Polygon type != ETF or Polygon has no data
+      - Retries up to 3x with exponential backoff on rate limits
+    """
+    try:
+        # ── Step 1: Check Polygon type field ─────────────────────────────
+        poly_type, expense_ratio, dist_yield_poly = _poly_fund_expense_and_yield(ticker)
+
+        use_polygon = (poly_type == "ETF")
+
+        if use_polygon:
+            # ── Step 2: Polygon path for ETFs ─────────────────────────────
+            return_3yr    = _poly_trailing_return(ticker, years=3)
+            beta          = _poly_beta_vs_spy(ticker)
+            concentration = None
+
+            # dist_yield from Polygon is often absent — try price/agg dividend yield
+            dist_yield = dist_yield_poly
+            if dist_yield is None:
+                # Fallback: fetch previous day's close and use Polygon snapshot dividends
+                prev_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev", {"adjusted": "false"})
+                try:
+                    close  = float(prev_data["results"][0]["c"])
+                    vw     = float(prev_data["results"][0].get("vw", close))
+                    # Polygon doesn't give TTM dividend directly — leave as None
+                    # (will be rebalanced out; expense ratio + return + beta still score)
+                    dist_yield = None
+                except (KeyError, TypeError, IndexError):
+                    dist_yield = None
+
             debug = {
-                "quoteType":     quote_type or "?",
+                "quoteType":     "ETF (Polygon)",
                 "expense_ratio": expense_ratio,
                 "dist_yield":    dist_yield,
                 "return_3yr":    return_3yr,
                 "beta":          beta,
-                "yield_key":     yield_key_used,
-                "attempt":       attempt + 1,
+                "yield_key":     "polygon",
+                "attempt":       1,
             }
 
             if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
                 return {"source": "fund_no_data", "debug": debug}
 
             return {
-                "expense_ratio":  expense_ratio,
-                "dist_yield":     dist_yield,
-                "return_3yr":     return_3yr,
-                "beta":           beta,
-                "concentration":  concentration,
-                "source":         "fund",
-                "debug":          debug,
+                "expense_ratio": expense_ratio, "dist_yield":   dist_yield,
+                "return_3yr":    return_3yr,    "beta":         beta,
+                "concentration": concentration, "source":       "fund",
+                "debug":         debug,
             }
 
-        except Exception as e:
-            last_error = str(e)
-            is_rate_limit = any(phrase in last_error.lower()
-                                for phrase in ["too many requests", "rate limit", "429"])
-            if is_rate_limit and attempt < max_attempts - 1:
-                wait = 5 * (2 ** attempt)   # 5s → 10s → 20s → 40s
-                _time.sleep(wait)
-                continue
-            break   # non-rate-limit error or exhausted retries
+        else:
+            # ── Step 3: yfinance fallback for mutual funds / money markets ─
+            return _yf_fund_fallback(ticker)
 
-    return {"source": "fund_error", "error": last_error}
+    except Exception as e:
+        return {"source": "fund_error", "error": str(e)}
 
 
 # ─────────────────────────────────────────────
@@ -769,14 +860,16 @@ if df_holdings_raw is not None:
     with info_col:
         scored_count = len(st.session_state.holding_scores) + len(st.session_state.holding_fund_scores)
         if scored_count > 0:
-            poly_count = sum(1 for s in st.session_state.holding_sources.values() if s == "polygon")
-            yf_count   = sum(1 for s in st.session_state.holding_sources.values() if s == "yfinance")
-            fund_count = sum(1 for s in st.session_state.holding_sources.values() if s == "fund")
+            poly_count      = sum(1 for s in st.session_state.holding_sources.values() if s == "polygon")
+            yf_count        = sum(1 for s in st.session_state.holding_sources.values() if s == "yfinance")
+            fund_poly_count = sum(1 for s in st.session_state.holding_sources.values() if s == "fund")
+            fund_yf_count   = sum(1 for s in st.session_state.holding_sources.values() if s == "fund_yf")
             msg = f"✅ {scored_count} holdings scored"
             parts = []
-            if poly_count: parts.append(f"{poly_count} stocks via Polygon")
-            if yf_count:   parts.append(f"{yf_count} ADRs via yfinance")
-            if fund_count: parts.append(f"{fund_count} funds via Fund Health")
+            if poly_count:      parts.append(f"{poly_count} stocks via Polygon")
+            if yf_count:        parts.append(f"{yf_count} ADRs via yfinance")
+            if fund_poly_count: parts.append(f"{fund_poly_count} ETFs via Polygon")
+            if fund_yf_count:   parts.append(f"{fund_yf_count} mutual funds via yfinance")
             if parts: msg += " — " + ", ".join(parts)
             st.success(msg)
         else:
@@ -799,11 +892,11 @@ if df_holdings_raw is not None:
                 status_text.markdown(f"⏳ Scoring fund **{symbol}** ({product_type}) — {i+1} of {n_symbols}")
                 data = fetch_score_data_fund(symbol)
                 src  = data.get("source", "fund_error") if data else "fund_error"
-                if src == "fund":
+                if src in ("fund", "fund_yf"):
                     _, rebalanced    = score_fund(data, active_fund_weights)
                     fund_scores[symbol] = rebalanced
                     scores[symbol]      = rebalanced
-                    sources[symbol]     = "fund"
+                    sources[symbol]     = src
                 else:
                     scores[symbol]  = None
                     sources[symbol] = src   # "fund_no_data" or "fund_error"
@@ -821,20 +914,28 @@ if df_holdings_raw is not None:
                 else:
                     scores[symbol]  = None
                     sources[symbol] = None
-            # Funds use yfinance (rate-limited scraper) → longer pause.
-            # Stocks use Polygon (paid API) → short pause is fine.
-            time.sleep(2.5 if is_fund(sym_to_type.get(symbol, "")) else 0.1)
+            # ETFs route through Polygon (fast, no rate limits) — same sleep as stocks.
+            # Mutual fund share classes fall back to yfinance — needs longer pause.
+            # We don't know which path was taken without checking poly_type, so use
+            # a moderate 0.5s for all funds — fast enough, safe enough.
+            time.sleep(0.5 if is_fund(sym_to_type.get(symbol, "")) else 0.1)
         st.session_state.holding_scores      = scores
         st.session_state.holding_sources     = sources
         st.session_state.holding_fund_scores = fund_scores
         st.session_state.holding_fund_debug  = fund_debug
         progress_bar.progress(1.0)
         scored_ok      = len([s for s in scores.values() if s is not None])
-        fund_ok        = len(fund_scores)
+        fund_poly_ok   = sum(1 for s in sources.values() if s == "fund")
+        fund_yf_ok     = sum(1 for s in sources.values() if s == "fund_yf")
         fund_no_data   = sum(1 for s in sources.values() if s == "fund_no_data")
         fund_err       = sum(1 for s in sources.values() if s == "fund_error")
         yf_ok          = sum(1 for s in sources.values() if s == "yfinance")
-        summary = f"✅ Done — {scored_ok} of {n_symbols} scored ({fund_ok} funds via Fund Health, {yf_ok} ADRs via yfinance fallback)"
+        summary = f"✅ Done — {scored_ok} of {n_symbols} scored"
+        parts = []
+        if fund_poly_ok: parts.append(f"{fund_poly_ok} ETFs via Polygon")
+        if fund_yf_ok:   parts.append(f"{fund_yf_ok} mutual funds via yfinance")
+        if yf_ok:        parts.append(f"{yf_ok} foreign ADRs via yfinance")
+        if parts:        summary += " — " + ", ".join(parts)
         if fund_no_data or fund_err:
             summary += f" · ⚠️ {fund_no_data + fund_err} fund(s) returned no data — see diagnostics below"
         status_text.markdown(summary)
@@ -842,18 +943,20 @@ if df_holdings_raw is not None:
     # ── Fund Diagnostics expander (only shown after a scoring run with fund debug data) ──
     if 'holding_fund_debug' in st.session_state and st.session_state.holding_fund_debug:
         with st.expander("🔬 Fund Scoring Diagnostics", expanded=False):
-            st.caption("Shows exactly what yfinance returned for each fund ticker. Useful for debugging missing scores.")
+            st.caption("Shows what data was retrieved for each fund. ETFs use Polygon; mutual funds/money markets fall back to yfinance.")
             for sym, dbg in st.session_state.holding_fund_debug.items():
                 src = st.session_state.holding_sources.get(sym, "?")
                 score_val = st.session_state.holding_fund_scores.get(sym, None)
+                src_label = {"fund": "Polygon ETF", "fund_yf": "yfinance (mutual fund)",
+                             "fund_no_data": "⚠️ no data", "fund_error": "❌ error"}.get(src, src)
                 inner = dbg.get("debug", dbg)
                 st.markdown(
                     f"**{sym}** ({dbg.get('product_type','?')}) — "
-                    f"source: `{src}` — "
+                    f"source: `{src_label}` — "
                     f"score: `{score_val if score_val is not None else 'unscored'}`"
                 )
                 cols = st.columns(5)
-                labels = ["Expense Ratio", "Dist Yield", "3-Yr Return", "Beta", "yield_key"]
+                labels = ["Expense Ratio", "Dist Yield", "3-Yr Return", "Beta", "Data Source"]
                 keys   = ["expense_ratio", "dist_yield", "return_3yr", "beta", "yield_key"]
                 for col, lbl, key in zip(cols, labels, keys):
                     val = inner.get(key)
@@ -876,7 +979,7 @@ if df_holdings_raw is not None:
     )
     # Route badge generation: fund_score_to_badge for funds, score_to_badge for stocks
     def make_badge(row):
-        if row['Source'] == 'fund':
+        if row['Source'] in ('fund', 'fund_yf'):
             return fund_score_to_badge(row['Score_Num'])
         return score_to_badge(row['Score_Num'])
     display_df['Badge']   = display_df.apply(make_badge, axis=1)
@@ -928,9 +1031,9 @@ if df_holdings_raw is not None:
             src = row.get('Source')
             sym_label = f"**{row['Symbol']}**"
             if src == "yfinance":
-                sym_label += " 🌐"   # Globe = foreign ADR scored via yfinance
-            elif src == "fund":
-                sym_label += " 📊"   # Chart = fund scored via Fund Health Framework
+                sym_label += " 🌐"
+            elif src in ("fund", "fund_yf"):
+                sym_label += " 📊"
             st.markdown(sym_label)
         with c2:
             st.caption(row['Name'])
@@ -944,7 +1047,7 @@ if df_holdings_raw is not None:
             badge  = row['Badge']
             source = row.get('Source')
             if badge != "—":
-                if source == "fund":
+                if source in ("fund", "fund_yf"):
                     # Fund Health Score — use teal to distinguish from stock colour bands
                     num_part = badge.split(" ")[-1]  # e.g. "📊🟢 72" → "72"
                     if "🟢" in badge:   fc = "#1abc9c"
@@ -991,8 +1094,8 @@ if df_holdings_raw is not None:
         score  = st.session_state.holding_scores.get(selected_symbol)
         source = st.session_state.holding_sources.get(selected_symbol)
         if score is not None:
-            if source == "fund":
-                src_label = " (Fund Health Score — expense ratio, yield, return, beta)"
+            if source in ("fund", "fund_yf"):
+                src_label = " (Fund Health — Polygon)" if source == "fund" else " (Fund Health — yfinance)"
                 st.markdown(f"Fund Health Score: {fund_score_to_badge(score)}{src_label}")
             elif source == "yfinance":
                 st.markdown(f"Conviction Score: {score_to_badge(score)} (via yfinance — foreign ADR)")
