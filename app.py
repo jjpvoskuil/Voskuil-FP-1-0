@@ -108,10 +108,18 @@ def calc_interest_coverage(inc):
 # YFINANCE FALLBACK (for foreign ADRs)
 # ─────────────────────────────────────────────
 def fetch_score_data_yfinance(ticker):
-    """Fallback for foreign ADRs not in Polygon SEC database."""
+    """Fallback for foreign ADRs not in Polygon SEC database.
+    Uses a browser User-Agent session to reduce Yahoo rate-limiting."""
     try:
         import yfinance as yf
-        stock = yf.Ticker(ticker)
+        import requests as _req
+        _session = _req.Session()
+        _session.headers.update({"User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )})
+        stock = yf.Ticker(ticker, session=_session)
         info  = stock.info
 
         market_cap = safe_float(info.get('marketCap'))
@@ -426,15 +434,27 @@ def _poly_beta_vs_spy(ticker, days=756):
 
 def _yf_fund_fallback(ticker):
     """yfinance fallback for mutual fund share classes and money markets
-    that have no Polygon ETF data. Returns fund data dict or error dict."""
+    that have no Polygon ETF data. Returns fund data dict or error dict.
+    Uses a browser User-Agent session to reduce Yahoo rate-limiting."""
     import time as _time
+    import yfinance as yf
+    import requests as _requests
+
+    def _make_session():
+        s = _requests.Session()
+        s.headers.update({"User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )})
+        return s
+
     max_attempts = 3
     last_error   = None
 
     for attempt in range(max_attempts):
         try:
-            import yfinance as yf
-            info       = yf.Ticker(ticker).info
+            info       = yf.Ticker(ticker, session=_make_session()).info
             quote_type = info.get('quoteType', '').upper()
             is_mm      = ticker.upper() in MONEY_MARKET_TICKERS or quote_type == "MONEYMARKET"
 
