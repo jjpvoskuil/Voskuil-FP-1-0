@@ -4,3 +4,4 @@ plotly
 requests
 yfinance
 lxml
+curl_cffi
