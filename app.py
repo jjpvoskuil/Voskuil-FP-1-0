@@ -22,6 +22,36 @@ DEFAULT_WEIGHTS = {
     "Price / Owner Earnings": 25,
 }
 
+# Fund scoring uses different metrics — funds are wrappers, not businesses.
+# Philosophy: cost discipline, income generation, compounding, drawdown safety, concentration risk.
+DEFAULT_FUND_WEIGHTS = {
+    "Expense Ratio":      25,   # The one guaranteed drag — fees compound against you in a Long Squeeze
+    "Distribution Yield": 25,   # Income toward the $8K/month goal — same thresholds as stock FCF Yield
+    "3-Year Return":      20,   # Does this fund actually compound?
+    "Volatility (Beta)":  15,   # Retirement drawdown risk — forced selling kills a withdrawal portfolio
+    "Concentration Risk": 15,   # Passive Ponzi flag — top-10 holdings > 50% = index bubble exposure
+}
+
+FUND_THRESHOLDS = {
+    "expense_ratio_great":    0.0010,   # ≤ 0.10% — elite (Vanguard/Fidelity index tier)
+    "expense_ratio_good":     0.0050,   # ≤ 0.50% — acceptable
+    "expense_ratio_warn":     0.0100,   # ≤ 1.00% — expensive
+    "dist_yield_great":       0.06,     # ≥ 6% — strong income (mirrors stock FCF Yield great)
+    "dist_yield_good":        0.04,     # ≥ 4% — solid income
+    "return_3yr_great":       0.12,     # ≥ 12% annualized — strong compounder
+    "return_3yr_good":        0.07,     # ≥ 7% annualized — decent
+    "beta_safe":              0.80,     # ≤ 0.80 — low drawdown risk
+    "beta_moderate":          1.10,     # ≤ 1.10 — moderate risk
+    "concentration_safe":     0.35,     # top-10 weight ≤ 35% — well diversified
+    "concentration_warn":     0.50,     # top-10 weight ≤ 50% — getting concentrated
+}
+
+# Product Type strings from Morgan Stanley CSV that identify funds vs individual securities
+FUND_PRODUCT_TYPES = {
+    "mutual fund", "etf", "exchange traded fund", "exchange-traded fund",
+    "money market", "money market fund", "closed-end fund", "unit investment trust",
+}
+
 THRESHOLDS = {
     "fcf_yield_good":           0.04,
     "fcf_yield_great":          0.06,
@@ -262,6 +292,135 @@ def score_to_badge(score):
     except Exception:
         return "—"
 
+# ─────────────────────────────────────────────
+# FUND DETECTION
+# ─────────────────────────────────────────────
+def is_fund(product_type: str) -> bool:
+    """True if the Product Type from the MS CSV identifies this holding as a fund/ETF."""
+    return str(product_type).strip().lower() in FUND_PRODUCT_TYPES
+
+
+# ─────────────────────────────────────────────
+# FUND DATA FETCHER (yfinance)
+# ─────────────────────────────────────────────
+def fetch_score_data_fund(ticker):
+    """Fetch fund-specific metrics via yfinance for ETFs and mutual funds."""
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+
+        expense_ratio  = safe_float(info.get('expenseRatio'))
+        dist_yield     = safe_float(info.get('yield') or info.get('dividendYield'))
+        return_3yr     = safe_float(info.get('threeYearAverageReturn'))
+        beta           = safe_float(info.get('beta3Year') or info.get('beta'))
+
+        # Concentration: yfinance doesn't expose holdings weights, but
+        # heuristicaly flag concentration via category name + beta.
+        # We'll leave this as None when not computable; score_fund handles missing gracefully.
+        concentration  = None   # future: wire to holdings API if available
+
+        # Sanity-check: if absolutely nothing came back, return None so the
+        # holding stays unscored rather than showing a misleading zero.
+        if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
+            return None
+
+        return {
+            "expense_ratio":  expense_ratio,
+            "dist_yield":     dist_yield,
+            "return_3yr":     return_3yr,
+            "beta":           beta,
+            "concentration":  concentration,
+            "source":         "fund",
+        }
+    except Exception:
+        return None
+
+
+# ─────────────────────────────────────────────
+# FUND SCORING ENGINE
+# ─────────────────────────────────────────────
+def score_fund(data, fund_weights):
+    """
+    Score a fund 0-100 using retirement-focused metrics.
+    Missing metrics are rebalanced proportionally (same pattern as stock scorer).
+    Returns (raw_score, rebalanced_score).
+    """
+    pts          = 0
+    missing_pts  = 0
+
+    # ── Expense Ratio ──────────────────────────────────────────────────────
+    w   = fund_weights["Expense Ratio"]
+    exp = data.get('expense_ratio')
+    if exp is not None:
+        if exp <= FUND_THRESHOLDS['expense_ratio_great']:   pts += w
+        elif exp <= FUND_THRESHOLDS['expense_ratio_good']:  pts += round(w * 0.65)
+        elif exp <= FUND_THRESHOLDS['expense_ratio_warn']:  pts += round(w * 0.25)
+        # else: > 1% → 0 pts
+    else:
+        missing_pts += w
+
+    # ── Distribution Yield ────────────────────────────────────────────────
+    w   = fund_weights["Distribution Yield"]
+    dy  = data.get('dist_yield')
+    if dy is not None:
+        if dy >= FUND_THRESHOLDS['dist_yield_great']:   pts += w
+        elif dy >= FUND_THRESHOLDS['dist_yield_good']:  pts += round(w * 0.60)
+        elif dy > 0:                                    pts += round(w * 0.20)
+        # else: 0 yield → 0 pts
+    else:
+        missing_pts += w
+
+    # ── 3-Year Trailing Return ────────────────────────────────────────────
+    w   = fund_weights["3-Year Return"]
+    r3  = data.get('return_3yr')
+    if r3 is not None:
+        if r3 >= FUND_THRESHOLDS['return_3yr_great']:   pts += w
+        elif r3 >= FUND_THRESHOLDS['return_3yr_good']:  pts += round(w * 0.60)
+        elif r3 > 0:                                    pts += round(w * 0.20)
+        # else: negative → 0 pts
+    else:
+        missing_pts += w
+
+    # ── Volatility (Beta) ─────────────────────────────────────────────────
+    w    = fund_weights["Volatility (Beta)"]
+    beta = data.get('beta')
+    if beta is not None:
+        if beta <= FUND_THRESHOLDS['beta_safe']:      pts += w
+        elif beta <= FUND_THRESHOLDS['beta_moderate']: pts += round(w * 0.55)
+        else:                                          pts += round(w * 0.15)
+    else:
+        missing_pts += w
+
+    # ── Concentration Risk ────────────────────────────────────────────────
+    w    = fund_weights["Concentration Risk"]
+    conc = data.get('concentration')
+    if conc is not None:
+        if conc <= FUND_THRESHOLDS['concentration_safe']:   pts += w
+        elif conc <= FUND_THRESHOLDS['concentration_warn']: pts += round(w * 0.50)
+        # else: > 50% → 0 pts (Passive Ponzi flag)
+    else:
+        missing_pts += w   # yfinance doesn't expose this yet — always missing for now
+
+    raw_score      = pts
+    available_pts  = 100 - missing_pts
+    rebalanced     = round(raw_score / available_pts * 100) if available_pts > 0 else raw_score
+    return raw_score, rebalanced
+
+
+def fund_score_to_badge(rebalanced_score):
+    """Same colour bands as stocks but with 📊 icon so funds are visually distinct."""
+    try:
+        if rebalanced_score is None or (isinstance(rebalanced_score, float) and pd.isna(rebalanced_score)):
+            return "—"
+        s = int(rebalanced_score)
+        if s >= 80:   return f"📊🟢 {s}"
+        elif s >= 65: return f"📊🟡 {s}"
+        elif s >= 45: return f"📊🟠 {s}"
+        else:         return f"📊🔴 {s}"
+    except Exception:
+        return "—"
+
+
 @st.cache_data
 def fetch_sec_tickers():
     try:
@@ -417,53 +576,92 @@ if df_holdings_raw is not None:
     consolidated['Yahoo Link'] = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
     consolidated['Dive Link']  = consolidated['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
 
-    if 'holding_scores'  not in st.session_state: st.session_state.holding_scores  = {}
-    if 'holding_weights' not in st.session_state: st.session_state.holding_weights = DEFAULT_WEIGHTS.copy()
-    if 'holding_sources' not in st.session_state: st.session_state.holding_sources = {}
+    if 'holding_scores'       not in st.session_state: st.session_state.holding_scores       = {}
+    if 'holding_weights'      not in st.session_state: st.session_state.holding_weights      = DEFAULT_WEIGHTS.copy()
+    if 'holding_sources'      not in st.session_state: st.session_state.holding_sources      = {}
+    if 'holding_fund_weights' not in st.session_state: st.session_state.holding_fund_weights = DEFAULT_FUND_WEIGHTS.copy()
+    if 'holding_fund_scores'  not in st.session_state: st.session_state.holding_fund_scores  = {}
 
     # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
-        st.caption("Set weights used to score your holdings. Must add up to 100.")
-        w_col1, w_col2 = st.columns(2)
-        with w_col1:
-            w_fcf  = st.slider("FCF Yield",              0, 60, st.session_state.holding_weights["FCF Yield"],              step=5, key="w_fcf")
-            w_roic = st.slider("ROIC",                   0, 40, st.session_state.holding_weights["ROIC"],                   step=5, key="w_roic")
-            w_debt = st.slider("Debt / FCF",             0, 40, st.session_state.holding_weights["Debt / FCF"],             step=5, key="w_debt")
-        with w_col2:
-            w_gm   = st.slider("Gross Margin",           0, 40, st.session_state.holding_weights["Gross Margin"],           step=5, key="w_gm")
-            w_ic   = st.slider("Interest Coverage",      0, 40, st.session_state.holding_weights["Interest Coverage"],      step=5, key="w_ic")
-            w_poe  = st.slider("Price / Owner Earnings", 0, 60, st.session_state.holding_weights["Price / Owner Earnings"], step=5, key="w_poe")
-        active_weights = {
-            "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
-            "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
-        }
-        st.session_state.holding_weights = active_weights
-        total_weight = sum(active_weights.values())
-        if total_weight == 100:  st.success(f"✅ Total: {total_weight} / 100")
-        elif total_weight < 100: st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
-        else:                    st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
+        stock_tab, fund_tab = st.tabs(["📈 Stock Weights", "📊 Fund / ETF Weights"])
 
-    active_weights = st.session_state.holding_weights
-    total_weight   = sum(active_weights.values())
+        with stock_tab:
+            st.caption("Weights for individual stocks scored via the Owner's Framework. Must add up to 100.")
+            w_col1, w_col2 = st.columns(2)
+            with w_col1:
+                w_fcf  = st.slider("FCF Yield",              0, 60, st.session_state.holding_weights["FCF Yield"],              step=5, key="w_fcf")
+                w_roic = st.slider("ROIC",                   0, 40, st.session_state.holding_weights["ROIC"],                   step=5, key="w_roic")
+                w_debt = st.slider("Debt / FCF",             0, 40, st.session_state.holding_weights["Debt / FCF"],             step=5, key="w_debt")
+            with w_col2:
+                w_gm   = st.slider("Gross Margin",           0, 40, st.session_state.holding_weights["Gross Margin"],           step=5, key="w_gm")
+                w_ic   = st.slider("Interest Coverage",      0, 40, st.session_state.holding_weights["Interest Coverage"],      step=5, key="w_ic")
+                w_poe  = st.slider("Price / Owner Earnings", 0, 60, st.session_state.holding_weights["Price / Owner Earnings"], step=5, key="w_poe")
+            active_weights = {
+                "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
+                "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
+            }
+            st.session_state.holding_weights = active_weights
+            stock_total = sum(active_weights.values())
+            if stock_total == 100:  st.success(f"✅ Total: {stock_total} / 100")
+            elif stock_total < 100: st.warning(f"⚠️ Total: {stock_total} / 100 — {100 - stock_total} pts unallocated")
+            else:                   st.error(f"❌ Total: {stock_total} / 100 — over by {stock_total - 100} pts.")
+
+        with fund_tab:
+            st.caption("Weights for ETFs and mutual funds scored via the Fund Health Framework. Must add up to 100.")
+            st.caption("**Metric guide:** Expense Ratio = cost drag · Distribution Yield = income toward $8K/mo · 3-Year Return = compounding quality · Volatility = drawdown safety · Concentration = Passive Ponzi risk")
+            fw_col1, fw_col2 = st.columns(2)
+            with fw_col1:
+                fw_exp  = st.slider("Expense Ratio",      0, 50, st.session_state.holding_fund_weights["Expense Ratio"],      step=5, key="fw_exp",
+                                    help="Low fees compound in your favour. ≤0.10% = full pts, ≤0.50% = partial, >1% = zero.")
+                fw_dy   = st.slider("Distribution Yield", 0, 50, st.session_state.holding_fund_weights["Distribution Yield"], step=5, key="fw_dy",
+                                    help="Income generation toward your $8K/month goal. ≥6% = full pts, ≥4% = partial.")
+                fw_ret  = st.slider("3-Year Return",      0, 40, st.session_state.holding_fund_weights["3-Year Return"],      step=5, key="fw_ret",
+                                    help="Annualized 3-year trailing return. ≥12% = full pts, ≥7% = partial.")
+            with fw_col2:
+                fw_beta = st.slider("Volatility (Beta)",  0, 40, st.session_state.holding_fund_weights["Volatility (Beta)"], step=5, key="fw_beta",
+                                    help="Beta ≤0.80 = safe for retirement drawdown, ≤1.10 = moderate, >1.10 = high risk.")
+                fw_conc = st.slider("Concentration Risk", 0, 40, st.session_state.holding_fund_weights["Concentration Risk"], step=5, key="fw_conc",
+                                    help="Top-10 holdings weight. ≤35% = diversified, ≤50% = concentrated, >50% = Passive Ponzi flag. (Data pending — rebalanced out currently.)")
+            active_fund_weights = {
+                "Expense Ratio": fw_exp, "Distribution Yield": fw_dy, "3-Year Return": fw_ret,
+                "Volatility (Beta)": fw_beta, "Concentration Risk": fw_conc,
+            }
+            st.session_state.holding_fund_weights = active_fund_weights
+            fund_total = sum(active_fund_weights.values())
+            if fund_total == 100:  st.success(f"✅ Total: {fund_total} / 100")
+            elif fund_total < 100: st.warning(f"⚠️ Total: {fund_total} / 100 — {100 - fund_total} pts unallocated")
+            else:                   st.error(f"❌ Total: {fund_total} / 100 — over by {fund_total - 100} pts.")
+
+    active_weights      = st.session_state.holding_weights
+    active_fund_weights = st.session_state.holding_fund_weights
+    stock_total         = sum(active_weights.values())
+    fund_total          = sum(active_fund_weights.values())
+    total_weight        = stock_total   # used for Score All button gate
     unique_symbols = consolidated['Symbol'].tolist()
     n_symbols      = len(unique_symbols)
 
     # ── Score All Button ───────────────────────────────────────────────────
     score_col, info_col = st.columns([2, 5])
     with score_col:
+        weights_ok = (stock_total == 100 and fund_total == 100)
         run_scoring = st.button(
             f"⚡ Score All {n_symbols} Holdings", type="primary",
-            disabled=(total_weight != 100),
-            help="Weights must add up to 100." if total_weight != 100 else "Score using Polygon (with yfinance fallback for foreign ADRs)."
+            disabled=(not weights_ok),
+            help="Both Stock and Fund weights must add up to 100." if not weights_ok else "Score stocks via Polygon + yfinance; funds via yfinance Fund Health Framework."
         )
     with info_col:
-        scored_count = len(st.session_state.holding_scores)
+        scored_count = len(st.session_state.holding_scores) + len(st.session_state.holding_fund_scores)
         if scored_count > 0:
             poly_count = sum(1 for s in st.session_state.holding_sources.values() if s == "polygon")
             yf_count   = sum(1 for s in st.session_state.holding_sources.values() if s == "yfinance")
+            fund_count = sum(1 for s in st.session_state.holding_sources.values() if s == "fund")
             msg = f"✅ {scored_count} holdings scored"
-            if yf_count > 0:
-                msg += f" — {poly_count} via Polygon, {yf_count} via yfinance (foreign ADRs)"
+            parts = []
+            if poly_count: parts.append(f"{poly_count} stocks via Polygon")
+            if yf_count:   parts.append(f"{yf_count} ADRs via yfinance")
+            if fund_count: parts.append(f"{fund_count} funds via Fund Health")
+            if parts: msg += " — " + ", ".join(parts)
             st.success(msg)
         else:
             st.caption("Scores not yet loaded. Click the button above.")
@@ -473,26 +671,44 @@ if df_holdings_raw is not None:
         status_text  = st.empty()
         scores  = {}
         sources = {}
+        fund_scores = {}
+        # Build a symbol→product_type lookup for routing
+        sym_to_type = dict(zip(consolidated['Symbol'], consolidated['Product_Type']))
         for i, symbol in enumerate(unique_symbols):
             pct = (i + 1) / n_symbols
             progress_bar.progress(pct)
-            status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
-            data = fetch_score_data(symbol)
-            if data is not None:
-                scores[symbol]  = score_stock(data, active_weights)
-                sources[symbol] = data.get("source", "polygon")
+            product_type = sym_to_type.get(symbol, "")
+            if is_fund(product_type):
+                status_text.markdown(f"⏳ Scoring fund **{symbol}** — {i+1} of {n_symbols}")
+                data = fetch_score_data_fund(symbol)
+                if data is not None:
+                    _, rebalanced = score_fund(data, active_fund_weights)
+                    fund_scores[symbol]  = rebalanced
+                    scores[symbol]       = rebalanced   # unified dict for badge lookup
+                    sources[symbol]      = "fund"
+                else:
+                    scores[symbol]  = None
+                    sources[symbol] = None
             else:
-                scores[symbol]  = None
-                sources[symbol] = None
+                status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
+                data = fetch_score_data(symbol)
+                if data is not None:
+                    scores[symbol]  = score_stock(data, active_weights)
+                    sources[symbol] = data.get("source", "polygon")
+                else:
+                    scores[symbol]  = None
+                    sources[symbol] = None
             time.sleep(0.1)
-        st.session_state.holding_scores  = scores
-        st.session_state.holding_sources = sources
+        st.session_state.holding_scores      = scores
+        st.session_state.holding_sources     = sources
+        st.session_state.holding_fund_scores = fund_scores
         progress_bar.progress(1.0)
-        scored_ok = len([s for s in scores.values() if s is not None])
-        yf_ok     = sum(1 for s in sources.values() if s == "yfinance")
+        scored_ok  = len([s for s in scores.values() if s is not None])
+        fund_ok    = len(fund_scores)
+        yf_ok      = sum(1 for s in sources.values() if s == "yfinance")
         status_text.markdown(
             f"✅ Done — {scored_ok} of {n_symbols} scored "
-            f"({yf_ok} via yfinance fallback for foreign ADRs)."
+            f"({fund_ok} funds via Fund Health, {yf_ok} ADRs via yfinance fallback)."
         )
 
     st.divider()
@@ -505,10 +721,15 @@ if df_holdings_raw is not None:
     display_df['Score_Num'] = display_df['Score_Num'].apply(
         lambda s: int(s) if s is not None and not (isinstance(s, float) and pd.isna(s)) else None
     )
-    display_df['Badge']   = display_df['Score_Num'].apply(score_to_badge)
-    display_df['Source']  = display_df['Symbol'].apply(
+    display_df['Source'] = display_df['Symbol'].apply(
         lambda s: st.session_state.holding_sources.get(s, None)
     )
+    # Route badge generation: fund_score_to_badge for funds, score_to_badge for stocks
+    def make_badge(row):
+        if row['Source'] == 'fund':
+            return fund_score_to_badge(row['Score_Num'])
+        return score_to_badge(row['Score_Num'])
+    display_df['Badge']   = display_df.apply(make_badge, axis=1)
     display_df['Accounts_Label'] = display_df['Account_Count'].apply(
         lambda n: f"{n} acct{'s' if n > 1 else ''}"
     )
@@ -558,6 +779,8 @@ if df_holdings_raw is not None:
             sym_label = f"**{row['Symbol']}**"
             if src == "yfinance":
                 sym_label += " 🌐"   # Globe = foreign ADR scored via yfinance
+            elif src == "fund":
+                sym_label += " 📊"   # Chart = fund scored via Fund Health Framework
             st.markdown(sym_label)
         with c2:
             st.caption(row['Name'])
@@ -568,10 +791,24 @@ if df_holdings_raw is not None:
         with c5:
             st.caption(row['Accounts_Label'])
         with c6:
-            badge = row['Badge']
+            badge  = row['Badge']
+            source = row.get('Source')
             if badge != "—":
-                color = "#2ecc71" if badge.startswith("🟢") else "#f39c12" if badge.startswith("🟡") else "#e67e22" if badge.startswith("🟠") else "#e74c3c"
-                st.markdown(f"<span style='font-weight:bold; color:{color}'>{badge}</span>", unsafe_allow_html=True)
+                if source == "fund":
+                    # Fund Health Score — use teal to distinguish from stock colour bands
+                    num_part = badge.split(" ")[-1]  # e.g. "📊🟢 72" → "72"
+                    if "🟢" in badge:   fc = "#1abc9c"
+                    elif "🟡" in badge: fc = "#f39c12"
+                    elif "🟠" in badge: fc = "#e67e22"
+                    else:               fc = "#e74c3c"
+                    st.markdown(
+                        f"<span style='font-weight:bold; color:{fc}'>{badge}</span>"
+                        f"<br><span style='font-size:0.7em; color:#888'>Fund Health</span>",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    color = "#2ecc71" if badge.startswith("🟢") else "#f39c12" if badge.startswith("🟡") else "#e67e22" if badge.startswith("🟠") else "#e74c3c"
+                    st.markdown(f"<span style='font-weight:bold; color:{color}'>{badge}</span>", unsafe_allow_html=True)
             else:
                 st.caption("—")
         with c7:
@@ -583,7 +820,7 @@ if df_holdings_raw is not None:
         with c8:
             st.link_button("🔍 Deep Dive", row['Dive Link'], use_container_width=True, type="primary")
 
-    st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database)")
+    st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database) · 📊 = Fund Health Score (expense ratio, yield, return, beta)")
     st.divider()
 
     # ── Account Breakdown ──────────────────────────────────────────────────
@@ -604,8 +841,13 @@ if df_holdings_raw is not None:
         score  = st.session_state.holding_scores.get(selected_symbol)
         source = st.session_state.holding_sources.get(selected_symbol)
         if score is not None:
-            src_label = " (via yfinance — foreign ADR)" if source == "yfinance" else " (via Polygon)"
-            st.markdown(f"Conviction Score: {score_to_badge(score)}{src_label}")
+            if source == "fund":
+                src_label = " (Fund Health Score — expense ratio, yield, return, beta)"
+                st.markdown(f"Fund Health Score: {fund_score_to_badge(score)}{src_label}")
+            elif source == "yfinance":
+                st.markdown(f"Conviction Score: {score_to_badge(score)} (via yfinance — foreign ADR)")
+            else:
+                st.markdown(f"Conviction Score: {score_to_badge(score)} (via Polygon)")
         account_detail['% of Position'] = (
             account_detail['Market Value ($)'] / total_holding_val * 100
         ).round(1).astype(str) + '%'
