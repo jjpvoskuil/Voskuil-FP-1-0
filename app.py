@@ -125,10 +125,13 @@ def fetch_score_data_yfinance(ticker):
         capex  = safe_float(cashflow.loc['Capital Expenditure'].iloc[0]) if 'Capital Expenditure' in cashflow.index else None
         fcf    = (op_cf + capex) if (op_cf is not None and capex is not None) else None
 
-        if fcf is None or fcf <= 0:
+        # Don't gate on fcf <= 0 — same reasoning as the Polygon path.
+        # Heavy-capex companies score 0 on FCF Yield but are still scoreable overall.
+        # Only return None if we have no cash flow data at all.
+        if fcf is None and op_cf is None:
             return None
 
-        fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
+        fcf_yield    = (fcf / market_cap) if (fcf and fcf > 0 and market_cap and market_cap > 0) else None
         gross_margin = safe_float(info.get('grossMargins'))
         net_income   = safe_float(financials.loc['Net Income'].iloc[0]) if 'Net Income' in financials.index else None
         total_assets = safe_float(balance.loc['Total Assets'].iloc[0]) if 'Total Assets' in balance.index else None
@@ -881,55 +884,124 @@ if df_holdings_raw is not None:
         scores       = {}
         sources      = {}
         fund_scores  = {}
-        fund_debug   = {}   # symbol → debug payload for the diagnostics expander
-        # Build a symbol→product_type lookup for routing
-        sym_to_type = dict(zip(consolidated['Symbol'], consolidated['Product_Type']))
-        for i, symbol in enumerate(unique_symbols):
-            pct = (i + 1) / n_symbols
+        fund_debug   = {}
+        sym_to_type  = dict(zip(consolidated['Symbol'], consolidated['Product_Type']))
+
+        # ── PASS 1: Polygon-resolvable tickers (stocks + ETFs) ────────────
+        # These are fast — Polygon is a paid API with no rate limits at our scale.
+        # We also use this pass to identify which tickers need yfinance in Pass 2.
+        yf_queue = []   # list of (symbol, kind) where kind = "adr" or "mutual_fund"
+
+        polygon_symbols = [s for s in unique_symbols if not is_fund(sym_to_type.get(s, ""))]
+        etf_symbols     = []   # populated during fund pre-check below
+        yf_fund_symbols = []
+
+        # Pre-classify funds: ETF (Polygon) vs mutual fund (yfinance)
+        # Do a cheap Polygon type check for each fund ticker
+        for symbol in unique_symbols:
+            pt = sym_to_type.get(symbol, "")
+            if not is_fund(pt):
+                continue
+            det_data  = poly_get(f"/v3/reference/tickers/{symbol}")
+            poly_type = det_data.get("results", {}).get("type", "") if det_data else ""
+            if poly_type == "ETF":
+                etf_symbols.append(symbol)
+            else:
+                yf_fund_symbols.append(symbol)
+
+        all_polygon_symbols = polygon_symbols + etf_symbols
+        total_pass1 = len(all_polygon_symbols)
+        total_pass2 = len(yf_fund_symbols)
+
+        status_text.markdown(f"⏳ Pass 1 of 2 — scoring {total_pass1} stocks & ETFs via Polygon...")
+
+        for i, symbol in enumerate(all_polygon_symbols):
+            pct = (i + 1) / (total_pass1 + total_pass2) * 0.85   # reserve 15% for pass 2
             progress_bar.progress(pct)
             product_type = sym_to_type.get(symbol, "")
-            if is_fund(product_type):
-                status_text.markdown(f"⏳ Scoring fund **{symbol}** ({product_type}) — {i+1} of {n_symbols}")
+
+            if is_fund(product_type):   # ETF
+                status_text.markdown(f"⏳ [Pass 1] ETF **{symbol}** — {i+1}/{total_pass1}")
                 data = fetch_score_data_fund(symbol)
                 src  = data.get("source", "fund_error") if data else "fund_error"
                 if src in ("fund", "fund_yf"):
-                    _, rebalanced    = score_fund(data, active_fund_weights)
+                    _, rebalanced       = score_fund(data, active_fund_weights)
                     fund_scores[symbol] = rebalanced
                     scores[symbol]      = rebalanced
                     sources[symbol]     = src
                 else:
                     scores[symbol]  = None
-                    sources[symbol] = src   # "fund_no_data" or "fund_error"
-                fund_debug[symbol] = {
-                    "product_type": product_type,
-                    "is_fund_detected": True,
-                    **(data or {}),
-                }
-            else:
-                status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
+                    sources[symbol] = src
+                fund_debug[symbol] = {"product_type": product_type, "is_fund_detected": True, **(data or {})}
+            else:                       # Stock
+                status_text.markdown(f"⏳ [Pass 1] Stock **{symbol}** — {i+1}/{total_pass1}")
                 data = fetch_score_data(symbol)
                 if data is not None:
                     scores[symbol]  = score_stock(data, active_weights)
                     sources[symbol] = data.get("source", "polygon")
+                    # If stock fell back to yfinance (ADR), queue it for pass 2 retry
+                    # if it failed (source will be None)
                 else:
                     scores[symbol]  = None
                     sources[symbol] = None
-            # ETFs route through Polygon (fast, no rate limits) — same sleep as stocks.
-            # Mutual fund share classes fall back to yfinance — needs longer pause.
-            # We don't know which path was taken without checking poly_type, so use
-            # a moderate 0.5s for all funds — fast enough, safe enough.
-            time.sleep(0.5 if is_fund(sym_to_type.get(symbol, "")) else 0.1)
+                    # Check if this is a foreign ADR that needs yfinance
+                    det_data  = poly_get(f"/v3/reference/tickers/{symbol}")
+                    locale    = det_data.get("results", {}).get("locale", "us") if det_data else "us"
+                    if locale != "us":
+                        yf_queue.append((symbol, "adr"))
+            time.sleep(0.1)
+
+        # ── PASS 2: yfinance-only tickers ─────────────────────────────────
+        # Mutual fund share classes + any ADRs that failed Polygon scoring.
+        # Run with 3s gap between each call to stay well under Yahoo's rate limit.
+        yf_all = [(s, "mutual_fund") for s in yf_fund_symbols] + yf_queue
+        total_pass2_actual = len(yf_all)
+
+        if yf_all:
+            status_text.markdown(f"⏳ Pass 2 of 2 — scoring {total_pass2_actual} mutual funds & ADRs via yfinance (slower — avoiding rate limits)...")
+            time.sleep(3)   # initial pause before yfinance burst starts
+
+        for j, (symbol, kind) in enumerate(yf_all):
+            pct = 0.85 + (j + 1) / max(total_pass2_actual, 1) * 0.15
+            progress_bar.progress(min(pct, 1.0))
+            product_type = sym_to_type.get(symbol, "")
+            status_text.markdown(f"⏳ [Pass 2] {'Fund' if kind == 'mutual_fund' else 'ADR'} **{symbol}** — {j+1}/{total_pass2_actual}")
+
+            if kind == "mutual_fund":
+                data = _yf_fund_fallback(symbol)
+                src  = data.get("source", "fund_error") if data else "fund_error"
+                if src in ("fund", "fund_yf"):
+                    _, rebalanced       = score_fund(data, active_fund_weights)
+                    fund_scores[symbol] = rebalanced
+                    scores[symbol]      = rebalanced
+                    sources[symbol]     = src
+                else:
+                    scores[symbol]  = None
+                    sources[symbol] = src
+                fund_debug[symbol] = {"product_type": product_type, "is_fund_detected": True, **(data or {})}
+            else:   # adr
+                data = fetch_score_data_yfinance(symbol)
+                if data is not None:
+                    scores[symbol]  = score_stock(data, active_weights)
+                    sources[symbol] = data.get("source", "yfinance")
+                else:
+                    scores[symbol]  = None
+                    sources[symbol] = None
+
+            time.sleep(3)   # 3s between every yfinance call — stays well under rate limit
+
         st.session_state.holding_scores      = scores
         st.session_state.holding_sources     = sources
         st.session_state.holding_fund_scores = fund_scores
         st.session_state.holding_fund_debug  = fund_debug
         progress_bar.progress(1.0)
-        scored_ok      = len([s for s in scores.values() if s is not None])
-        fund_poly_ok   = sum(1 for s in sources.values() if s == "fund")
-        fund_yf_ok     = sum(1 for s in sources.values() if s == "fund_yf")
-        fund_no_data   = sum(1 for s in sources.values() if s == "fund_no_data")
-        fund_err       = sum(1 for s in sources.values() if s == "fund_error")
-        yf_ok          = sum(1 for s in sources.values() if s == "yfinance")
+
+        scored_ok    = len([s for s in scores.values() if s is not None])
+        fund_poly_ok = sum(1 for s in sources.values() if s == "fund")
+        fund_yf_ok   = sum(1 for s in sources.values() if s == "fund_yf")
+        fund_no_data = sum(1 for s in sources.values() if s == "fund_no_data")
+        fund_err     = sum(1 for s in sources.values() if s == "fund_error")
+        yf_ok        = sum(1 for s in sources.values() if s == "yfinance")
         summary = f"✅ Done — {scored_ok} of {n_symbols} scored"
         parts = []
         if fund_poly_ok: parts.append(f"{fund_poly_ok} ETFs via Polygon")
