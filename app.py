@@ -481,66 +481,41 @@ def _yf_fund_fallback(ticker):
 
 
 def fetch_score_data_fund(ticker):
-    """Route fund data fetching: Polygon for ETFs, yfinance for mutual funds/money markets.
-
-    Polygon path (fast, no rate limits):
-      - Uses /v3/reference/tickers for expense_ratio + type detection
-      - Computes 3yr trailing return from /v2/aggs daily price history
-      - Computes beta vs SPY from same price history
-
-    yfinance fallback (mutual fund share classes, money markets):
-      - Used when Polygon type != ETF or Polygon has no data
-      - Retries up to 3x with exponential backoff on rate limits
+    """Polygon path for ETF scoring only.
+    Mutual funds and money markets are handled separately by _yf_fund_fallback
+    in Pass 2 of the scoring loop — never call this for non-ETF tickers.
     """
     try:
-        # ── Step 1: Check Polygon type field ─────────────────────────────
         poly_type, expense_ratio, dist_yield_poly = _poly_fund_expense_and_yield(ticker)
 
-        use_polygon = (poly_type == "ETF")
+        if poly_type != "ETF":
+            # Caller should not be routing non-ETFs here — return a clear signal
+            return {"source": "fund_not_etf", "poly_type": poly_type}
 
-        if use_polygon:
-            # ── Step 2: Polygon path for ETFs ─────────────────────────────
-            return_3yr    = _poly_trailing_return(ticker, years=3)
-            beta          = _poly_beta_vs_spy(ticker)
-            concentration = None
+        return_3yr    = _poly_trailing_return(ticker, years=3)
+        beta          = _poly_beta_vs_spy(ticker)
+        dist_yield    = dist_yield_poly   # often None — rebalanced out gracefully
+        concentration = None
 
-            # dist_yield from Polygon is often absent — try price/agg dividend yield
-            dist_yield = dist_yield_poly
-            if dist_yield is None:
-                # Fallback: fetch previous day's close and use Polygon snapshot dividends
-                prev_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev", {"adjusted": "false"})
-                try:
-                    close  = float(prev_data["results"][0]["c"])
-                    vw     = float(prev_data["results"][0].get("vw", close))
-                    # Polygon doesn't give TTM dividend directly — leave as None
-                    # (will be rebalanced out; expense ratio + return + beta still score)
-                    dist_yield = None
-                except (KeyError, TypeError, IndexError):
-                    dist_yield = None
+        debug = {
+            "quoteType":     "ETF (Polygon)",
+            "expense_ratio": expense_ratio,
+            "dist_yield":    dist_yield,
+            "return_3yr":    return_3yr,
+            "beta":          beta,
+            "yield_key":     "polygon",
+            "attempt":       1,
+        }
 
-            debug = {
-                "quoteType":     "ETF (Polygon)",
-                "expense_ratio": expense_ratio,
-                "dist_yield":    dist_yield,
-                "return_3yr":    return_3yr,
-                "beta":          beta,
-                "yield_key":     "polygon",
-                "attempt":       1,
-            }
+        if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
+            return {"source": "fund_no_data", "debug": debug}
 
-            if all(v is None for v in [expense_ratio, dist_yield, return_3yr, beta]):
-                return {"source": "fund_no_data", "debug": debug}
-
-            return {
-                "expense_ratio": expense_ratio, "dist_yield":   dist_yield,
-                "return_3yr":    return_3yr,    "beta":         beta,
-                "concentration": concentration, "source":       "fund",
-                "debug":         debug,
-            }
-
-        else:
-            # ── Step 3: yfinance fallback for mutual funds / money markets ─
-            return _yf_fund_fallback(ticker)
+        return {
+            "expense_ratio": expense_ratio, "dist_yield":   dist_yield,
+            "return_3yr":    return_3yr,    "beta":         beta,
+            "concentration": concentration, "source":       "fund",
+            "debug":         debug,
+        }
 
     except Exception as e:
         return {"source": "fund_error", "error": str(e)}
@@ -898,13 +873,15 @@ if df_holdings_raw is not None:
         yf_fund_symbols = []
 
         # Pre-classify funds: ETF (Polygon) vs mutual fund (yfinance)
-        # Do a cheap Polygon type check for each fund ticker
+        # Cache the Polygon type so fetch_score_data_fund doesn't re-fetch it.
+        fund_poly_type_cache = {}   # symbol → poly_type string
         for symbol in unique_symbols:
             pt = sym_to_type.get(symbol, "")
             if not is_fund(pt):
                 continue
             det_data  = poly_get(f"/v3/reference/tickers/{symbol}")
             poly_type = det_data.get("results", {}).get("type", "") if det_data else ""
+            fund_poly_type_cache[symbol] = poly_type
             if poly_type == "ETF":
                 etf_symbols.append(symbol)
             else:
