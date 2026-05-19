@@ -194,7 +194,7 @@ def fetch_score_data(ticker):
         })
 
         if not fin_data or not fin_data.get("results"):
-            return None   # no SEC filings — ADR queued for Pass 2 via locale check
+            return None   # no SEC filings — queued for yfinance in Pass 2
 
         f   = fin_data["results"][0]["financials"]
         inc = f.get("income_statement",    {})
@@ -239,7 +239,7 @@ def fetch_score_data(ticker):
             "source":            "polygon",
         }
     except Exception:
-        return None   # any exception — let Pass 2 handle via locale detection
+        return None   # any exception — queued for yfinance in Pass 2
 
 # ─────────────────────────────────────────────
 # SCORING ENGINE
@@ -931,11 +931,11 @@ if df_holdings_raw is not None:
                 else:
                     scores[symbol]  = None
                     sources[symbol] = None
-                    # Check if this is a foreign ADR that needs yfinance
-                    det_data  = poly_get(f"/v3/reference/tickers/{symbol}")
-                    locale    = det_data.get("results", {}).get("locale", "us") if det_data else "us"
-                    if locale != "us":
-                        yf_queue.append((symbol, "adr"))
+                    # Polygon couldn't score this — queue for yfinance in Pass 2.
+                    # Don't rely on locale check: ASML/ARGX show locale="us" in Polygon
+                    # even though they're foreign ADRs with no SEC filings.
+                    # Any stock Polygon returns None for is a candidate for yfinance.
+                    yf_queue.append((symbol, "adr"))
             time.sleep(0.1)
 
         # ── PASS 2: yfinance-only tickers ─────────────────────────────────
