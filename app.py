@@ -438,6 +438,7 @@ def _yf_fund_fallback(ticker):
         "CMNIX": 0.0099,   # Calamos Market Neutral Income I
         "SPAXX": 0.0000,   # Fidelity Govt Money Market (no expense ratio)
         "ABYIX": 0.0179,   # Abbey Capital Futures Strategy I
+        "PDBZX": 0.0049,   # PGIM Total Return Bond Fund Class Z
         "GIBLX": 0.0073,   # Guggenheim Total Return Bond Class A (alt share class)
         "CMNAX": 0.0124,   # Calamos Market Neutral Income A (alt share class)
     }
