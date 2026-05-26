@@ -295,6 +295,60 @@ def score_to_badge(score):
     except Exception:
         return "—"
 
+
+def buffett_action(score, data):
+    """Derive a Buffett-style Buy / Hold / Sell signal from score + key metrics.
+
+    Separates business quality from price — the core Buffett distinction.
+    Returns (signal_str, color_hex, reason_str).
+    N/A returned for funds (no individual business metrics).
+    """
+    if score is None or data is None:
+        return "—", "#888888", ""
+
+    # Funds don't have business metrics — action signal not meaningful
+    source = data.get("source", "")
+    if source in ("fund", "fund_yf"):
+        return "—", "#888888", ""
+
+    poe      = data.get("price_owner_earn")
+    debt_fcf = data.get("debt_to_fcf")
+    ic       = data.get("interest_coverage") or 0
+    is_nc    = data.get("is_net_creditor", False)
+    roic     = data.get("roic")
+    gm       = data.get("gross_margin")
+
+    # ── SELL conditions: thesis-breaking deterioration ────────────────────
+    # Buffett sells when the investment thesis breaks, not on price alone.
+    if score < 45:
+        return "SELL", "#e74c3c", "Fundamentals below conviction threshold"
+    if debt_fcf is not None and debt_fcf > 5.0 and not is_nc and ic < 2.5:
+        return "SELL", "#e74c3c", f"Debt trap: {debt_fcf:.1f}x Debt/FCF, interest coverage only {ic:.1f}x"
+    if roic is not None and roic < 0:
+        return "SELL", "#e74c3c", "Negative ROIC — destroying capital"
+
+    # ── BUY conditions: quality business at attractive price ──────────────
+    # Buffett: wonderful company at a fair price beats fair company at wonderful price
+    if score >= 65:
+        price_ok  = poe is not None and poe <= 25.0
+        debt_ok   = debt_fcf is None or debt_fcf < 5.0 or is_nc
+        if price_ok and debt_ok:
+            if poe <= 15.0:
+                return "BUY", "#2ecc71", f"Quality business at bargain price ({poe:.1f}x P/OE)"
+            else:
+                return "BUY", "#2ecc71", f"Quality business at fair price ({poe:.1f}x P/OE)"
+
+    # ── HOLD conditions: quality but price stretched or debt elevated ─────
+    if score >= 65:
+        if poe is not None and poe > 25.0:
+            return "HOLD", "#3498db", f"Quality business but price stretched ({poe:.1f}x P/OE)"
+        if debt_fcf is not None and debt_fcf >= 5.0 and not is_nc:
+            return "HOLD", "#3498db", f"Quality business but debt elevated ({debt_fcf:.1f}x Debt/FCF)"
+        return "HOLD", "#3498db", "Quality business — monitor for better entry"
+
+    # ── Default HOLD: middle ground, not a clear sell ────────────────────
+    return "HOLD", "#3498db", "Adequate fundamentals — no clear buy or sell signal"
+
 # ─────────────────────────────────────────────
 # FUND DETECTION
 # ─────────────────────────────────────────────
@@ -748,6 +802,7 @@ if df_holdings_raw is not None:
     if 'holding_fund_weights' not in st.session_state: st.session_state.holding_fund_weights = DEFAULT_FUND_WEIGHTS.copy()
     if 'holding_fund_scores'  not in st.session_state: st.session_state.holding_fund_scores  = {}
     if 'holding_fund_debug'   not in st.session_state: st.session_state.holding_fund_debug   = {}
+    if 'holding_action_data'  not in st.session_state: st.session_state.holding_action_data  = {}
 
     # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
@@ -842,6 +897,7 @@ if df_holdings_raw is not None:
         sources      = {}
         fund_scores  = {}
         fund_debug   = {}
+        action_data  = {}   # symbol → raw metric dict for buffett_action()
         sym_to_type  = dict(zip(consolidated['Symbol'], consolidated['Product_Type']))
 
         # ── PASS 1: Polygon-resolvable tickers (stocks + ETFs) ────────────
@@ -898,15 +954,10 @@ if df_holdings_raw is not None:
                 if data is not None:
                     scores[symbol]  = score_stock(data, active_weights)
                     sources[symbol] = data.get("source", "polygon")
-                    # If stock fell back to yfinance (ADR), queue it for pass 2 retry
-                    # if it failed (source will be None)
+                    action_data[symbol] = data
                 else:
                     scores[symbol]  = None
                     sources[symbol] = None
-                    # Polygon couldn't score this — queue for yfinance in Pass 2.
-                    # Don't rely on locale check: ASML/ARGX show locale="us" in Polygon
-                    # even though they're foreign ADRs with no SEC filings.
-                    # Any stock Polygon returns None for is a candidate for yfinance.
                     yf_queue.append((symbol, "adr"))
             time.sleep(0.1)
 
@@ -941,8 +992,9 @@ if df_holdings_raw is not None:
             else:   # adr
                 data = fetch_score_data_yfinance(symbol)
                 if data is not None:
-                    scores[symbol]  = score_stock(data, active_weights)
-                    sources[symbol] = data.get("source", "yfinance")
+                    scores[symbol]      = score_stock(data, active_weights)
+                    sources[symbol]     = data.get("source", "yfinance")
+                    action_data[symbol] = data
                 else:
                     scores[symbol]  = None
                     sources[symbol] = None
@@ -953,6 +1005,7 @@ if df_holdings_raw is not None:
         st.session_state.holding_sources     = sources
         st.session_state.holding_fund_scores = fund_scores
         st.session_state.holding_fund_debug  = fund_debug
+        st.session_state.holding_action_data = action_data
         progress_bar.progress(1.0)
 
         scored_ok    = len([s for s in scores.values() if s is not None])
@@ -1044,19 +1097,20 @@ if df_holdings_raw is not None:
         display_df = display_df.sort_values('Symbol', ascending=False)
 
     # ── Column Headers ─────────────────────────────────────────────────────
-    h1, h2, h3, h4, h5, h6, h7 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.8])
+    h1, h2, h3, h4, h5, h6, h7, h8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.4, 1.8])
     with h1: st.markdown("**Symbol**")
     with h2: st.markdown("**Name**")
     with h3: st.markdown("**Type**")
     with h4: st.markdown("**Value**")
     with h5: st.markdown("**Accts**")
     with h6: st.markdown("**Score**")
-    with h7: st.markdown("**Analysis**")
+    with h7: st.markdown("**Action**")
+    with h8: st.markdown("**Analysis**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     # ── Rows ───────────────────────────────────────────────────────────────
     for _, row in display_df.iterrows():
-        c1, c2, c3, c4, c5, c6, c7 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.8])
+        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.4, 1.8])
         with c1:
             src = row.get('Source')
             sym_label = f"**{row['Symbol']}**"
@@ -1095,6 +1149,20 @@ if df_holdings_raw is not None:
             else:
                 st.caption("—")
         with c7:
+            sym    = row['Symbol']
+            score  = st.session_state.holding_scores.get(sym)
+            adata  = st.session_state.holding_action_data.get(sym)
+            signal, sig_color, sig_reason = buffett_action(score, adata)
+            if signal != "—":
+                st.markdown(
+                    f"<span style='font-weight:bold; font-size:0.95em; color:{sig_color}'>{signal}</span>",
+                    unsafe_allow_html=True
+                )
+                if sig_reason:
+                    st.caption(sig_reason)
+            else:
+                st.caption("—")
+        with c8:
             st.link_button("🔍 Deep Dive", row['Dive Link'], use_container_width=True, type="primary")
 
     st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database) · 📊 = Fund Health Score (expense ratio, yield, return, beta)")
