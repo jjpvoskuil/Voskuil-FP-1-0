@@ -296,10 +296,24 @@ def score_to_badge(score):
         return "—"
 
 
-def buffett_action(score, data):
+DEFAULT_ACTION_THRESHOLDS = {
+    "sell_score_floor":  45,    # Score below this → automatic SELL
+    "buy_score_floor":   65,    # Minimum score to qualify for BUY or HOLD
+    "buy_poe_max":       25.0,  # P/OE at or below this → BUY (vs HOLD)
+    "bargain_poe":       15.0,  # P/OE at or below this → "bargain price" label
+    "sell_debt_max":      5.0,  # Debt/FCF above this + low IC → SELL (debt trap)
+    "sell_ic_min":        2.5,  # IC below this (with high debt) → SELL
+}
+
+
+def buffett_action(score, data, thresholds=None):
     """Derive a Buffett-style Buy / Hold / Sell signal from score + key metrics.
 
     Separates business quality from price — the core Buffett distinction.
+    Thresholds are adjustable via the Action Signal Thresholds expander on the
+    dashboard; defaults used when called from equity_scout or market_screener
+    if the user hasn't visited the dashboard first.
+
     Returns (signal_str, color_hex, reason_str).
     N/A returned for funds (no individual business metrics).
     """
@@ -311,42 +325,50 @@ def buffett_action(score, data):
     if source in ("fund", "fund_yf"):
         return "—", "#888888", ""
 
+    # Use passed thresholds, then session state, then hard defaults
+    if thresholds is None:
+        thresholds = st.session_state.get("action_thresholds", DEFAULT_ACTION_THRESHOLDS)
+
+    sell_floor  = thresholds["sell_score_floor"]
+    buy_floor   = thresholds["buy_score_floor"]
+    buy_poe_max = thresholds["buy_poe_max"]
+    bargain_poe = thresholds["bargain_poe"]
+    sell_debt   = thresholds["sell_debt_max"]
+    sell_ic     = thresholds["sell_ic_min"]
+
     poe      = data.get("price_owner_earn")
     debt_fcf = data.get("debt_to_fcf")
     ic       = data.get("interest_coverage") or 0
     is_nc    = data.get("is_net_creditor", False)
     roic     = data.get("roic")
-    gm       = data.get("gross_margin")
 
-    # ── SELL conditions: thesis-breaking deterioration ────────────────────
-    # Buffett sells when the investment thesis breaks, not on price alone.
-    if score < 45:
-        return "SELL", "#e74c3c", "Fundamentals below conviction threshold"
-    if debt_fcf is not None and debt_fcf > 5.0 and not is_nc and ic < 2.5:
+    # ── SELL conditions ────────────────────────────────────────────────────
+    if score < sell_floor:
+        return "SELL", "#e74c3c", f"Fundamentals below conviction threshold (score < {sell_floor})"
+    if debt_fcf is not None and debt_fcf > sell_debt and not is_nc and ic < sell_ic:
         return "SELL", "#e74c3c", f"Debt trap: {debt_fcf:.1f}x Debt/FCF, interest coverage only {ic:.1f}x"
     if roic is not None and roic < 0:
         return "SELL", "#e74c3c", "Negative ROIC — destroying capital"
 
-    # ── BUY conditions: quality business at attractive price ──────────────
-    # Buffett: wonderful company at a fair price beats fair company at wonderful price
-    if score >= 65:
-        price_ok  = poe is not None and poe <= 25.0
-        debt_ok   = debt_fcf is None or debt_fcf < 5.0 or is_nc
+    # ── BUY conditions ─────────────────────────────────────────────────────
+    if score >= buy_floor:
+        price_ok = poe is not None and poe <= buy_poe_max
+        debt_ok  = debt_fcf is None or debt_fcf < sell_debt or is_nc
         if price_ok and debt_ok:
-            if poe <= 15.0:
+            if poe <= bargain_poe:
                 return "BUY", "#2ecc71", f"Quality business at bargain price ({poe:.1f}x P/OE)"
             else:
                 return "BUY", "#2ecc71", f"Quality business at fair price ({poe:.1f}x P/OE)"
 
-    # ── HOLD conditions: quality but price stretched or debt elevated ─────
-    if score >= 65:
-        if poe is not None and poe > 25.0:
+    # ── HOLD conditions ────────────────────────────────────────────────────
+    if score >= buy_floor:
+        if poe is not None and poe > buy_poe_max:
             return "HOLD", "#3498db", f"Quality business but price stretched ({poe:.1f}x P/OE)"
-        if debt_fcf is not None and debt_fcf >= 5.0 and not is_nc:
+        if debt_fcf is not None and debt_fcf >= sell_debt and not is_nc:
             return "HOLD", "#3498db", f"Quality business but debt elevated ({debt_fcf:.1f}x Debt/FCF)"
         return "HOLD", "#3498db", "Quality business — monitor for better entry"
 
-    # ── Default HOLD: middle ground, not a clear sell ────────────────────
+    # ── Default HOLD ───────────────────────────────────────────────────────
     return "HOLD", "#3498db", "Adequate fundamentals — no clear buy or sell signal"
 
 # ─────────────────────────────────────────────
@@ -803,6 +825,7 @@ if df_holdings_raw is not None:
     if 'holding_fund_scores'  not in st.session_state: st.session_state.holding_fund_scores  = {}
     if 'holding_fund_debug'   not in st.session_state: st.session_state.holding_fund_debug   = {}
     if 'holding_action_data'  not in st.session_state: st.session_state.holding_action_data  = {}
+    if 'action_thresholds'    not in st.session_state: st.session_state.action_thresholds    = DEFAULT_ACTION_THRESHOLDS.copy()
 
     # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
@@ -855,12 +878,69 @@ if df_holdings_raw is not None:
             elif fund_total < 100: st.warning(f"⚠️ Total: {fund_total} / 100 — {100 - fund_total} pts unallocated")
             else:                   st.error(f"❌ Total: {fund_total} / 100 — over by {fund_total - 100} pts.")
 
+    # ── Action Signal Thresholds ───────────────────────────────────────────
+    with st.expander("🎯 Action Signal Thresholds", expanded=False):
+        st.caption(
+            "Controls when the BUY / HOLD / SELL signal fires. "
+            "These settings apply to all pages — Holdings, Equity Scout, and Market Screener."
+        )
+        at = st.session_state.action_thresholds
+        a_col1, a_col2 = st.columns(2)
+        with a_col1:
+            a_sell_floor = st.slider(
+                "SELL — Score Floor", 20, 60, at["sell_score_floor"], step=5, key="a_sell_floor",
+                help="Score below this triggers an automatic SELL. Default 45."
+            )
+            a_buy_floor = st.slider(
+                "BUY/HOLD — Score Floor", 45, 85, at["buy_score_floor"], step=5, key="a_buy_floor",
+                help="Minimum score to qualify as BUY or HOLD. Default 65."
+            )
+            a_sell_debt = st.slider(
+                "SELL — Debt/FCF Max", 2.0, 10.0, float(at["sell_debt_max"]), step=0.5, key="a_sell_debt",
+                help="Debt/FCF above this level (combined with low interest coverage) triggers SELL. Default 5.0x."
+            )
+        with a_col2:
+            a_buy_poe = st.slider(
+                "BUY — Max P/Owner Earnings", 10, 50, int(at["buy_poe_max"]), step=5, key="a_buy_poe",
+                help="Price/Owner Earnings at or below this = BUY. Above this = HOLD. Default 25x."
+            )
+            a_bargain_poe = st.slider(
+                "BUY — Bargain P/OE Label", 5, 30, int(at["bargain_poe"]), step=5, key="a_bargain_poe",
+                help="Below this P/OE the reason shows 'bargain price' instead of 'fair price'. Default 15x."
+            )
+            a_sell_ic = st.slider(
+                "SELL — Min Interest Coverage", 1.0, 5.0, float(at["sell_ic_min"]), step=0.5, key="a_sell_ic",
+                help="Interest coverage below this (with high debt) triggers SELL. Default 2.5x."
+            )
+
+        # Validate: sell floor must be below buy floor
+        if a_sell_floor >= a_buy_floor:
+            st.warning("⚠️ Sell Floor must be lower than BUY/HOLD Floor.")
+        if a_bargain_poe >= a_buy_poe:
+            st.warning("⚠️ Bargain P/OE label should be lower than BUY Max P/OE.")
+
+        active_thresholds = {
+            "sell_score_floor": a_sell_floor,
+            "buy_score_floor":  a_buy_floor,
+            "buy_poe_max":      float(a_buy_poe),
+            "bargain_poe":      float(a_bargain_poe),
+            "sell_debt_max":    a_sell_debt,
+            "sell_ic_min":      a_sell_ic,
+        }
+        st.session_state.action_thresholds = active_thresholds
+
+        # Live preview with current settings
+        st.caption(
+            f"**Current rules:** SELL if score < {a_sell_floor} or Debt/FCF > {a_sell_debt:.1f}x + IC < {a_sell_ic:.1f}x · "
+            f"BUY if score ≥ {a_buy_floor} + P/OE ≤ {a_buy_poe}x · "
+            f"HOLD if score ≥ {a_buy_floor} but P/OE > {a_buy_poe}x"
+        )
+
     active_weights      = st.session_state.holding_weights
     active_fund_weights = st.session_state.holding_fund_weights
     stock_total         = sum(active_weights.values())
     fund_total          = sum(active_fund_weights.values())
-    total_weight        = stock_total   # used for Score All button gate
-    unique_symbols = consolidated['Symbol'].tolist()
+    total_weight        = stock_total   # used for Score All button gate    unique_symbols = consolidated['Symbol'].tolist()
     n_symbols      = len(unique_symbols)
 
     # ── Score All Button ───────────────────────────────────────────────────
