@@ -940,7 +940,8 @@ if df_holdings_raw is not None:
     active_fund_weights = st.session_state.holding_fund_weights
     stock_total         = sum(active_weights.values())
     fund_total          = sum(active_fund_weights.values())
-    total_weight        = stock_total   # used for Score All button gate    unique_symbols = consolidated['Symbol'].tolist()
+    total_weight        = stock_total   # used for Score All button gate
+    unique_symbols = consolidated['Symbol'].tolist()
     n_symbols      = len(unique_symbols)
 
     # ── Score All Button ───────────────────────────────────────────────────
