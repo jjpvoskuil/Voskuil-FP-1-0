@@ -206,10 +206,10 @@ def fetch_score_data_yfinance(ticker):
 # PRIMARY POLYGON FETCHER
 # ─────────────────────────────────────────────
 def fetch_score_data(ticker):
-    """Score a stock using the new Massive/Polygon Fundamentals API (v1).
-    Makes three calls: income-statements, cash-flow-statements, balance-sheets.
-    New API returns flat numeric fields directly (no .value wrappers).
-    Returns None on failure — ADRs/failures queued for yfinance in Pass 2.
+    """Score a stock using Massive/Polygon fundamentals.
+    Tries the new v1 endpoints first (requires Financials & Ratios Expansion plan).
+    Falls back to the legacy vX endpoint (available on Stocks Starter) automatically.
+    Remove the vX fallback once the plan upgrade is confirmed working.
     """
     try:
         # ── Ticker details (market cap, shares, price) ────────────────────
@@ -225,102 +225,126 @@ def fetch_score_data(ticker):
         except (KeyError, TypeError, IndexError):
             pass
 
-        # ── Common query params for all three fundamentals endpoints ──────
+        # ── Try new v1 endpoints first ────────────────────────────────────
         fin_params = {
-            "tickers": ticker,
-            "timeframe": "annual",
-            "limit": 2,              # fetch 2 years for FCF growth calc
-            "sort": "period_end.desc",
+            "tickers": ticker, "timeframe": "annual",
+            "limit": 2, "sort": "period_end.desc",
         }
         NEW_BASE = "/stocks/financials/v1"
 
-        # ── Income Statement ──────────────────────────────────────────────
-        inc_data = poly_get(f"{NEW_BASE}/income-statements", fin_params)
-        if not inc_data or not inc_data.get("results"):
-            return None   # no SEC filings — ADR or unsupported ticker
+        inc_data = poly_get(f"{NEW_BASE}/income-statements",    fin_params)
+        cf_data  = poly_get(f"{NEW_BASE}/cash-flow-statements", fin_params)
+        bs_data  = poly_get(f"{NEW_BASE}/balance-sheets",       fin_params)
 
-        # ── Cash Flow Statement ───────────────────────────────────────────
-        cf_data = poly_get(f"{NEW_BASE}/cash-flow-statements", fin_params)
-        if not cf_data or not cf_data.get("results"):
-            return None
-
-        # ── Balance Sheet ─────────────────────────────────────────────────
-        bs_data = poly_get(f"{NEW_BASE}/balance-sheets", fin_params)
-        if not bs_data or not bs_data.get("results"):
-            return None
-
-        inc = inc_data["results"][0]   # most recent annual
-        cf  = cf_data["results"][0]
-        bs  = bs_data["results"][0]
-
-        # Previous year CF for growth calculation
-        cf2 = cf_data["results"][1] if len(cf_data["results"]) > 1 else {}
-
-        # ── Cash Flows ────────────────────────────────────────────────────
-        op_cf  = sfval(cf, "net_cash_from_operating_activities")
-        inv_cf = sfval(cf, "net_cash_from_investing_activities")
-        fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
-
-        if fcf is None and op_cf is None:
-            return None   # no cash flow data at all
-
-        op_cf2  = sfval(cf2, "net_cash_from_operating_activities")
-        inv_cf2 = sfval(cf2, "net_cash_from_investing_activities")
-        fcf2    = (op_cf2 + inv_cf2) if (op_cf2 is not None and inv_cf2 is not None) else None
-
-        # ── Income Statement fields ───────────────────────────────────────
-        gross_profit = sfval(inc, "gross_profit")
-        revenue      = sfval(inc, "revenue")
-        gross_margin = (gross_profit / revenue) if (gross_profit and revenue and revenue > 0) else None
-
-        # Net income — prefer common-shareholder figure, fall back to CF starting point
-        net_income = (
-            sfval(inc, "net_income_loss_attributable_common_shareholders")
-            or sfval(cf, "net_income")
+        use_new_api = (
+            inc_data and inc_data.get("results") and
+            cf_data  and cf_data.get("results")  and
+            bs_data  and bs_data.get("results")
         )
 
-        # ── Balance Sheet fields ──────────────────────────────────────────
-        total_assets = sfval(bs, "total_assets")
-        current_liab = sfval(bs, "total_current_liabilities")
-        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+        if use_new_api:
+            # ── New flat-field API path ───────────────────────────────────
+            inc = inc_data["results"][0]
+            cf  = cf_data["results"][0]
+            bs  = bs_data["results"][0]
+            cf2 = cf_data["results"][1] if len(cf_data["results"]) > 1 else {}
 
-        # Long-term debt — try multiple field names
-        long_term_debt = (
-            sfval(bs, "long_term_debt")
-            or sfval(bs, "long_term_debt_and_capital_lease_obligations")
-            or sfval(bs, "total_noncurrent_liabilities")
-        )
-        debt_to_fcf = (long_term_debt / fcf) if (long_term_debt is not None and fcf and fcf > 0) else None
+            op_cf  = sfval(cf, "net_cash_from_operating_activities")
+            inv_cf = sfval(cf, "net_cash_from_investing_activities")
+            fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
-        # ── Metrics ───────────────────────────────────────────────────────
-        fcf_yield = (fcf / market_cap) if (fcf and fcf > 0 and market_cap and market_cap > 0) else None
+            if fcf is None and op_cf is None:
+                return None
 
-        interest_cov, is_net_creditor = calc_interest_coverage_new(inc, cf)
+            gross_profit = sfval(inc, "gross_profit")
+            revenue      = sfval(inc, "revenue")
+            gross_margin = (gross_profit / revenue) if (gross_profit and revenue and revenue > 0) else None
 
-        # D&A: use direct field from CF statement (no proxy needed with new API)
-        dna       = sfval(cf, "depreciation_depletion_and_amortization") or (op_cf - net_income if op_cf and net_income else 0)
-        capex_abs = abs(inv_cf) if inv_cf else 0
-        owner_earn = (net_income + (dna or 0) - capex_abs) if net_income is not None else None
-        poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+            net_income = (
+                sfval(inc, "net_income_loss_attributable_common_shareholders")
+                or sfval(cf, "net_income")
+            )
 
-        # Dividends: from CF statement (negative = paid out, so abs)
-        div_raw   = sfval(cf, "dividends")
-        div_yield = (abs(div_raw) / market_cap) if (div_raw and market_cap and market_cap > 0) else None
+            total_assets = sfval(bs, "total_assets")
+            current_liab = sfval(bs, "total_current_liabilities")
+            invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+            roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
 
-        return {
-            "fcf_yield":         fcf_yield,
-            "roic":              roic,
-            "debt_to_fcf":       debt_to_fcf,
-            "interest_coverage": interest_cov,
-            "is_net_creditor":   is_net_creditor,
-            "gross_margin":      gross_margin,
-            "price_owner_earn":  poe,
-            "dividend_yield":    div_yield,
-            "source":            "polygon",
-        }
+            long_term_debt = (
+                sfval(bs, "long_term_debt")
+                or sfval(bs, "long_term_debt_and_capital_lease_obligations")
+                or sfval(bs, "total_noncurrent_liabilities")
+            )
+            debt_to_fcf = (long_term_debt / fcf) if (long_term_debt is not None and fcf and fcf > 0) else None
+
+            fcf_yield = (fcf / market_cap) if (fcf and fcf > 0 and market_cap and market_cap > 0) else None
+            interest_cov, is_net_creditor = calc_interest_coverage_new(inc, cf)
+
+            dna        = sfval(cf, "depreciation_depletion_and_amortization") or (op_cf - net_income if op_cf and net_income else 0)
+            capex_abs  = abs(inv_cf) if inv_cf else 0
+            owner_earn = (net_income + (dna or 0) - capex_abs) if net_income is not None else None
+            poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+
+            div_raw   = sfval(cf, "dividends")
+            div_yield = (abs(div_raw) / market_cap) if (div_raw and market_cap and market_cap > 0) else None
+
+            return {
+                "fcf_yield": fcf_yield, "roic": roic, "debt_to_fcf": debt_to_fcf,
+                "interest_coverage": interest_cov, "is_net_creditor": is_net_creditor,
+                "gross_margin": gross_margin, "price_owner_earn": poe,
+                "dividend_yield": div_yield, "source": "polygon",
+            }
+
+        else:
+            # ── Legacy vX fallback (Stocks Starter plan) ──────────────────
+            # Remove this block once Financials & Ratios Expansion is active.
+            fin_data = poly_get("/vX/reference/financials", {
+                "ticker": ticker, "timeframe": "annual", "limit": 1,
+                "order": "desc", "sort": "period_of_report_date",
+            })
+            if not fin_data or not fin_data.get("results"):
+                return None
+
+            f   = fin_data["results"][0]["financials"]
+            inc = f.get("income_statement",    {})
+            cf  = f.get("cash_flow_statement", {})
+            bs  = f.get("balance_sheet",       {})
+
+            op_cf  = fval(cf, "net_cash_flow_from_operating_activities")
+            inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
+            fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
+
+            if fcf is None and op_cf is None:
+                return None
+
+            fcf_yield    = (fcf / market_cap) if (fcf and fcf > 0 and market_cap and market_cap > 0) else None
+            gross_profit = fval(inc, "gross_profit")
+            revenues     = fval(inc, "revenues")
+            gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
+            net_income   = fval(inc, "net_income_loss")
+            total_assets = fval(bs, "assets")
+            current_liab = fval(bs, "current_liabilities")
+            invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+            roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+            long_term_debt = fval(bs, "long_term_debt") or fval(bs, "noncurrent_liabilities")
+            debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
+            interest_cov, is_net_creditor = calc_interest_coverage(inc)
+            dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
+            capex_abs  = abs(inv_cf) if inv_cf else 0
+            owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+            poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+            div_ps     = fval(inc, "common_stock_dividends")
+            div_yield  = (div_ps / price) if (div_ps and price and price > 0) else None
+
+            return {
+                "fcf_yield": fcf_yield, "roic": roic, "debt_to_fcf": debt_to_fcf,
+                "interest_coverage": interest_cov, "is_net_creditor": is_net_creditor,
+                "gross_margin": gross_margin, "price_owner_earn": poe,
+                "dividend_yield": div_yield, "source": "polygon",
+            }
+
     except Exception:
-        return None   # any exception — queued for yfinance in Pass 2
+        return None   # queued for yfinance in Pass 2
 
 # ─────────────────────────────────────────────
 # SCORING ENGINE
