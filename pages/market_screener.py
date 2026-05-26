@@ -51,19 +51,24 @@ def safe_float(val):
     except (TypeError, ValueError):
         return None
 
-def fval(obj, key):
+def sfval(obj, key):
+    """Safe float from flat dict — new Fundamentals API returns raw numbers."""
     try:
-        return float(obj[key]["value"])
+        return float(obj[key])
     except (KeyError, TypeError, ValueError):
         return None
 
-def calc_interest_coverage(inc):
-    op_income    = fval(inc, "operating_income_loss")
-    interest_exp = fval(inc, "interest_expense_operating")
+def calc_interest_coverage_new(inc, cf):
+    """Interest coverage from new flat-field API."""
+    op_income    = sfval(inc, "operating_income")
+    interest_exp = sfval(inc, "interest_expense")
+    interest_inc = sfval(inc, "interest_income")
     if interest_exp and interest_exp > 0 and op_income is not None:
         return op_income / interest_exp, False
-    nonop = fval(inc, "nonoperating_income_loss")
-    if nonop is not None and nonop > 0:
+    if interest_inc is not None and interest_inc > 0 and (interest_exp is None or interest_exp == 0):
+        return None, True
+    other = sfval(inc, "other_income_expense")
+    if other is not None and other > 0 and (interest_exp is None or interest_exp == 0):
         return None, True
     return None, False
 
@@ -80,9 +85,10 @@ def get_sp500_tickers():
         return []
 
 def fetch_score_data(ticker):
+    """New Massive/Polygon Fundamentals API (v1) — three separate endpoint calls."""
     try:
-        det_data = poly_get(f"/v3/reference/tickers/{ticker}")
-        det = det_data.get("results", {}) if det_data else {}
+        det_data   = poly_get(f"/v3/reference/tickers/{ticker}")
+        det        = det_data.get("results", {}) if det_data else {}
         market_cap = safe_float(det.get("market_cap"))
         shares     = safe_float(det.get("weighted_shares_outstanding"))
 
@@ -93,43 +99,63 @@ def fetch_score_data(ticker):
         except (KeyError, TypeError, IndexError):
             pass
 
-        fin_data = poly_get("/vX/reference/financials", {
-            "ticker": ticker, "timeframe": "annual", "limit": 1,
-            "order": "desc", "sort": "period_of_report_date",
-        })
-        if not fin_data or not fin_data.get("results"):
-            return None
+        fin_params = {
+            "tickers": ticker, "timeframe": "annual",
+            "limit": 1, "sort": "period_end.desc",
+        }
+        NEW_BASE = "/stocks/financials/v1"
 
-        f   = fin_data["results"][0]["financials"]
-        inc = f.get("income_statement",    {})
-        cf  = f.get("cash_flow_statement", {})
-        bs  = f.get("balance_sheet",       {})
+        inc_data = poly_get(f"{NEW_BASE}/income-statements",   fin_params)
+        cf_data  = poly_get(f"{NEW_BASE}/cash-flow-statements", fin_params)
+        bs_data  = poly_get(f"{NEW_BASE}/balance-sheets",      fin_params)
 
-        op_cf  = fval(cf, "net_cash_flow_from_operating_activities")
-        inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
+        if not inc_data or not inc_data.get("results"): return None
+        if not cf_data  or not cf_data.get("results"):  return None
+        if not bs_data  or not bs_data.get("results"):  return None
+
+        inc = inc_data["results"][0]
+        cf  = cf_data["results"][0]
+        bs  = bs_data["results"][0]
+
+        op_cf  = sfval(cf, "net_cash_from_operating_activities")
+        inv_cf = sfval(cf, "net_cash_from_investing_activities")
         fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
+        # Screener eliminates negative FCF — this is intentional for the screener
         if fcf is None or fcf <= 0:
             return None
 
         fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
-        gross_profit = fval(inc, "gross_profit")
-        revenues     = fval(inc, "revenues")
-        gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
-        net_income   = fval(inc, "net_income_loss")
-        total_assets = fval(bs,  "assets")
-        current_liab = fval(bs,  "current_liabilities")
+        gross_profit = sfval(inc, "gross_profit")
+        revenue      = sfval(inc, "revenue")
+        gross_margin = (gross_profit / revenue) if (gross_profit and revenue and revenue > 0) else None
+
+        net_income = (
+            sfval(inc, "net_income_loss_attributable_common_shareholders")
+            or sfval(cf, "net_income")
+        )
+
+        total_assets = sfval(bs, "total_assets")
+        current_liab = sfval(bs, "total_current_liabilities")
         invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
         roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-        long_term_debt = fval(bs, "long_term_debt") or fval(bs, "noncurrent_liabilities")
-        debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
-        interest_cov, is_net_creditor = calc_interest_coverage(inc)
-        dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
-        capex_abs  = abs(inv_cf) if inv_cf else 0
-        owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+
+        long_term_debt = (
+            sfval(bs, "long_term_debt")
+            or sfval(bs, "long_term_debt_and_capital_lease_obligations")
+            or sfval(bs, "total_noncurrent_liabilities")
+        )
+        debt_to_fcf = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
+
+        interest_cov, is_net_creditor = calc_interest_coverage_new(inc, cf)
+
+        dna       = sfval(cf, "depreciation_depletion_and_amortization") or (op_cf - net_income if op_cf and net_income else 0)
+        capex_abs = abs(inv_cf) if inv_cf else 0
+        owner_earn = (net_income + (dna or 0) - capex_abs) if net_income is not None else None
         poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        div_ps     = fval(inc, "common_stock_dividends")
-        div_yield  = (div_ps / price) if (div_ps and price and price > 0) else None
+
+        div_raw   = sfval(cf, "dividends")
+        div_yield = (abs(div_raw) / market_cap) if (div_raw and market_cap and market_cap > 0) else None
 
         return {
             "ticker":            ticker,
