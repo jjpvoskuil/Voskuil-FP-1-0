@@ -616,19 +616,6 @@ def fund_score_to_badge(rebalanced_score):
         return "—"
 
 
-@st.cache_data
-def fetch_sec_tickers():
-    try:
-        url = "https://www.sec.gov/files/company_tickers.json"
-        headers = {'User-Agent': 'Voskuil Wealth Engine (voskuil@example.com)'}
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        return {item['ticker']: str(item['cik_str']).zfill(10) for item in data.values()}
-    except Exception:
-        return {}
-
-cik_map = fetch_sec_tickers()
-
 def get_clean_df(filename, anchor_text):
     try:
         with open(filename, 'r') as f:
@@ -731,16 +718,6 @@ st.header("📋 Holdings Explorer")
 
 st.markdown("""
 <style>
-div[data-testid="stLinkButton"] a[href*="sec.gov"] {
-    background-color: #27ae60 !important;
-    color: white !important;
-    border-color: #27ae60 !important;
-}
-div[data-testid="stLinkButton"] a[href*="yahoo.com"] {
-    background-color: #8e44ad !important;
-    color: white !important;
-    border-color: #8e44ad !important;
-}
 div[data-testid="stLinkButton"] a[href*="equity_scout"] {
     background-color: #1f6feb !important;
     color: white !important;
@@ -763,13 +740,7 @@ if df_holdings_raw is not None:
         .sort_values('Total_Value', ascending=False)
     )
 
-    def get_sec_link(symbol):
-        cik = cik_map.get(symbol)
-        return f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude" if cik else f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={symbol}"
-
-    consolidated['SEC Link']   = consolidated['Symbol'].apply(get_sec_link)
-    consolidated['Yahoo Link'] = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
-    consolidated['Dive Link']  = consolidated['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
+    consolidated['Dive Link'] = consolidated['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
 
     if 'holding_scores'       not in st.session_state: st.session_state.holding_scores       = {}
     if 'holding_weights'      not in st.session_state: st.session_state.holding_weights      = DEFAULT_WEIGHTS.copy()
@@ -1073,20 +1044,19 @@ if df_holdings_raw is not None:
         display_df = display_df.sort_values('Symbol', ascending=False)
 
     # ── Column Headers ─────────────────────────────────────────────────────
-    h1, h2, h3, h4, h5, h6, h7, h8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.5, 1.5])
+    h1, h2, h3, h4, h5, h6, h7 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.8])
     with h1: st.markdown("**Symbol**")
     with h2: st.markdown("**Name**")
     with h3: st.markdown("**Type**")
     with h4: st.markdown("**Value**")
     with h5: st.markdown("**Accts**")
     with h6: st.markdown("**Score**")
-    with h7: st.markdown("**Research**")
-    with h8: st.markdown("**Analysis**")
+    with h7: st.markdown("**Analysis**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     # ── Rows ───────────────────────────────────────────────────────────────
     for _, row in display_df.iterrows():
-        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.5, 1.5])
+        c1, c2, c3, c4, c5, c6, c7 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.8])
         with c1:
             src = row.get('Source')
             sym_label = f"**{row['Symbol']}**"
@@ -1125,12 +1095,6 @@ if df_holdings_raw is not None:
             else:
                 st.caption("—")
         with c7:
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                st.link_button("SEC", row['SEC Link'], use_container_width=True)
-            with btn_col2:
-                st.link_button("Yahoo", row['Yahoo Link'], use_container_width=True)
-        with c8:
             st.link_button("🔍 Deep Dive", row['Dive Link'], use_container_width=True, type="primary")
 
     st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database) · 📊 = Fund Health Score (expense ratio, yield, return, beta)")
