@@ -58,6 +58,13 @@ def sfval(obj, key):
     except (KeyError, TypeError, ValueError):
         return None
 
+def fval(obj, key):
+    """Legacy vX API helper — fields wrapped in {value: X} dicts."""
+    try:
+        return float(obj[key]["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
 def calc_interest_coverage_new(inc, cf):
     """Interest coverage from new flat-field API."""
     op_income    = sfval(inc, "operating_income")
@@ -69,6 +76,17 @@ def calc_interest_coverage_new(inc, cf):
         return None, True
     other = sfval(inc, "other_income_expense")
     if other is not None and other > 0 and (interest_exp is None or interest_exp == 0):
+        return None, True
+    return None, False
+
+def calc_interest_coverage(inc):
+    """Legacy vX interest coverage."""
+    op_income    = fval(inc, "operating_income_loss")
+    interest_exp = fval(inc, "interest_expense_operating")
+    if interest_exp and interest_exp > 0 and op_income is not None:
+        return op_income / interest_exp, False
+    nonop = fval(inc, "nonoperating_income_loss")
+    if nonop is not None and nonop > 0:
         return None, True
     return None, False
 
@@ -85,7 +103,7 @@ def get_sp500_tickers():
         return []
 
 def fetch_score_data(ticker):
-    """New Massive/Polygon Fundamentals API (v1) — three separate endpoint calls."""
+    """New v1 endpoints with vX fallback for Stocks Starter plan."""
     try:
         det_data   = poly_get(f"/v3/reference/tickers/{ticker}")
         det        = det_data.get("results", {}) if det_data else {}
@@ -105,72 +123,93 @@ def fetch_score_data(ticker):
         }
         NEW_BASE = "/stocks/financials/v1"
 
-        inc_data = poly_get(f"{NEW_BASE}/income-statements",   fin_params)
+        inc_data = poly_get(f"{NEW_BASE}/income-statements",    fin_params)
         cf_data  = poly_get(f"{NEW_BASE}/cash-flow-statements", fin_params)
-        bs_data  = poly_get(f"{NEW_BASE}/balance-sheets",      fin_params)
+        bs_data  = poly_get(f"{NEW_BASE}/balance-sheets",       fin_params)
 
-        if not inc_data or not inc_data.get("results"): return None
-        if not cf_data  or not cf_data.get("results"):  return None
-        if not bs_data  or not bs_data.get("results"):  return None
-
-        inc = inc_data["results"][0]
-        cf  = cf_data["results"][0]
-        bs  = bs_data["results"][0]
-
-        op_cf  = sfval(cf, "net_cash_from_operating_activities")
-        inv_cf = sfval(cf, "net_cash_from_investing_activities")
-        fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
-
-        # Screener eliminates negative FCF — this is intentional for the screener
-        if fcf is None or fcf <= 0:
-            return None
-
-        fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
-        gross_profit = sfval(inc, "gross_profit")
-        revenue      = sfval(inc, "revenue")
-        gross_margin = (gross_profit / revenue) if (gross_profit and revenue and revenue > 0) else None
-
-        net_income = (
-            sfval(inc, "net_income_loss_attributable_common_shareholders")
-            or sfval(cf, "net_income")
+        use_new_api = (
+            inc_data and inc_data.get("results") and
+            cf_data  and cf_data.get("results")  and
+            bs_data  and bs_data.get("results")
         )
 
-        total_assets = sfval(bs, "total_assets")
-        current_liab = sfval(bs, "total_current_liabilities")
-        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+        if use_new_api:
+            inc = inc_data["results"][0]
+            cf  = cf_data["results"][0]
+            bs  = bs_data["results"][0]
 
-        long_term_debt = (
-            sfval(bs, "long_term_debt")
-            or sfval(bs, "long_term_debt_and_capital_lease_obligations")
-            or sfval(bs, "total_noncurrent_liabilities")
-        )
-        debt_to_fcf = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
+            op_cf  = sfval(cf, "net_cash_from_operating_activities")
+            inv_cf = sfval(cf, "net_cash_from_investing_activities")
+            fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
-        interest_cov, is_net_creditor = calc_interest_coverage_new(inc, cf)
+            if fcf is None or fcf <= 0:
+                return None
 
-        dna       = sfval(cf, "depreciation_depletion_and_amortization") or (op_cf - net_income if op_cf and net_income else 0)
-        capex_abs = abs(inv_cf) if inv_cf else 0
-        owner_earn = (net_income + (dna or 0) - capex_abs) if net_income is not None else None
-        poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+            fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
+            gross_profit = sfval(inc, "gross_profit")
+            revenue      = sfval(inc, "revenue")
+            gross_margin = (gross_profit / revenue) if (gross_profit and revenue and revenue > 0) else None
+            net_income   = sfval(inc, "net_income_loss_attributable_common_shareholders") or sfval(cf, "net_income")
+            total_assets = sfval(bs, "total_assets")
+            current_liab = sfval(bs, "total_current_liabilities")
+            invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+            roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+            long_term_debt = sfval(bs, "long_term_debt") or sfval(bs, "long_term_debt_and_capital_lease_obligations") or sfval(bs, "total_noncurrent_liabilities")
+            debt_to_fcf  = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
+            interest_cov, is_net_creditor = calc_interest_coverage_new(inc, cf)
+            dna          = sfval(cf, "depreciation_depletion_and_amortization") or (op_cf - net_income if op_cf and net_income else 0)
+            capex_abs    = abs(inv_cf) if inv_cf else 0
+            owner_earn   = (net_income + (dna or 0) - capex_abs) if net_income is not None else None
+            poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+            div_raw      = sfval(cf, "dividends")
+            div_yield    = (abs(div_raw) / market_cap) if (div_raw and market_cap and market_cap > 0) else None
 
-        div_raw   = sfval(cf, "dividends")
-        div_yield = (abs(div_raw) / market_cap) if (div_raw and market_cap and market_cap > 0) else None
+        else:
+            # Legacy vX fallback
+            fin_data = poly_get("/vX/reference/financials", {
+                "ticker": ticker, "timeframe": "annual", "limit": 1,
+                "order": "desc", "sort": "period_of_report_date",
+            })
+            if not fin_data or not fin_data.get("results"):
+                return None
+
+            f   = fin_data["results"][0]["financials"]
+            inc_vx = f.get("income_statement",    {})
+            cf_vx  = f.get("cash_flow_statement", {})
+            bs_vx  = f.get("balance_sheet",       {})
+
+            op_cf  = fval(cf_vx, "net_cash_flow_from_operating_activities")
+            inv_cf = fval(cf_vx, "net_cash_flow_from_investing_activities")
+            fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
+            if fcf is None or fcf <= 0:
+                return None
+
+            fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
+            gross_profit = fval(inc_vx, "gross_profit")
+            revenues     = fval(inc_vx, "revenues")
+            gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
+            net_income   = fval(inc_vx, "net_income_loss")
+            total_assets = fval(bs_vx, "assets")
+            current_liab = fval(bs_vx, "current_liabilities")
+            invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+            roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+            long_term_debt = fval(bs_vx, "long_term_debt") or fval(bs_vx, "noncurrent_liabilities")
+            debt_to_fcf  = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
+            interest_cov, is_net_creditor = calc_interest_coverage(inc_vx)
+            dna_proxy    = (op_cf - net_income) if (op_cf and net_income) else None
+            capex_abs    = abs(inv_cf) if inv_cf else 0
+            owner_earn   = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+            poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+            div_ps       = fval(inc_vx, "common_stock_dividends")
+            div_yield    = (div_ps / price) if (div_ps and price and price > 0) else None
 
         return {
-            "ticker":            ticker,
-            "name":              det.get("name", ticker),
-            "sector":            det.get("sic_description", "N/A"),
-            "price":             price,
-            "market_cap":        market_cap,
-            "fcf_yield":         fcf_yield,
-            "roic":              roic,
-            "debt_to_fcf":       debt_to_fcf,
-            "interest_coverage": interest_cov,
-            "is_net_creditor":   is_net_creditor,
-            "gross_margin":      gross_margin,
-            "price_owner_earn":  poe,
-            "dividend_yield":    div_yield,
+            "ticker": ticker, "name": det.get("name", ticker),
+            "sector": det.get("sic_description", "N/A"), "price": price,
+            "market_cap": market_cap, "fcf_yield": fcf_yield, "roic": roic,
+            "debt_to_fcf": debt_to_fcf, "interest_coverage": interest_cov,
+            "is_net_creditor": is_net_creditor, "gross_margin": gross_margin,
+            "price_owner_earn": poe, "dividend_yield": div_yield,
         }
     except Exception:
         return None
