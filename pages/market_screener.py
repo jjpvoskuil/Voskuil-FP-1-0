@@ -194,6 +194,35 @@ def score_to_label(score):
     elif score >= 45: return "Caution",    "🟠"
     else:             return "Avoid",      "🔴"
 
+def buffett_action(score, data):
+    """Buffett-style Buy / Hold / Sell signal. See app.py for full rationale."""
+    if score is None or data is None:
+        return "—", "#888888", ""
+    poe      = data.get("price_owner_earn")
+    debt_fcf = data.get("debt_to_fcf")
+    ic       = data.get("interest_coverage") or 0
+    is_nc    = data.get("is_net_creditor", False)
+    roic     = data.get("roic")
+    if score < 45:
+        return "SELL", "#e74c3c", "Fundamentals below conviction threshold"
+    if debt_fcf is not None and debt_fcf > 5.0 and not is_nc and ic < 2.5:
+        return "SELL", "#e74c3c", f"Debt trap: {debt_fcf:.1f}x Debt/FCF, {ic:.1f}x coverage"
+    if roic is not None and roic < 0:
+        return "SELL", "#e74c3c", "Negative ROIC — destroying capital"
+    if score >= 65:
+        price_ok = poe is not None and poe <= 25.0
+        debt_ok  = debt_fcf is None or debt_fcf < 5.0 or is_nc
+        if price_ok and debt_ok:
+            label = "bargain" if poe <= 15.0 else "fair"
+            return "BUY", "#2ecc71", f"Quality business at {label} price ({poe:.1f}x P/OE)"
+    if score >= 65:
+        if poe is not None and poe > 25.0:
+            return "HOLD", "#3498db", f"Quality but stretched ({poe:.1f}x P/OE)"
+        if debt_fcf is not None and debt_fcf >= 5.0 and not is_nc:
+            return "HOLD", "#3498db", f"Quality but elevated debt ({debt_fcf:.1f}x)"
+        return "HOLD", "#3498db", "Quality business — monitor for entry"
+    return "PASS", "#888888", "Adequate fundamentals — not a concentrated bet candidate"
+
 st.title("📡 Market Screener")
 st.caption("Scans the S&P 500 through the Voskuil Owner's Framework. Surfaces the top concentrated opportunities.")
 st.info("**How this works:** Fetches fundamentals from Polygon.io SEC filings, scores each company on the 6-metric Owner's Framework, and surfaces the top results. Negative FCF companies are automatically eliminated.")
@@ -291,6 +320,7 @@ if run_screen:
     for rank, row in results_df.iterrows():
         score       = int(row['score'])
         label, icon = score_to_label(score)
+        signal, sig_color, sig_reason = buffett_action(score, row.to_dict())
         with st.container():
             c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1, 3, 2, 2, 2, 2, 2, 2])
             with c1:
@@ -300,7 +330,14 @@ if run_screen:
                 st.markdown(f"**{row['ticker']}**")
                 st.caption(row.get('name', ''))
                 st.caption(row.get('sector', ''))
-            with c3: st.metric("Score",        f"{score}/100")
+            with c3:
+                st.metric("Score", f"{score}/100")
+                if signal != "—":
+                    st.markdown(
+                        f"<span style='font-weight:bold; color:{sig_color}'>{signal}</span>",
+                        unsafe_allow_html=True
+                    )
+                    st.caption(sig_reason)
             with c4: st.metric("FCF Yield",    fmt(row.get('fcf_yield'),       "pct"))
             with c5: st.metric("ROIC",         fmt(row.get('roic'),            "pct"))
             with c6: st.metric("Gross Margin", fmt(row.get('gross_margin'),    "pct"))
