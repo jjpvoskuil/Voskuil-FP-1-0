@@ -302,6 +302,45 @@ def score_to_verdict(score):
     elif score >= 45: return "Proceed with Caution", "#e67e22"
     else:             return "Avoid", "#e74c3c"
 
+def buffett_action(score, data):
+    """Buffett-style Buy / Hold / Sell signal derived from score + key metrics.
+    Separates business quality from price — the core Buffett distinction.
+    Returns (signal_str, color_hex, reason_str).
+    """
+    if score is None or data is None:
+        return "—", "#888888", ""
+
+    poe      = data.get("price_owner_earn")
+    debt_fcf = data.get("debt_to_fcf")
+    ic       = data.get("interest_coverage") or 0
+    is_nc    = data.get("is_net_creditor", False)
+    roic     = data.get("roic")
+
+    if score < 45:
+        return "SELL", "#e74c3c", "Fundamentals below conviction threshold"
+    if debt_fcf is not None and debt_fcf > 5.0 and not is_nc and ic < 2.5:
+        return "SELL", "#e74c3c", f"Debt trap: {debt_fcf:.1f}x Debt/FCF, interest coverage only {ic:.1f}x"
+    if roic is not None and roic < 0:
+        return "SELL", "#e74c3c", "Negative ROIC — destroying capital"
+
+    if score >= 65:
+        price_ok = poe is not None and poe <= 25.0
+        debt_ok  = debt_fcf is None or debt_fcf < 5.0 or is_nc
+        if price_ok and debt_ok:
+            if poe <= 15.0:
+                return "BUY", "#2ecc71", f"Quality business at bargain price ({poe:.1f}x P/OE)"
+            else:
+                return "BUY", "#2ecc71", f"Quality business at fair price ({poe:.1f}x P/OE)"
+
+    if score >= 65:
+        if poe is not None and poe > 25.0:
+            return "HOLD", "#3498db", f"Quality business but price stretched ({poe:.1f}x P/OE)"
+        if debt_fcf is not None and debt_fcf >= 5.0 and not is_nc:
+            return "HOLD", "#3498db", f"Quality business but debt elevated ({debt_fcf:.1f}x Debt/FCF)"
+        return "HOLD", "#3498db", "Quality business — monitor for better entry"
+
+    return "HOLD", "#3498db", "Adequate fundamentals — no clear buy or sell signal"
+
 # ── Query params ──────────────────────────────────────────────────────
 params       = st.query_params
 url_ticker   = params.get("ticker", "").upper().strip()
@@ -409,6 +448,23 @@ if analyze and ticker_input:
             st.warning(f"⚠️ Missing data: {', '.join(missing_names)}. Score rebalanced across available metrics.")
         else:
             st.markdown(f"**Score:** {rebalanced_score}/100")
+
+        # ── Buffett Action Signal ─────────────────────────────────────────
+        signal, sig_color, sig_reason = buffett_action(rebalanced_score, data)
+        if signal != "—":
+            st.markdown("---")
+            st.markdown(
+                f"<div style='text-align:center; font-size:1.6em; font-weight:bold; "
+                f"color:{sig_color}; padding:8px 0 4px 0'>{signal}</div>",
+                unsafe_allow_html=True
+            )
+            if sig_reason:
+                st.markdown(
+                    f"<div style='text-align:center; font-size:0.8em; color:#aaa; "
+                    f"padding-bottom:6px'>{sig_reason}</div>",
+                    unsafe_allow_html=True
+                )
+            st.caption("Buffett Action Signal")
 
         st.markdown("**Active Weights**")
         for k, v in weights.items():
