@@ -302,13 +302,29 @@ def score_to_verdict(score):
     elif score >= 45: return "Proceed with Caution", "#e67e22"
     else:             return "Avoid", "#e74c3c"
 
+DEFAULT_ACTION_THRESHOLDS = {
+    "sell_score_floor":  45,
+    "buy_score_floor":   65,
+    "buy_poe_max":       25.0,
+    "bargain_poe":       15.0,
+    "sell_debt_max":      5.0,
+    "sell_ic_min":        2.5,
+}
+
 def buffett_action(score, data):
-    """Buffett-style Buy / Hold / Sell signal derived from score + key metrics.
-    Separates business quality from price — the core Buffett distinction.
-    Returns (signal_str, color_hex, reason_str).
+    """Buffett-style Buy / Hold / Sell signal.
+    Reads thresholds from session state (set on dashboard) with fallback to defaults.
     """
     if score is None or data is None:
         return "—", "#888888", ""
+
+    t = st.session_state.get("action_thresholds", DEFAULT_ACTION_THRESHOLDS)
+    sell_floor  = t["sell_score_floor"]
+    buy_floor   = t["buy_score_floor"]
+    buy_poe_max = t["buy_poe_max"]
+    bargain_poe = t["bargain_poe"]
+    sell_debt   = t["sell_debt_max"]
+    sell_ic     = t["sell_ic_min"]
 
     poe      = data.get("price_owner_earn")
     debt_fcf = data.get("debt_to_fcf")
@@ -316,26 +332,24 @@ def buffett_action(score, data):
     is_nc    = data.get("is_net_creditor", False)
     roic     = data.get("roic")
 
-    if score < 45:
-        return "SELL", "#e74c3c", "Fundamentals below conviction threshold"
-    if debt_fcf is not None and debt_fcf > 5.0 and not is_nc and ic < 2.5:
+    if score < sell_floor:
+        return "SELL", "#e74c3c", f"Fundamentals below conviction threshold (score < {sell_floor})"
+    if debt_fcf is not None and debt_fcf > sell_debt and not is_nc and ic < sell_ic:
         return "SELL", "#e74c3c", f"Debt trap: {debt_fcf:.1f}x Debt/FCF, interest coverage only {ic:.1f}x"
     if roic is not None and roic < 0:
         return "SELL", "#e74c3c", "Negative ROIC — destroying capital"
 
-    if score >= 65:
-        price_ok = poe is not None and poe <= 25.0
-        debt_ok  = debt_fcf is None or debt_fcf < 5.0 or is_nc
+    if score >= buy_floor:
+        price_ok = poe is not None and poe <= buy_poe_max
+        debt_ok  = debt_fcf is None or debt_fcf < sell_debt or is_nc
         if price_ok and debt_ok:
-            if poe <= 15.0:
-                return "BUY", "#2ecc71", f"Quality business at bargain price ({poe:.1f}x P/OE)"
-            else:
-                return "BUY", "#2ecc71", f"Quality business at fair price ({poe:.1f}x P/OE)"
+            label = "bargain" if (poe is not None and poe <= bargain_poe) else "fair"
+            return "BUY", "#2ecc71", f"Quality business at {label} price ({poe:.1f}x P/OE)"
 
-    if score >= 65:
-        if poe is not None and poe > 25.0:
+    if score >= buy_floor:
+        if poe is not None and poe > buy_poe_max:
             return "HOLD", "#3498db", f"Quality business but price stretched ({poe:.1f}x P/OE)"
-        if debt_fcf is not None and debt_fcf >= 5.0 and not is_nc:
+        if debt_fcf is not None and debt_fcf >= sell_debt and not is_nc:
             return "HOLD", "#3498db", f"Quality business but debt elevated ({debt_fcf:.1f}x Debt/FCF)"
         return "HOLD", "#3498db", "Quality business — monitor for better entry"
 
