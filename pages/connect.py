@@ -273,29 +273,59 @@ else:
         if error or not link_token:
             st.error(f"❌ Could not create Plaid Link token: {error}")
         else:
-            app_url = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/connect"
-            link_html = f"""
-            <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
-            <div id="status" style="margin-top:8px; font-size:0.9em; color:#888;"></div>
-            <script>
-            var handler = Plaid.create({{
-                token: '{link_token}',
-                onSuccess: function(public_token, metadata) {{
-                    document.getElementById('status').innerText = 'Connected! Saving token...';
-                    window.parent.location.href = '{app_url}?public_token=' + public_token;
-                }},
-                onExit: function(err, metadata) {{
-                    if (err) {{
-                        document.getElementById('status').innerText = 'Error: ' + (err.display_message || err.error_code);
-                    }} else {{
-                        document.getElementById('status').innerText = 'Cancelled.';
-                    }}
-                }},
-            }});
-            handler.open();
-            </script>
-            """
-            components.html(link_html, height=60)
+            # Store link token in session state so the redirect page can read it
+            st.session_state.plaid_link_token = link_token
+            st.rerun()
+
+    # If we have a link token ready, show the full-page Link flow
+    if st.session_state.get("plaid_link_token"):
+        link_token = st.session_state.plaid_link_token
+        app_url    = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/connect"
+
+        st.info("✅ Link token ready — click the button below to open the Plaid connection window.")
+
+        # Render Plaid Link in a tall iframe with allow-popups and allow-top-navigation
+        link_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+</head>
+<body style="margin:0; padding:16px; font-family:sans-serif; background:transparent;">
+<button id="open-link" style="
+    background:#1f6feb; color:white; border:none;
+    padding:14px 32px; border-radius:6px; font-size:1em;
+    font-weight:bold; cursor:pointer; width:100%;">
+    🔗 Open Plaid Connection Window
+</button>
+<p id="status" style="color:#888; font-size:0.85em; margin-top:12px;"></p>
+<script>
+(function() {{
+    var handler = Plaid.create({{
+        token: "{link_token}",
+        onSuccess: function(public_token, metadata) {{
+            document.getElementById('status').innerText = 'Connected! Returning to app...';
+            // Navigate the top-level page back with the public token
+            window.top.location.href = "{app_url}?public_token=" + public_token;
+        }},
+        onExit: function(err, metadata) {{
+            if (err) {{
+                document.getElementById('status').innerText = 'Error: ' + (err.display_message || err.error_code || 'Unknown error');
+            }} else {{
+                document.getElementById('status').innerText = 'Cancelled — click above to try again.';
+            }}
+        }},
+    }});
+    document.getElementById('open-link').onclick = function() {{
+        document.getElementById('status').innerText = 'Opening Plaid...';
+        handler.open();
+    }};
+}})();
+</script>
+</body>
+</html>
+"""
+        components.html(link_html, height=120, scrolling=False)
 
 st.divider()
 st.markdown("""
