@@ -5,3 +5,4 @@ requests
 yfinance
 lxml
 curl_cffi
+plaid-python
