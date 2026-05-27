@@ -163,8 +163,8 @@ fig_gap.update_layout(
     barmode="stack", height=320,
     title="Annual Cash Flow by Phase",
     yaxis_title="$ / Year",
-    margin=dict(t=40, b=20),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    margin=dict(t=40, b=110),
+    legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
 )
 st.plotly_chart(fig_gap, use_container_width=True)
 
@@ -258,8 +258,8 @@ fig_surv.update_layout(
     title="Portfolio Survival Probability by Age",
     xaxis_title="Age", yaxis_title="% Simulations Surviving",
     yaxis=dict(range=[0, 105]),
-    height=380, margin=dict(t=40, b=20),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    height=380, margin=dict(t=40, b=110),
+    legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
 )
 st.plotly_chart(fig_surv, use_container_width=True)
 
@@ -287,8 +287,8 @@ fig_fan.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db")
 fig_fan.update_layout(
     title="Portfolio Value Fan Chart ($ Millions)",
     xaxis_title="Age", yaxis_title="Portfolio Value ($M)",
-    height=380, margin=dict(t=40, b=20),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    height=380, margin=dict(t=40, b=110),
+    legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
 )
 st.plotly_chart(fig_fan, use_container_width=True)
 
@@ -382,8 +382,8 @@ fig_seq.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db",
 fig_seq.update_layout(
     title="Same Returns, Different Sequence — Permanently Different Outcomes",
     xaxis_title="Age", yaxis_title="Portfolio Value ($M)",
-    height=360, margin=dict(t=40, b=20),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    height=360, margin=dict(t=40, b=110),
+    legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
 )
 st.plotly_chart(fig_seq, use_container_width=True)
 
@@ -441,8 +441,8 @@ with ls1:
     fig_real.update_layout(
         title=f"Long Squeeze: Nominal vs Real ({inflation:.1f}% inflation)",
         xaxis_title="Age", yaxis_title="Value ($M)",
-        height=320, margin=dict(t=40, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        height=380, margin=dict(t=40, b=110),
+        legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
     )
     st.plotly_chart(fig_real, use_container_width=True)
 
@@ -465,8 +465,8 @@ with ls2:
     fig_pwr.update_layout(
         title=f"Purchasing Power of ${monthly_withdrawal:,.0f}/Month",
         xaxis_title="Age", yaxis_title="Today's Dollar Equivalent ($)",
-        height=320, margin=dict(t=40, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        height=380, margin=dict(t=40, b=110),
+        legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
     )
     st.plotly_chart(fig_pwr, use_container_width=True)
 
@@ -487,8 +487,8 @@ fig_adj.add_hline(y=annual_withdrawal, line_dash="dot", line_color="#888",
 fig_adj.update_layout(
     title="Annual Withdrawal Requirement Grows With Inflation",
     xaxis_title="Age", yaxis_title="Annual Withdrawal ($)",
-    height=300, margin=dict(t=40, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    height=380, margin=dict(t=40, b=110),
+    legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
 )
 st.plotly_chart(fig_adj, use_container_width=True)
 
