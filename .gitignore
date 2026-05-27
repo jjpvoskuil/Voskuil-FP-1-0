@@ -1,1 +1,11 @@
+# Plaid token — never commit this
+plaid_token.json
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Streamlit
+.streamlit/secrets.toml
