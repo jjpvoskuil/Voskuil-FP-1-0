@@ -219,6 +219,34 @@ else:
         st.error("❌ Plaid credentials not found in Streamlit secrets. Add PLAID_CLIENT_ID, PLAID_SECRET_SANDBOX, and PLAID_SECRET_PRODUCTION.")
         st.stop()
 
+    # ── Diagnostics — shown before spinner so we can see what's happening ──
+    with st.expander("🔬 Connection Diagnostics", expanded=True):
+        st.caption(f"Environment: `{PLAID_ENV}`")
+        st.caption(f"Base URL: `{PLAID_BASE}`")
+        st.caption(f"Client ID: `{PLAID_CLIENT_ID[:8]}...`")
+        st.caption(f"Secret loaded: `{'yes' if PLAID_SECRET else 'NO — check secret key name'}`")
+
+        if st.button("🧪 Test API Connection"):
+            with st.spinner("Testing..."):
+                try:
+                    test_resp = requests.post(
+                        f"{PLAID_BASE}/link/token/create",
+                        json={
+                            "client_id":    PLAID_CLIENT_ID,
+                            "secret":       PLAID_SECRET,
+                            "user":         {"client_user_id": "test"},
+                            "client_name":  "Voskuil FP",
+                            "products":     ["transactions"],
+                            "country_codes":["US"],
+                            "language":     "en",
+                        },
+                        timeout=15,
+                    )
+                    st.write(f"HTTP status: `{test_resp.status_code}`")
+                    st.json(test_resp.json())
+                except Exception as e:
+                    st.error(f"Request failed: {e}")
+
     # Handle public token returned from Link
     query_params = st.query_params
     if "public_token" in query_params:
@@ -237,46 +265,37 @@ else:
             st.query_params.clear()
             st.rerun()
 
-    # Create Link token and render the Link button
-    with st.spinner("Preparing connection..."):
-        link_token, error = create_link_token()
+    # Create Link token only when user clicks — don't auto-run on page load
+    if st.button("🔗 Connect Account", type="primary"):
+        with st.spinner("Preparing connection..."):
+            link_token, error = create_link_token()
 
-    if error or not link_token:
-        st.error(f"❌ Could not create Plaid Link token: {error}")
-    else:
-        # Plaid Link via HTML component
-        # On success, posts public_token back as a query param so Streamlit can pick it up
-        app_url = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/connect"
-        link_html = f"""
-        <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
-        <button id="plaid-btn" style="
-            background-color: #1f6feb; color: white; border: none;
-            padding: 12px 28px; border-radius: 6px; font-size: 1em;
-            font-weight: bold; cursor: pointer;">
-            🔗 Connect Account
-        </button>
-        <div id="status" style="margin-top:12px; font-size:0.9em; color:#888;"></div>
-        <script>
-        var handler = Plaid.create({{
-            token: '{link_token}',
-            onSuccess: function(public_token, metadata) {{
-                document.getElementById('status').innerText = 'Connected! Saving token...';
-                window.parent.location.href = '{app_url}?public_token=' + public_token;
-            }},
-            onExit: function(err, metadata) {{
-                if (err) {{
-                    document.getElementById('status').innerText = 'Error: ' + err.display_message;
-                }} else {{
-                    document.getElementById('status').innerText = 'Cancelled.';
-                }}
-            }},
-        }});
-        document.getElementById('plaid-btn').onclick = function() {{
+        if error or not link_token:
+            st.error(f"❌ Could not create Plaid Link token: {error}")
+        else:
+            app_url = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/connect"
+            link_html = f"""
+            <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+            <div id="status" style="margin-top:8px; font-size:0.9em; color:#888;"></div>
+            <script>
+            var handler = Plaid.create({{
+                token: '{link_token}',
+                onSuccess: function(public_token, metadata) {{
+                    document.getElementById('status').innerText = 'Connected! Saving token...';
+                    window.parent.location.href = '{app_url}?public_token=' + public_token;
+                }},
+                onExit: function(err, metadata) {{
+                    if (err) {{
+                        document.getElementById('status').innerText = 'Error: ' + (err.display_message || err.error_code);
+                    }} else {{
+                        document.getElementById('status').innerText = 'Cancelled.';
+                    }}
+                }},
+            }});
             handler.open();
-        }};
-        </script>
-        """
-        components.html(link_html, height=100)
+            </script>
+            """
+            components.html(link_html, height=60)
 
 st.divider()
 st.markdown("""
