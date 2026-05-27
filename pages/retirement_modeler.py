@@ -320,21 +320,31 @@ st.divider()
 # SECTION 4: SEQUENCE OF RETURNS RISK
 # ─────────────────────────────────────────────
 st.header("⚠️ Sequence of Returns Risk")
-st.caption(f"The biggest threat at age {current_age}: a bad first 5 years forces you to sell depressed assets to fund withdrawals. The damage is permanent.")
+st.caption(f"Three paths drawn from the **same pool of returns** — identical average, different order. Best returns first vs worst returns first. The damage from a bad start is permanent because you're selling depressed assets to fund withdrawals.")
 
-# Simulate two mirror-image paths: good first 5 then bad, vs bad first 5 then good
+# ── Sequence of returns: construct paths with same AVERAGE but different ORDER ──
+# The point: identical long-run average return, different sequence → different outcome.
+# Method: generate one full-length random path, then construct a "reversed" version
+# that has poor early returns and good late returns by reordering the same draws.
+# This guarantees identical averages — only the sequence differs.
 np.random.seed(99)
-base_r  = base_return / 100
-vol_r   = return_volatility / 100
-inf_r   = inflation / 100
+base_r = base_return / 100
+vol_r  = return_volatility / 100
+inf_r  = inflation / 100
 
-good_returns = np.random.normal(base_r + 0.04, vol_r * 0.5, 5)   # above avg first 5
-bad_returns  = np.random.normal(base_r - 0.08, vol_r * 1.5, 5)   # below avg first 5
-mid_returns  = np.random.normal(base_r, vol_r, years - 5)
+# Generate one pool of returns with a realistic distribution
+return_pool = np.random.normal(base_r, vol_r, years * 3)
 
-good_first = np.concatenate([good_returns, bad_returns,  mid_returns])[:years]
-bad_first  = np.concatenate([bad_returns,  good_returns, mid_returns])[:years]
-same_avg   = np.random.normal(base_r, vol_r * 0.3, years)
+# Good-start path: sort descending (best returns first)
+good_first  = np.sort(return_pool[:years])[::-1]
+
+# Bad-start path: sort ascending (worst returns first)
+bad_first   = np.sort(return_pool[:years])
+
+# Average path: randomly shuffled from same pool (same avg, random order)
+shuffled    = return_pool[:years].copy()
+np.random.shuffle(shuffled)
+same_avg    = shuffled
 
 def simulate_path(returns, start, gap_pre, gap_post, years_pre, inflation_rate):
     portfolio  = [start]
@@ -367,7 +377,7 @@ fig_seq.add_vrect(x0=current_age, x1=current_age + 5,
 fig_seq.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db",
                    annotation_text=f"SS starts", annotation_position="top right")
 fig_seq.update_layout(
-    title="Same Average Return, Different Sequence — Dramatically Different Outcomes",
+    title="Same Returns, Different Sequence — Permanently Different Outcomes",
     xaxis_title="Age", yaxis_title="Portfolio Value ($M)",
     height=360, margin=dict(t=40, b=20),
     legend=dict(orientation="h", yanchor="bottom", y=1.02),
@@ -492,4 +502,3 @@ standard financial planning ignores.
 
 st.divider()
 st.caption("Model uses simplified annual Monte Carlo with normal return distribution. Not a financial plan. Past returns do not predict future results.")
-
