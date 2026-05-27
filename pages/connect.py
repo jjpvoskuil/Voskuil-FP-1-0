@@ -64,7 +64,7 @@ def delete_token():
 # PLAID API HELPERS
 # ─────────────────────────────────────────────
 def plaid_post(endpoint, body):
-    """Make an authenticated POST to the Plaid API."""
+    """Make an authenticated POST to the Plaid API. Returns full response dict."""
     try:
         url = f"{PLAID_BASE}{endpoint}"
         payload = {
@@ -73,35 +73,51 @@ def plaid_post(endpoint, body):
             **body,
         }
         resp = requests.post(url, json=payload, timeout=15)
-        return resp.json()
+        return resp.status_code, resp.json()
     except Exception as e:
-        return {"error": str(e)}
+        return 0, {"error": str(e)}
 
 def create_link_token():
-    """Create a Plaid Link token to initialize the Link flow."""
-    result = plaid_post("/link/token/create", {
+    """Create a Plaid Link token. Returns (link_token, error_string)."""
+    status, result = plaid_post("/link/token/create", {
         "user":         {"client_user_id": "voskuil-fp-user"},
         "client_name":  "Voskuil FP",
         "products":     ["transactions"],
         "country_codes":["US"],
         "language":     "en",
     })
-    return result.get("link_token"), result.get("error_message")
+    if result.get("link_token"):
+        return result["link_token"], None
+    # Surface whatever error Plaid or the network returned
+    error = (
+        result.get("error_message")
+        or result.get("display_message")
+        or result.get("error")
+        or f"HTTP {status}: {result}"
+    )
+    return None, error
 
 def exchange_public_token(public_token):
-    """Exchange a public token (from Link) for a permanent access token."""
-    result = plaid_post("/item/public_token/exchange", {
+    """Exchange a public token for a permanent access token."""
+    status, result = plaid_post("/item/public_token/exchange", {
         "public_token": public_token,
     })
-    return result.get("access_token"), result.get("item_id"), result.get("error_message")
+    if result.get("access_token"):
+        return result["access_token"], result.get("item_id"), None
+    error = (
+        result.get("error_message")
+        or result.get("error")
+        or f"HTTP {status}: {result}"
+    )
+    return None, None, error
 
 def get_institution_name(item_id):
     """Get the institution name for a connected Item."""
     try:
-        item_result = plaid_post("/item/get", {"access_token": st.session_state.get("plaid_token")})
-        inst_id     = item_result.get("item", {}).get("institution_id")
+        _, item_result = plaid_post("/item/get", {"access_token": st.session_state.get("plaid_token")})
+        inst_id = item_result.get("item", {}).get("institution_id")
         if inst_id:
-            inst_result = plaid_post("/institutions/get_by_id", {
+            _, inst_result = plaid_post("/institutions/get_by_id", {
                 "institution_id": inst_id,
                 "country_codes":  ["US"],
             })
@@ -111,8 +127,8 @@ def get_institution_name(item_id):
     return "Unknown Institution"
 
 def test_connection(access_token):
-    """Verify a stored token still works by fetching account list."""
-    result = plaid_post("/accounts/get", {"access_token": access_token})
+    """Verify a stored token still works."""
+    _, result = plaid_post("/accounts/get", {"access_token": access_token})
     if "accounts" in result:
         return True, result["accounts"]
     return False, []
@@ -268,4 +284,3 @@ st.markdown("""
 app's file system on Streamlit Cloud. It is never logged or transmitted anywhere other than
 to Plaid's API. You can disconnect at any time using the button above.
 """)
-
