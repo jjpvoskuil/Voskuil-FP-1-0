@@ -374,74 +374,121 @@ spag_scenario = st.selectbox(
     help="Showing all 1,000 lines at once — select which scenario to examine."
 )
 
-sims_map   = {"Base": sims_base, "Long Squeeze": sims_squeeze, "Bear": sims_bear}
-color_map  = {"Base": "#2ecc71",  "Long Squeeze": "#f39c12",    "Bear": "#e74c3c"}
-chosen_sims = sims_map[spag_scenario]
+sims_map    = {"Base": sims_base, "Long Squeeze": sims_squeeze, "Bear": sims_bear}
+color_map   = {"Base": "#2ecc71",  "Long Squeeze": "#f39c12",    "Bear": "#e74c3c"}
+chosen_sims  = sims_map[spag_scenario]
 chosen_color = color_map[spag_scenario]
 
-# Downsample to 300 lines for performance — still shows full distribution shape
-n_display = min(300, n_sims)
+# Downsample to 300 lines for performance
+n_display  = min(300, n_sims)
 rng        = np.random.default_rng(seed=7)
 sample_idx = rng.choice(n_sims, size=n_display, replace=False)
 
+# Pre-compute percentile rank for every sampled path based on ending balance.
+# rank = what percentile this path's ending balance falls at across ALL 1,000 sims.
+all_endings   = chosen_sims[:, -1]                          # ending balance of every sim
+sample_endings = chosen_sims[sample_idx, -1]                 # just the sampled ones
+# percentile rank: how many of the full 1,000 sims ended below this path
+pct_ranks = np.array([
+    np.sum(all_endings <= end) / n_sims * 100
+    for end in sample_endings
+])
+
+# Classify survived vs depleted
+survived_mask = sample_endings > 0
+survived_idx  = sample_idx[survived_mask]
+depleted_idx  = sample_idx[~survived_mask]
+survived_ranks = pct_ranks[survived_mask]
+depleted_ranks = pct_ranks[~survived_mask]
+
+surv_color_rgba = (
+    "rgba(46,204,113,0.20)"  if spag_scenario == "Base" else
+    "rgba(243,156,18,0.20)"  if spag_scenario == "Long Squeeze" else
+    "rgba(231,76,60,0.20)"
+)
+
 fig_spag = go.Figure()
 
-# Classify each path: survived or depleted
-survived_idx  = [i for i in sample_idx if chosen_sims[i, -1] > 0]
-depleted_idx  = [i for i in sample_idx if chosen_sims[i, -1] <= 0]
-
-# Plot depleted paths first (behind), then surviving
-for i in depleted_idx:
+# ── Depleted paths (red, behind) ───────────────────────────────────────────
+for rank, i in zip(depleted_ranks, depleted_idx):
+    end_val = chosen_sims[i, -1]
+    # Build hover text for every age point
+    hover = [
+        f"<b>Age {a}</b><br>"
+        f"Value: ${chosen_sims[i, t]/1e6:.2f}M<br>"
+        f"Percentile rank: {rank:.0f}th<br>"
+        f"Ending balance: ${end_val/1e6:.2f}M<br>"
+        f"Outcome: ❌ Depleted"
+        for t, a in enumerate(ages)
+    ]
     fig_spag.add_trace(go.Scatter(
         x=ages, y=chosen_sims[i] / 1e6,
         mode="lines",
-        line=dict(color="rgba(231,76,60,0.25)", width=0.8),
+        line=dict(color="rgba(231,76,60,0.30)", width=1.0),
         showlegend=False,
-        hoverinfo="skip",
+        hovertemplate="%{customdata}<extra></extra>",
+        customdata=hover,
     ))
-for i in survived_idx:
+
+# ── Surviving paths (green/orange, on top) ─────────────────────────────────
+for rank, i in zip(survived_ranks, survived_idx):
+    end_val = chosen_sims[i, -1]
+    hover = [
+        f"<b>Age {a}</b><br>"
+        f"Value: ${chosen_sims[i, t]/1e6:.2f}M<br>"
+        f"Percentile rank: {rank:.0f}th<br>"
+        f"Ending balance: ${end_val/1e6:.2f}M<br>"
+        f"Outcome: ✅ Solvent"
+        for t, a in enumerate(ages)
+    ]
     fig_spag.add_trace(go.Scatter(
         x=ages, y=chosen_sims[i] / 1e6,
         mode="lines",
-        line=dict(color=f"rgba(46,204,113,0.15)" if spag_scenario == "Base"
-                        else f"rgba(243,156,18,0.15)" if spag_scenario == "Long Squeeze"
-                        else f"rgba(231,76,60,0.15)", width=0.8),
+        line=dict(color=surv_color_rgba, width=1.0),
         showlegend=False,
-        hoverinfo="skip",
+        hovertemplate="%{customdata}<extra></extra>",
+        customdata=hover,
     ))
 
-# Overlay the selected percentile line prominently
+# ── Overlay lines: selected percentile + median ────────────────────────────
 pval_chosen = np.percentile(chosen_sims, ptile, axis=0)
 fig_spag.add_trace(go.Scatter(
     x=ages, y=pval_chosen / 1e6,
     name=f"{ptile}th percentile",
     line=dict(color="white", width=2.5),
+    hovertemplate="<b>Age %{x}</b><br>%{y:.2f}M — <b>" + str(ptile) + "th percentile</b><extra></extra>",
 ))
 fig_spag.add_trace(go.Scatter(
     x=ages, y=np.percentile(chosen_sims, 50, axis=0) / 1e6,
     name="Median (p50)",
     line=dict(color=chosen_color, width=2.5),
+    hovertemplate="<b>Age %{x}</b><br>%{y:.2f}M — <b>Median (p50)</b><extra></extra>",
 ))
 
-# Legend annotations: survival count
-n_survived  = len(survived_idx)
-n_depleted  = len(depleted_idx)
-surv_pct    = n_survived / n_display * 100
+n_survived = survived_mask.sum()
+n_depleted = (~survived_mask).sum()
+surv_pct   = n_survived / n_display * 100
 
 fig_spag.add_hline(y=0, line_color="#e74c3c", line_width=1)
-fig_spag.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db")
+fig_spag.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db",
+                    annotation_text=f"SS age {ss_start_age}")
 fig_spag.update_layout(
-    title=(f"{spag_scenario} scenario — {n_display} of 1,000 paths shown · "
-           f"{surv_pct:.0f}% survive to age {plan_to_age} · "
+    title=(f"{spag_scenario} — {n_display} of 1,000 paths · "
+           f"{surv_pct:.0f}% survive to {plan_to_age} · "
            f"{100-surv_pct:.0f}% depleted"),
     xaxis_title="Age",
     yaxis_title="Portfolio Value ($M)",
-    height=480,
+    height=500,
     margin=dict(t=50, b=110),
     legend=dict(orientation="h", yanchor="top", y=-0.12, x=0.5, xanchor="center"),
+    hovermode="closest",
 )
 st.plotly_chart(fig_spag, use_container_width=True)
-st.caption(f"🟢 Green/faded lines = paths that survive to age {plan_to_age} · 🔴 Red lines = paths that are depleted · White line = {ptile}th percentile · Colored line = median")
+st.caption(
+    f"**Click / hover any line** to see its percentile rank and ending balance. "
+    f"🟢 Faded lines = solvent paths · 🔴 Red lines = depleted · "
+    f"White = {ptile}th percentile · Colored = median"
+)
 
 # ── Key stats ──────────────────────────────────────────────────────────────
 def pct_at_age(surv, target_age):
