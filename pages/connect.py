@@ -78,24 +78,33 @@ def plaid_post(endpoint, body):
         return 0, {"error": str(e)}
 
 def create_link_token():
-    """Create a Plaid Link token. Returns (link_token, error_string)."""
+    """Create a Plaid Link token with Hosted Link enabled.
+    Returns (link_token, hosted_link_url, error_string).
+    Hosted Link lets us redirect the browser to Plaid's own page,
+    bypassing Streamlit's iframe CSP restrictions entirely.
+    """
     status, result = plaid_post("/link/token/create", {
         "user":         {"client_user_id": "voskuil-fp-user"},
         "client_name":  "Voskuil FP",
         "products":     ["transactions"],
         "country_codes":["US"],
         "language":     "en",
+        "hosted_link":  {},   # enables hosted_link_url in response
+        "redirect_uri": "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/connect",
     })
     if result.get("link_token"):
-        return result["link_token"], None
-    # Surface whatever error Plaid or the network returned
+        return (
+            result["link_token"],
+            result.get("hosted_link_url"),
+            None,
+        )
     error = (
         result.get("error_message")
         or result.get("display_message")
         or result.get("error")
         or f"HTTP {status}: {result}"
     )
-    return None, error
+    return None, None, error
 
 def exchange_public_token(public_token):
     """Exchange a public token for a permanent access token."""
@@ -247,7 +256,7 @@ else:
                 except Exception as e:
                     st.error(f"Request failed: {e}")
 
-    # Handle public token returned from Link
+    # Handle public token returned from Plaid after redirect
     query_params = st.query_params
     if "public_token" in query_params:
         public_token = query_params["public_token"]
@@ -265,67 +274,29 @@ else:
             st.query_params.clear()
             st.rerun()
 
-    # Create Link token only when user clicks — don't auto-run on page load
+    # Create Link token only when user clicks
     if st.button("🔗 Connect Account", type="primary"):
         with st.spinner("Preparing connection..."):
-            link_token, error = create_link_token()
+            link_token, hosted_url, error = create_link_token()
 
         if error or not link_token:
             st.error(f"❌ Could not create Plaid Link token: {error}")
-        else:
-            # Store link token in session state so the redirect page can read it
+        elif hosted_url:
+            # Hosted Link — redirect the browser directly to Plaid's page.
+            # This bypasses all iframe/CSP issues since Plaid hosts the flow.
             st.session_state.plaid_link_token = link_token
-            st.rerun()
-
-    # If we have a link token ready, show the full-page Link flow
-    if st.session_state.get("plaid_link_token"):
-        link_token = st.session_state.plaid_link_token
-        app_url    = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/connect"
-
-        st.info("✅ Link token ready — click the button below to open the Plaid connection window.")
-
-        # Render Plaid Link in a tall iframe with allow-popups and allow-top-navigation
-        link_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
-</head>
-<body style="margin:0; padding:16px; font-family:sans-serif; background:transparent;">
-<button id="open-link" style="
-    background:#1f6feb; color:white; border:none;
-    padding:14px 32px; border-radius:6px; font-size:1em;
-    font-weight:bold; cursor:pointer; width:100%;">
-    🔗 Open Plaid Connection Window
-</button>
-<p id="status" style="color:#888; font-size:0.85em; margin-top:12px;"></p>
-<script>
-(function() {{
-    var handler = Plaid.create({{
-        token: "{link_token}",
-        onSuccess: function(public_token, metadata) {{
-            document.getElementById('status').innerText = 'Connected! Returning to app...';
-            // Navigate the top-level page back with the public token
-            window.top.location.href = "{app_url}?public_token=" + public_token;
-        }},
-        onExit: function(err, metadata) {{
-            if (err) {{
-                document.getElementById('status').innerText = 'Error: ' + (err.display_message || err.error_code || 'Unknown error');
-            }} else {{
-                document.getElementById('status').innerText = 'Cancelled — click above to try again.';
-            }}
-        }},
-    }});
-    document.getElementById('open-link').onclick = function() {{
-        document.getElementById('status').innerText = 'Opening Plaid...';
-        handler.open();
-    }};
-}})();
-</script>
-</body>
-</html>
-"""
-        components.html(link_html, height=120, scrolling=False)
+            st.markdown(
+                f"""
+                <meta http-equiv="refresh" content="1;url={hosted_url}">
+                <p>✅ Redirecting to Plaid... <a href="{hosted_url}">Click here if not redirected automatically.</a></p>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            # Fallback: Hosted Link URL not returned — show manual link
+            st.session_state.plaid_link_token = link_token
+            st.warning("Hosted Link URL not returned. Check that your Plaid account supports Hosted Link.")
+            st.write(f"Link token created: `{link_token[:20]}...`")
 
 st.divider()
 st.markdown("""
