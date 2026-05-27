@@ -1,1 +1,271 @@
+import streamlit as st
+import streamlit.components.v1 as components
+import requests
+import json
+import os
+
+st.set_page_config(page_title="Connect Account | Voskuil FP", layout="wide")
+
+# ─────────────────────────────────────────────
+# PLAID CONFIG
+# ─────────────────────────────────────────────
+PLAID_ENV         = st.secrets.get("PLAID_ENV", "sandbox")
+PLAID_CLIENT_ID   = st.secrets.get("PLAID_CLIENT_ID", "")
+PLAID_SECRET      = (
+    st.secrets.get("PLAID_SECRET_SANDBOX")
+    if PLAID_ENV == "sandbox"
+    else st.secrets.get("PLAID_SECRET_PRODUCTION")
+)
+
+PLAID_BASE = {
+    "sandbox":    "https://sandbox.plaid.com",
+    "production": "https://production.plaid.com",
+}.get(PLAID_ENV, "https://sandbox.plaid.com")
+
+TOKEN_FILE = "plaid_token.json"   # stored in repo root, ignored by git
+
+# ─────────────────────────────────────────────
+# TOKEN PERSISTENCE
+# ─────────────────────────────────────────────
+def load_token():
+    """Load stored access token from file."""
+    try:
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE) as f:
+                data = json.load(f)
+                return data.get("access_token"), data.get("item_id"), data.get("institution")
+    except Exception:
+        pass
+    return None, None, None
+
+def save_token(access_token, item_id, institution_name):
+    """Persist access token to file."""
+    try:
+        with open(TOKEN_FILE, "w") as f:
+            json.dump({
+                "access_token":    access_token,
+                "item_id":         item_id,
+                "institution":     institution_name,
+            }, f)
+        return True
+    except Exception:
+        return False
+
+def delete_token():
+    """Remove stored token — disconnects the account."""
+    try:
+        if os.path.exists(TOKEN_FILE):
+            os.remove(TOKEN_FILE)
+        return True
+    except Exception:
+        return False
+
+# ─────────────────────────────────────────────
+# PLAID API HELPERS
+# ─────────────────────────────────────────────
+def plaid_post(endpoint, body):
+    """Make an authenticated POST to the Plaid API."""
+    try:
+        url = f"{PLAID_BASE}{endpoint}"
+        payload = {
+            "client_id": PLAID_CLIENT_ID,
+            "secret":    PLAID_SECRET,
+            **body,
+        }
+        resp = requests.post(url, json=payload, timeout=15)
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+def create_link_token():
+    """Create a Plaid Link token to initialize the Link flow."""
+    result = plaid_post("/link/token/create", {
+        "user":         {"client_user_id": "voskuil-fp-user"},
+        "client_name":  "Voskuil FP",
+        "products":     ["transactions"],
+        "country_codes":["US"],
+        "language":     "en",
+    })
+    return result.get("link_token"), result.get("error_message")
+
+def exchange_public_token(public_token):
+    """Exchange a public token (from Link) for a permanent access token."""
+    result = plaid_post("/item/public_token/exchange", {
+        "public_token": public_token,
+    })
+    return result.get("access_token"), result.get("item_id"), result.get("error_message")
+
+def get_institution_name(item_id):
+    """Get the institution name for a connected Item."""
+    try:
+        item_result = plaid_post("/item/get", {"access_token": st.session_state.get("plaid_token")})
+        inst_id     = item_result.get("item", {}).get("institution_id")
+        if inst_id:
+            inst_result = plaid_post("/institutions/get_by_id", {
+                "institution_id": inst_id,
+                "country_codes":  ["US"],
+            })
+            return inst_result.get("institution", {}).get("name", "Unknown Institution")
+    except Exception:
+        pass
+    return "Unknown Institution"
+
+def test_connection(access_token):
+    """Verify a stored token still works by fetching account list."""
+    result = plaid_post("/accounts/get", {"access_token": access_token})
+    if "accounts" in result:
+        return True, result["accounts"]
+    return False, []
+
+# ─────────────────────────────────────────────
+# LOAD EXISTING TOKEN INTO SESSION STATE
+# ─────────────────────────────────────────────
+if "plaid_token" not in st.session_state:
+    token, item_id, institution = load_token()
+    if token:
+        st.session_state.plaid_token       = token
+        st.session_state.plaid_item_id     = item_id
+        st.session_state.plaid_institution = institution
+
+# ─────────────────────────────────────────────
+# PAGE UI
+# ─────────────────────────────────────────────
+st.title("🔗 Connect Your Account")
+st.caption("Connect your Morgan Stanley account via Plaid to automatically pull balance and transaction data.")
+
+env_badge = "🟡 Sandbox (test data)" if PLAID_ENV == "sandbox" else "🟢 Production (live data)"
+st.info(f"**Plaid environment:** {env_badge} · To switch, change `PLAID_ENV` in Streamlit secrets.")
+
+st.divider()
+
+# ── Already connected ──────────────────────────────────────────────────────
+if st.session_state.get("plaid_token"):
+    token       = st.session_state.plaid_token
+    institution = st.session_state.get("plaid_institution", "Your account")
+
+    st.success(f"✅ **{institution}** is connected.")
+
+    # Verify the token is still valid
+    with st.spinner("Verifying connection..."):
+        ok, accounts = test_connection(token)
+
+    if ok:
+        st.markdown(f"**{len(accounts)} account(s) linked:**")
+        for acct in accounts:
+            bal = acct.get("balances", {})
+            current = bal.get("current")
+            name    = acct.get("name", "Account")
+            mask    = acct.get("mask", "")
+            atype   = acct.get("subtype", acct.get("type", "")).title()
+            bal_str = f"${current:,.2f}" if current is not None else "N/A"
+            st.markdown(f"- **{name}** (···{mask}) · {atype} · Balance: {bal_str}")
+
+        st.divider()
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("🔌 Disconnect", type="secondary"):
+                delete_token()
+                for key in ["plaid_token", "plaid_item_id", "plaid_institution"]:
+                    st.session_state.pop(key, None)
+                st.rerun()
+        with col2:
+            st.caption("Disconnecting removes the stored token. You can reconnect at any time.")
+    else:
+        st.warning("⚠️ Stored token is no longer valid — please reconnect.")
+        delete_token()
+        for key in ["plaid_token", "plaid_item_id", "plaid_institution"]:
+            st.session_state.pop(key, None)
+        st.rerun()
+
+# ── Not connected — show Link flow ────────────────────────────────────────
+else:
+    st.markdown("""
+    ### What gets connected
+    Plaid will connect to your Morgan Stanley account and pull:
+    - **Account balances** — total portfolio value, updated daily
+    - **Transactions** — YTD dividends, interest, and activity history
+
+    Holdings data (the main table) still comes from your CSV export — Plaid does not
+    support Morgan Stanley holdings data.
+
+    ### How to connect
+    1. Click **Connect Account** below
+    2. Search for "Morgan Stanley" in the Plaid Link popup
+    3. Log in with your Morgan Stanley credentials
+    4. Approve the connection
+
+    For Sandbox testing, use the test credentials:
+    - **Username:** `user_good`
+    - **Password:** `pass_good`
+    """)
+
+    if not PLAID_CLIENT_ID or not PLAID_SECRET:
+        st.error("❌ Plaid credentials not found in Streamlit secrets. Add PLAID_CLIENT_ID, PLAID_SECRET_SANDBOX, and PLAID_SECRET_PRODUCTION.")
+        st.stop()
+
+    # Handle public token returned from Link
+    query_params = st.query_params
+    if "public_token" in query_params:
+        public_token = query_params["public_token"]
+        with st.spinner("Exchanging token with Plaid..."):
+            access_token, item_id, error = exchange_public_token(public_token)
+        if error:
+            st.error(f"❌ Token exchange failed: {error}")
+        elif access_token:
+            institution = get_institution_name(item_id)
+            save_token(access_token, item_id, institution)
+            st.session_state.plaid_token       = access_token
+            st.session_state.plaid_item_id     = item_id
+            st.session_state.plaid_institution = institution
+            # Clear query params and reload
+            st.query_params.clear()
+            st.rerun()
+
+    # Create Link token and render the Link button
+    with st.spinner("Preparing connection..."):
+        link_token, error = create_link_token()
+
+    if error or not link_token:
+        st.error(f"❌ Could not create Plaid Link token: {error}")
+    else:
+        # Plaid Link via HTML component
+        # On success, posts public_token back as a query param so Streamlit can pick it up
+        app_url = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app/connect"
+        link_html = f"""
+        <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+        <button id="plaid-btn" style="
+            background-color: #1f6feb; color: white; border: none;
+            padding: 12px 28px; border-radius: 6px; font-size: 1em;
+            font-weight: bold; cursor: pointer;">
+            🔗 Connect Account
+        </button>
+        <div id="status" style="margin-top:12px; font-size:0.9em; color:#888;"></div>
+        <script>
+        var handler = Plaid.create({{
+            token: '{link_token}',
+            onSuccess: function(public_token, metadata) {{
+                document.getElementById('status').innerText = 'Connected! Saving token...';
+                window.parent.location.href = '{app_url}?public_token=' + public_token;
+            }},
+            onExit: function(err, metadata) {{
+                if (err) {{
+                    document.getElementById('status').innerText = 'Error: ' + err.display_message;
+                }} else {{
+                    document.getElementById('status').innerText = 'Cancelled.';
+                }}
+            }},
+        }});
+        document.getElementById('plaid-btn').onclick = function() {{
+            handler.open();
+        }};
+        </script>
+        """
+        components.html(link_html, height=100)
+
+st.divider()
+st.markdown("""
+**Privacy note:** Your Plaid access token is stored locally in `plaid_token.json` in your
+app's file system on Streamlit Cloud. It is never logged or transmitted anywhere other than
+to Plaid's API. You can disconnect at any time using the button above.
+""")
 
