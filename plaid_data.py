@@ -28,11 +28,11 @@ def _plaid_cfg():
 
 
 def _plaid_post(endpoint, body):
-    """Authenticated POST to Plaid API. Returns dict or None on failure."""
+    """Authenticated POST to Plaid API. Returns (status_code, dict)."""
     try:
         base, cid, secret = _plaid_cfg()
         if not cid or not secret:
-            return None
+            return 0, {}
         resp = requests.post(
             f"{base}{endpoint}",
             json={"client_id": cid, "secret": secret, **body},
@@ -40,10 +40,10 @@ def _plaid_post(endpoint, body):
         )
         data = resp.json()
         if "error_code" in data:
-            return None
-        return data
+            return resp.status_code, {}
+        return resp.status_code, data
     except Exception:
-        return None
+        return 0, {}
 
 
 def get_plaid_token():
@@ -53,34 +53,23 @@ def get_plaid_token():
 
 @st.cache_data(ttl=3600)
 def fetch_plaid_balances(access_token):
-    """
-    Fetch account balances from Plaid.
-    Returns list of account dicts, or empty list.
-    TTL 1 hour — balances are updated daily by Plaid anyway.
-    """
-    result = _plaid_post("/accounts/balance/get", {"access_token": access_token})
-    if result and "accounts" in result:
-        return result["accounts"]
-    return []
+    """Fetch account balances. TTL 1 hour."""
+    _, result = _plaid_post("/accounts/balance/get", {"access_token": access_token})
+    return result.get("accounts", [])
 
 
 @st.cache_data(ttl=3600)
 def fetch_plaid_transactions(access_token, start_date=None, end_date=None):
-    """
-    Fetch transactions from Plaid for a date range.
-    Defaults to Jan 1 of the current year through today (YTD).
-    Returns list of transaction dicts, or empty list.
-    """
+    """Fetch YTD transactions with pagination."""
     if start_date is None:
         start_date = date(date.today().year, 1, 1).isoformat()
     if end_date is None:
         end_date = date.today().isoformat()
 
-    # Plaid transactions pagination — fetch up to 500 at a time
     all_txns = []
     offset   = 0
     while True:
-        result = _plaid_post("/transactions/get", {
+        _, result = _plaid_post("/transactions/get", {
             "access_token": access_token,
             "start_date":   start_date,
             "end_date":     end_date,
@@ -90,11 +79,10 @@ def fetch_plaid_transactions(access_token, start_date=None, end_date=None):
             break
         batch = result["transactions"]
         all_txns.extend(batch)
-        total = result.get("total_transactions", 0)
+        total  = result.get("total_transactions", 0)
         offset += len(batch)
         if offset >= total:
             break
-
     return all_txns
 
 
@@ -168,4 +156,3 @@ def plaid_status_badge():
         label = "Sandbox" if env == "sandbox" else "Live"
         return f"🔗 Plaid {label} connected"
     return "📂 CSV data only"
-
