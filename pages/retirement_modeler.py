@@ -301,6 +301,148 @@ fig_fan.update_layout(
 st.plotly_chart(fig_fan, use_container_width=True)
 st.caption("**Median (solid line):** the outcome you have a 50/50 chance of beating — the honest central estimate. **Mean (dotted):** average of all 1,000 runs — skewed upward by the small number of runs where the portfolio compounds strongly. Plan against the median, not the mean.")
 
+# ── Percentile pressure tester ─────────────────────────────────────────────
+st.subheader("🎛️ Percentile Pressure Tester")
+st.caption("Slide to any percentile to see what that outcome looks like. 50th = median. 10th = bottom 10% of all simulations — the stress test.")
+
+ptile = st.slider(
+    "Percentile to examine",
+    min_value=5, max_value=95, value=50, step=5,
+    format="%d%%",
+    help="10th percentile = 90% of simulations did better than this. 50th = median. 90th = only 10% did this well."
+)
+
+pval_b = np.percentile(sims_base,   ptile, axis=0)
+pval_s = np.percentile(sims_squeeze, ptile, axis=0)
+pval_br = np.percentile(sims_bear,   ptile, axis=0)
+
+fig_ptile = go.Figure()
+fig_ptile.add_trace(go.Scatter(x=ages, y=pval_b  / 1e6, name=f"Base ({base_return:.1f}%) — {ptile}th %ile",
+                                line=dict(color="#2ecc71", width=3)))
+fig_ptile.add_trace(go.Scatter(x=ages, y=pval_s  / 1e6, name=f"Long Squeeze ({long_squeeze_return:.1f}%) — {ptile}th %ile",
+                                line=dict(color="#f39c12", width=3)))
+fig_ptile.add_trace(go.Scatter(x=ages, y=pval_br / 1e6, name=f"Bear ({bear_return:.1f}%) — {ptile}th %ile",
+                                line=dict(color="#e74c3c", width=3)))
+fig_ptile.add_hline(y=0, line_color="#e74c3c", line_width=1, line_dash="dot")
+fig_ptile.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db",
+                     annotation_text=f"SS starts (age {ss_start_age})")
+
+# Label what this percentile means in plain English
+if ptile <= 10:
+    ptile_label = "Stress test — only 10% of outcomes are this bad or worse"
+elif ptile <= 25:
+    ptile_label = "Pessimistic — bottom quartile of outcomes"
+elif ptile <= 45:
+    ptile_label = "Below median — more bad luck than good"
+elif ptile <= 55:
+    ptile_label = "Median — your most likely outcome (50/50)"
+elif ptile <= 75:
+    ptile_label = "Above median — more good luck than bad"
+else:
+    ptile_label = "Optimistic — top quartile; don't plan on this"
+
+fig_ptile.update_layout(
+    title=f"{ptile}th Percentile Portfolio Path — {ptile_label}",
+    xaxis_title="Age", yaxis_title="Portfolio Value ($M)",
+    height=380, margin=dict(t=50, b=110),
+    legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
+)
+st.plotly_chart(fig_ptile, use_container_width=True)
+
+# Show terminal values at selected percentile
+pv1, pv2, pv3 = st.columns(3)
+with pv1:
+    st.metric(f"Base at {plan_to_age} ({ptile}th %ile)", f"${pval_b[-1]/1e6:.2f}M",
+              delta="✅ Solvent" if pval_b[-1] > 0 else "❌ Depleted", delta_color="normal" if pval_b[-1] > 0 else "inverse")
+with pv2:
+    st.metric(f"Long Squeeze at {plan_to_age} ({ptile}th %ile)", f"${pval_s[-1]/1e6:.2f}M",
+              delta="✅ Solvent" if pval_s[-1] > 0 else "❌ Depleted", delta_color="normal" if pval_s[-1] > 0 else "inverse")
+with pv3:
+    st.metric(f"Bear at {plan_to_age} ({ptile}th %ile)", f"${pval_br[-1]/1e6:.2f}M",
+              delta="✅ Solvent" if pval_br[-1] > 0 else "❌ Depleted", delta_color="normal" if pval_br[-1] > 0 else "inverse")
+
+st.divider()
+
+# ── Spaghetti chart — all simulation lines ─────────────────────────────────
+st.subheader("🍝 All Simulation Paths")
+st.caption("Every line is one simulation. Green lines survive to your plan age. Red lines hit zero. The density of lines near the bottom tells you the true shape of risk.")
+
+spag_scenario = st.selectbox(
+    "Scenario to display",
+    options=["Base", "Long Squeeze", "Bear"],
+    index=0,
+    help="Showing all 1,000 lines at once — select which scenario to examine."
+)
+
+sims_map   = {"Base": sims_base, "Long Squeeze": sims_squeeze, "Bear": sims_bear}
+color_map  = {"Base": "#2ecc71",  "Long Squeeze": "#f39c12",    "Bear": "#e74c3c"}
+chosen_sims = sims_map[spag_scenario]
+chosen_color = color_map[spag_scenario]
+
+# Downsample to 300 lines for performance — still shows full distribution shape
+n_display = min(300, n_sims)
+rng        = np.random.default_rng(seed=7)
+sample_idx = rng.choice(n_sims, size=n_display, replace=False)
+
+fig_spag = go.Figure()
+
+# Classify each path: survived or depleted
+survived_idx  = [i for i in sample_idx if chosen_sims[i, -1] > 0]
+depleted_idx  = [i for i in sample_idx if chosen_sims[i, -1] <= 0]
+
+# Plot depleted paths first (behind), then surviving
+for i in depleted_idx:
+    fig_spag.add_trace(go.Scatter(
+        x=ages, y=chosen_sims[i] / 1e6,
+        mode="lines",
+        line=dict(color="rgba(231,76,60,0.25)", width=0.8),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+for i in survived_idx:
+    fig_spag.add_trace(go.Scatter(
+        x=ages, y=chosen_sims[i] / 1e6,
+        mode="lines",
+        line=dict(color=f"rgba(46,204,113,0.15)" if spag_scenario == "Base"
+                        else f"rgba(243,156,18,0.15)" if spag_scenario == "Long Squeeze"
+                        else f"rgba(231,76,60,0.15)", width=0.8),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+# Overlay the selected percentile line prominently
+pval_chosen = np.percentile(chosen_sims, ptile, axis=0)
+fig_spag.add_trace(go.Scatter(
+    x=ages, y=pval_chosen / 1e6,
+    name=f"{ptile}th percentile",
+    line=dict(color="white", width=2.5),
+))
+fig_spag.add_trace(go.Scatter(
+    x=ages, y=np.percentile(chosen_sims, 50, axis=0) / 1e6,
+    name="Median (p50)",
+    line=dict(color=chosen_color, width=2.5),
+))
+
+# Legend annotations: survival count
+n_survived  = len(survived_idx)
+n_depleted  = len(depleted_idx)
+surv_pct    = n_survived / n_display * 100
+
+fig_spag.add_hline(y=0, line_color="#e74c3c", line_width=1)
+fig_spag.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db")
+fig_spag.update_layout(
+    title=(f"{spag_scenario} scenario — {n_display} of 1,000 paths shown · "
+           f"{surv_pct:.0f}% survive to age {plan_to_age} · "
+           f"{100-surv_pct:.0f}% depleted"),
+    xaxis_title="Age",
+    yaxis_title="Portfolio Value ($M)",
+    height=480,
+    margin=dict(t=50, b=110),
+    legend=dict(orientation="h", yanchor="top", y=-0.12, x=0.5, xanchor="center"),
+)
+st.plotly_chart(fig_spag, use_container_width=True)
+st.caption(f"🟢 Green/faded lines = paths that survive to age {plan_to_age} · 🔴 Red lines = paths that are depleted · White line = {ptile}th percentile · Colored line = median")
+
 # ── Key stats ──────────────────────────────────────────────────────────────
 def pct_at_age(surv, target_age):
     idx = target_age - current_age
