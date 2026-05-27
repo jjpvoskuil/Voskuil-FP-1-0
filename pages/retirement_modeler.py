@@ -320,31 +320,34 @@ st.divider()
 # SECTION 4: SEQUENCE OF RETURNS RISK
 # ─────────────────────────────────────────────
 st.header("⚠️ Sequence of Returns Risk")
-st.caption(f"Three paths drawn from the **same pool of returns** — identical average, different order. Best returns first vs worst returns first. The damage from a bad start is permanent because you're selling depressed assets to fund withdrawals.")
+st.caption(f"Three independent simulations with the same long-run average return. The only difference: years 1–5 are forced above average (good start) or below average (bad start). The early gap compounds permanently — withdrawals during a downturn lock in losses that never recover.")
 
-# ── Sequence of returns: construct paths with same AVERAGE but different ORDER ──
-# The point: identical long-run average return, different sequence → different outcome.
-# Method: generate one full-length random path, then construct a "reversed" version
-# that has poor early returns and good late returns by reordering the same draws.
-# This guarantees identical averages — only the sequence differs.
+# ── Sequence of returns: independent paths, forced early divergence ──────────
+# Good-start and bad-start are INDEPENDENT simulations.
+# Years 1-5 are forced above/below average. Years 6+ are independent random draws
+# from the same distribution — similar long-run averages, but paths never converge
+# because the early damage (or boost) compounds permanently through withdrawals.
 np.random.seed(99)
 base_r = base_return / 100
 vol_r  = return_volatility / 100
 inf_r  = inflation / 100
 
-# Generate one pool of returns with a realistic distribution
-return_pool = np.random.normal(base_r, vol_r, years * 3)
+crash_depth  = max(vol_r * 1.5, 0.12)   # bad start loses ~1.5 sigma/yr in first 5 yrs
+boom_height  = max(vol_r * 1.0, 0.08)   # good start gains ~1.0 sigma/yr above avg
 
-# Good-start path: sort descending (best returns first)
-good_first  = np.sort(return_pool[:years])[::-1]
+# First 5 years: forced above/below average
+early_good = np.random.normal(base_r + boom_height,  vol_r * 0.4, 5)
+early_bad  = np.random.normal(base_r - crash_depth,  vol_r * 0.4, 5)
 
-# Bad-start path: sort ascending (worst returns first)
-bad_first   = np.sort(return_pool[:years])
+# Years 6+: fully independent random draws from same distribution
+tail_good  = np.random.normal(base_r, vol_r, years - 5)
+tail_bad   = np.random.normal(base_r, vol_r, years - 5)
+tail_avg   = np.random.normal(base_r, vol_r, years - 5)
+early_avg  = np.random.normal(base_r, vol_r * 0.6, 5)
 
-# Average path: randomly shuffled from same pool (same avg, random order)
-shuffled    = return_pool[:years].copy()
-np.random.shuffle(shuffled)
-same_avg    = shuffled
+good_first = np.concatenate([early_good, tail_good])
+bad_first  = np.concatenate([early_bad,  tail_bad])
+same_avg   = np.concatenate([early_avg,  tail_avg])
 
 def simulate_path(returns, start, gap_pre, gap_post, years_pre, inflation_rate):
     portfolio  = [start]
@@ -373,7 +376,7 @@ fig_seq.add_trace(go.Scatter(x=path_ages, y=[v/1e6 for v in path_bad],
 fig_seq.add_hline(y=0, line_color="#e74c3c", line_width=1)
 fig_seq.add_vrect(x0=current_age, x1=current_age + 5,
                    fillcolor="rgba(231,76,60,0.08)", line_width=0,
-                   annotation_text="Critical window", annotation_position="top left")
+                   annotation_text="Forced early divergence", annotation_position="top left")
 fig_seq.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db",
                    annotation_text=f"SS starts", annotation_position="top right")
 fig_seq.update_layout(
