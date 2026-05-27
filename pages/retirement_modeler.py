@@ -264,8 +264,12 @@ fig_surv.update_layout(
 st.plotly_chart(fig_surv, use_container_width=True)
 
 # ── Portfolio value fan chart ──────────────────────────────────────────────
-p10_b, p50_b, p90_b       = percentiles(sims_base)
-p10_s, p50_s, p90_s       = percentiles(sims_squeeze)
+p10_b, p50_b, p90_b  = percentiles(sims_base)
+p10_s, p50_s, p90_s  = percentiles(sims_squeeze)
+
+# Mean (average across all 1,000 runs) — will be higher than median due to right skew
+mean_b = sims_base.mean(axis=0)
+mean_s = sims_squeeze.mean(axis=0)
 
 fig_fan = go.Figure()
 # Base case fan
@@ -273,24 +277,29 @@ fig_fan.add_trace(go.Scatter(x=np.concatenate([ages, ages[::-1]]),
                               y=np.concatenate([p90_b, p10_b[::-1]]) / 1e6,
                               fill='toself', fillcolor='rgba(46,204,113,0.15)',
                               line=dict(color='rgba(0,0,0,0)'), name='Base 10th–90th %ile', showlegend=True))
-fig_fan.add_trace(go.Scatter(x=ages, y=p50_b / 1e6, name=f"Base median ({base_return:.1f}%)",
+fig_fan.add_trace(go.Scatter(x=ages, y=p50_b / 1e6, name=f"Base median/p50 ({base_return:.1f}%)",
                               line=dict(color="#2ecc71", width=2)))
+fig_fan.add_trace(go.Scatter(x=ages, y=mean_b / 1e6, name=f"Base mean (avg of all runs)",
+                              line=dict(color="#2ecc71", width=2, dash="dot")))
 # Long Squeeze fan
 fig_fan.add_trace(go.Scatter(x=np.concatenate([ages, ages[::-1]]),
                               y=np.concatenate([p90_s, p10_s[::-1]]) / 1e6,
                               fill='toself', fillcolor='rgba(243,156,18,0.15)',
                               line=dict(color='rgba(0,0,0,0)'), name='Long Squeeze 10th–90th %ile', showlegend=True))
-fig_fan.add_trace(go.Scatter(x=ages, y=p50_s / 1e6, name=f"Long Squeeze median ({long_squeeze_return:.1f}%)",
+fig_fan.add_trace(go.Scatter(x=ages, y=p50_s / 1e6, name=f"Long Squeeze median/p50 ({long_squeeze_return:.1f}%)",
                               line=dict(color="#f39c12", width=2)))
+fig_fan.add_trace(go.Scatter(x=ages, y=mean_s / 1e6, name=f"Long Squeeze mean (avg of all runs)",
+                              line=dict(color="#f39c12", width=2, dash="dot")))
 fig_fan.add_hline(y=0, line_color="#e74c3c", line_width=2, annotation_text="Ruin")
 fig_fan.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db")
 fig_fan.update_layout(
-    title="Portfolio Value Fan Chart ($ Millions)",
+    title="Portfolio Value Fan Chart ($ Millions) — Solid = Median, Dotted = Mean",
     xaxis_title="Age", yaxis_title="Portfolio Value ($M)",
     height=380, margin=dict(t=40, b=110),
     legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
 )
 st.plotly_chart(fig_fan, use_container_width=True)
+st.caption("**Median (solid line):** the outcome you have a 50/50 chance of beating — the honest central estimate. **Mean (dotted):** average of all 1,000 runs — skewed upward by the small number of runs where the portfolio compounds strongly. Plan against the median, not the mean.")
 
 # ── Key stats ──────────────────────────────────────────────────────────────
 def pct_at_age(surv, target_age):
@@ -310,9 +319,12 @@ with mc2:
               delta=f"{s90b - s90s:.0f}pp spread", delta_color="normal")
 with mc3:
     final_p50_base    = p50_b[-1] / 1e6
+    final_mean_base   = mean_b[-1] / 1e6
     final_p50_squeeze = p50_s[-1] / 1e6
-    st.metric(f"Median Portfolio at {plan_to_age}",
-              f"${final_p50_base:.2f}M base / ${final_p50_squeeze:.2f}M squeeze")
+    final_mean_squeeze= mean_s[-1] / 1e6
+    st.metric(f"At Age {plan_to_age} — Base",
+              f"Median ${final_p50_base:.2f}M / Mean ${final_mean_base:.2f}M",
+              help="Mean is higher than median due to right-skew — a few great runs pull the average up. Plan against the median.")
 
 st.divider()
 
