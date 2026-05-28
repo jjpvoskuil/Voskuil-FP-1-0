@@ -417,17 +417,14 @@ if df_holdings_raw is not None:
     consolidated['Yahoo Link'] = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
     consolidated['Dive Link']  = consolidated['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
 
-    if 'holding_scores'  not in st.session_state: st.session_state.holding_scores  = {}
-    if 'holding_sources' not in st.session_state: st.session_state.holding_sources = {}
-    if 'scoring_weights' not in st.session_state: st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
-    # holding_weights stays in sync with scoring_weights for backwards compat
-    st.session_state.holding_weights = st.session_state.scoring_weights
+    if 'holding_scores'     not in st.session_state: st.session_state.holding_scores     = {}
+    if 'holding_sources'    not in st.session_state: st.session_state.holding_sources    = {}
+    if 'scoring_weights'    not in st.session_state: st.session_state.scoring_weights    = DEFAULT_WEIGHTS.copy()
+    if 'committed_weights'  not in st.session_state: st.session_state.committed_weights  = DEFAULT_WEIGHTS.copy()
+    # holding_weights stays in sync with committed_weights (what scoring actually uses)
+    st.session_state.holding_weights = st.session_state.committed_weights
 
     # ── Weight reset handler — must run BEFORE any widget with these keys renders ──
-    # Streamlit sliders with key= read from st.session_state[key] directly once the
-    # key exists. Writing to the key is only allowed before the widget renders.
-    # Running this block at the top of the holdings section (before the expander)
-    # ensures the key is updated before the slider is drawn.
     _weight_map = [("w_fcf","FCF Yield"),("w_roic","ROIC"),("w_debt","Debt / FCF"),
                    ("w_gm","Gross Margin"),("w_ic","Interest Coverage"),("w_poe","Price / Owner Earnings")]
     for _wkey, _mkey in _weight_map:
@@ -435,18 +432,54 @@ if df_holdings_raw is not None:
             st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
             st.session_state.scoring_weights[_mkey] = DEFAULT_WEIGHTS[_mkey]
 
+    # ── Uncommitted weights banner ─────────────────────────────────────────
+    _live_total = sum(st.session_state.scoring_weights.values())
+    _cmt_total  = sum(st.session_state.committed_weights.values())
+    _weights_dirty = st.session_state.scoring_weights != st.session_state.committed_weights
+    if _weights_dirty and _live_total != 100:
+        st.info("⚙️ Weights have unsaved changes. Adjust sliders to reach 100 pts, then click **Apply Weights**. Scoring is using your last committed weights.")
+    elif _weights_dirty and _live_total == 100:
+        st.warning("⚙️ Weights ready to apply — click **Apply Weights** inside the expander to activate.")
+
     # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
-        st.caption("Weights shared across Holdings, Equity Scout, and Market Screener. Must add up to 100.")
+        st.caption("Adjust freely — scoring uses the last **Applied** set. Click Apply Weights when your total hits 100.")
 
-        rc1, _ = st.columns([1, 5])
+        # Top row: Reset + Apply
+        rc1, rc2, rc3 = st.columns([1.2, 1.2, 4])
         if rc1.button("↺ Reset to Defaults", key="reset_stock_weights"):
-            st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
+            st.session_state.scoring_weights  = DEFAULT_WEIGHTS.copy()
+            st.session_state.committed_weights = DEFAULT_WEIGHTS.copy()
             for _wkey, _mkey in _weight_map:
                 st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
             st.rerun()
 
         sw = st.session_state.scoring_weights
+        draft_weights = {
+            "FCF Yield":              st.session_state.get("w_fcf",  sw["FCF Yield"]),
+            "ROIC":                   st.session_state.get("w_roic", sw["ROIC"]),
+            "Debt / FCF":             st.session_state.get("w_debt", sw["Debt / FCF"]),
+            "Gross Margin":           st.session_state.get("w_gm",   sw["Gross Margin"]),
+            "Interest Coverage":      st.session_state.get("w_ic",   sw["Interest Coverage"]),
+            "Price / Owner Earnings": st.session_state.get("w_poe",  sw["Price / Owner Earnings"]),
+        }
+        draft_total = sum(draft_weights.values())
+        apply_ok = draft_total == 100
+
+        if rc2.button("✅ Apply Weights", key="apply_weights", type="primary", disabled=not apply_ok,
+                      help="Activates these weights for scoring across all pages." if apply_ok else f"Total must equal 100 (currently {draft_total})."):
+            st.session_state.committed_weights = draft_weights.copy()
+            st.session_state.scoring_weights   = draft_weights.copy()
+            st.session_state.holding_weights   = draft_weights.copy()
+            st.success("✅ Weights applied — scoring updated across all pages.")
+            st.rerun()
+
+        cw = st.session_state.committed_weights
+        rc3.caption(
+            f"**Active:** FCF {cw['FCF Yield']} · ROIC {cw['ROIC']} · Debt {cw['Debt / FCF']} · "
+            f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']} · P/OE {cw['Price / Owner Earnings']}"
+        )
+
         w_col1, w_col2 = st.columns(2)
         with w_col1:
             _sc_w_fcf, _sb_w_fcf = st.columns([4, 1])
@@ -498,18 +531,23 @@ if df_holdings_raw is not None:
                 if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe", help="Reset Price / Owner Earnings to default", use_container_width=True):
                     st.session_state["pending_reset_w_poe"] = True
                     st.rerun()
+
+        # Update live scoring_weights with current slider values (for display/tracking)
         active_weights = {
             "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
             "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
         }
         st.session_state.scoring_weights = active_weights
-        st.session_state.holding_weights = active_weights
         total_weight = sum(active_weights.values())
-        if total_weight == 100:  st.success(f"✅ Total: {total_weight} / 100")
-        elif total_weight < 100: st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
-        else:                    st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts.")
+        if total_weight == 100:
+            st.success(f"✅ Total: {total_weight} / 100 — click Apply Weights to activate")
+        elif total_weight < 100:
+            st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
+        else:
+            st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts")
 
-    active_weights = st.session_state.holding_weights
+    # Scoring always uses committed (applied) weights, not draft slider state
+    active_weights = st.session_state.committed_weights
     total_weight   = sum(active_weights.values())
     unique_symbols = consolidated['Symbol'].tolist()
     n_symbols      = len(unique_symbols)
