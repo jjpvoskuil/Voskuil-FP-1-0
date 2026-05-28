@@ -427,10 +427,20 @@ if df_holdings_raw is not None:
     with st.expander("⚙️ Scoring Weights", expanded=False):
         st.caption("Weights shared across Holdings, Equity Scout, and Market Screener. Must add up to 100.")
 
-        rc1, rc2 = st.columns([1, 5])
+        # ── Handle pending per-metric resets BEFORE sliders render ─────────
+        # Streamlit forbids setting a widget's key after it's rendered.
+        # Instead: button sets a "pending" flag → next render reads it → slider
+        # initializes to the default → flag cleared.
+        for _wkey, _mkey in [("w_fcf","FCF Yield"),("w_roic","ROIC"),("w_debt","Debt / FCF"),
+                              ("w_gm","Gross Margin"),("w_ic","Interest Coverage"),("w_poe","Price / Owner Earnings")]:
+            if st.session_state.pop(f"pending_reset_{_wkey}", False):
+                st.session_state.scoring_weights[_mkey] = DEFAULT_WEIGHTS[_mkey]
+
+        rc1, _ = st.columns([1, 5])
         if rc1.button("↺ Reset to Defaults", key="reset_stock_weights"):
             st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
             st.rerun()
+
         sw = st.session_state.scoring_weights
         w_col1, w_col2 = st.columns(2)
         with w_col1:
@@ -440,8 +450,7 @@ if df_holdings_raw is not None:
             with _sb_w_fcf:
                 st.write("")
                 if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf", help="Reset FCF Yield to default", use_container_width=True):
-                    st.session_state["w_fcf"] = DEFAULT_WEIGHTS["FCF Yield"]
-                    st.session_state.scoring_weights["FCF Yield"] = DEFAULT_WEIGHTS["FCF Yield"]
+                    st.session_state["pending_reset_w_fcf"] = True
                     st.rerun()
             _sc_w_roic, _sb_w_roic = st.columns([4, 1])
             with _sc_w_roic:
@@ -449,8 +458,7 @@ if df_holdings_raw is not None:
             with _sb_w_roic:
                 st.write("")
                 if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic", help="Reset ROIC to default", use_container_width=True):
-                    st.session_state["w_roic"] = DEFAULT_WEIGHTS["ROIC"]
-                    st.session_state.scoring_weights["ROIC"] = DEFAULT_WEIGHTS["ROIC"]
+                    st.session_state["pending_reset_w_roic"] = True
                     st.rerun()
             _sc_w_debt, _sb_w_debt = st.columns([4, 1])
             with _sc_w_debt:
@@ -458,8 +466,7 @@ if df_holdings_raw is not None:
             with _sb_w_debt:
                 st.write("")
                 if st.button(f"↺ {DEFAULT_WEIGHTS['Debt / FCF']}", key="reset_w_debt", help="Reset Debt / FCF to default", use_container_width=True):
-                    st.session_state["w_debt"] = DEFAULT_WEIGHTS["Debt / FCF"]
-                    st.session_state.scoring_weights["Debt / FCF"] = DEFAULT_WEIGHTS["Debt / FCF"]
+                    st.session_state["pending_reset_w_debt"] = True
                     st.rerun()
         with w_col2:
             _sc_w_gm, _sb_w_gm = st.columns([4, 1])
@@ -468,8 +475,7 @@ if df_holdings_raw is not None:
             with _sb_w_gm:
                 st.write("")
                 if st.button(f"↺ {DEFAULT_WEIGHTS['Gross Margin']}", key="reset_w_gm", help="Reset Gross Margin to default", use_container_width=True):
-                    st.session_state["w_gm"] = DEFAULT_WEIGHTS["Gross Margin"]
-                    st.session_state.scoring_weights["Gross Margin"] = DEFAULT_WEIGHTS["Gross Margin"]
+                    st.session_state["pending_reset_w_gm"] = True
                     st.rerun()
             _sc_w_ic, _sb_w_ic = st.columns([4, 1])
             with _sc_w_ic:
@@ -477,8 +483,7 @@ if df_holdings_raw is not None:
             with _sb_w_ic:
                 st.write("")
                 if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic", help="Reset Interest Coverage to default", use_container_width=True):
-                    st.session_state["w_ic"] = DEFAULT_WEIGHTS["Interest Coverage"]
-                    st.session_state.scoring_weights["Interest Coverage"] = DEFAULT_WEIGHTS["Interest Coverage"]
+                    st.session_state["pending_reset_w_ic"] = True
                     st.rerun()
             _sc_w_poe, _sb_w_poe = st.columns([4, 1])
             with _sc_w_poe:
@@ -486,8 +491,7 @@ if df_holdings_raw is not None:
             with _sb_w_poe:
                 st.write("")
                 if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe", help="Reset Price / Owner Earnings to default", use_container_width=True):
-                    st.session_state["w_poe"] = DEFAULT_WEIGHTS["Price / Owner Earnings"]
-                    st.session_state.scoring_weights["Price / Owner Earnings"] = DEFAULT_WEIGHTS["Price / Owner Earnings"]
+                    st.session_state["pending_reset_w_poe"] = True
                     st.rerun()
         active_weights = {
             "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
