@@ -297,6 +297,14 @@ if url_ticker:
 
 st.divider()
 
+# ── Weight reset handler — runs BEFORE any widget with these keys renders ──
+_weight_map = [("w_fcf","FCF Yield"),("w_roic","ROIC"),("w_debt","Debt / FCF"),
+               ("w_gm","Gross Margin"),("w_ic","Interest Coverage"),("w_poe","Price / Owner Earnings")]
+for _wkey, _mkey in _weight_map:
+    if st.session_state.pop(f"pending_reset_{_wkey}", False):
+        st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
+        st.session_state.scoring_weights[_mkey] = DEFAULT_WEIGHTS[_mkey]
+
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     st.caption("Weights shared across all pages. Set them on the dashboard and they carry through here automatically.")
 
@@ -322,6 +330,8 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     rc1, rc2 = st.columns([1, 5])
     if rc1.button("↺ Reset to Defaults", key="es_reset_weights"):
         st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
+        for _wkey, _mkey in _weight_map:
+            st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
         st.rerun()
     w_col1, w_col2 = st.columns(2)
     with w_col1:
