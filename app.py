@@ -423,22 +423,27 @@ if df_holdings_raw is not None:
     # holding_weights stays in sync with scoring_weights for backwards compat
     st.session_state.holding_weights = st.session_state.scoring_weights
 
+    # ── Weight reset handler — must run BEFORE any widget with these keys renders ──
+    # Streamlit sliders with key= read from st.session_state[key] directly once the
+    # key exists. Writing to the key is only allowed before the widget renders.
+    # Running this block at the top of the holdings section (before the expander)
+    # ensures the key is updated before the slider is drawn.
+    _weight_map = [("w_fcf","FCF Yield"),("w_roic","ROIC"),("w_debt","Debt / FCF"),
+                   ("w_gm","Gross Margin"),("w_ic","Interest Coverage"),("w_poe","Price / Owner Earnings")]
+    for _wkey, _mkey in _weight_map:
+        if st.session_state.pop(f"pending_reset_{_wkey}", False):
+            st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
+            st.session_state.scoring_weights[_mkey] = DEFAULT_WEIGHTS[_mkey]
+
     # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
         st.caption("Weights shared across Holdings, Equity Scout, and Market Screener. Must add up to 100.")
 
-        # ── Handle pending per-metric resets BEFORE sliders render ─────────
-        # Streamlit forbids setting a widget's key after it's rendered.
-        # Instead: button sets a "pending" flag → next render reads it → slider
-        # initializes to the default → flag cleared.
-        for _wkey, _mkey in [("w_fcf","FCF Yield"),("w_roic","ROIC"),("w_debt","Debt / FCF"),
-                              ("w_gm","Gross Margin"),("w_ic","Interest Coverage"),("w_poe","Price / Owner Earnings")]:
-            if st.session_state.pop(f"pending_reset_{_wkey}", False):
-                st.session_state.scoring_weights[_mkey] = DEFAULT_WEIGHTS[_mkey]
-
         rc1, _ = st.columns([1, 5])
         if rc1.button("↺ Reset to Defaults", key="reset_stock_weights"):
             st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
+            for _wkey, _mkey in _weight_map:
+                st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
             st.rerun()
 
         sw = st.session_state.scoring_weights
