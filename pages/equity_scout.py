@@ -7,25 +7,6 @@ st.set_page_config(page_title="Equity Scout | Voskuil FP", layout="wide")
 APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 POLY_URL = "https://api.polygon.io"
 
-@st.cache_data
-def fetch_sec_tickers():
-    """CIK lookup for SEC EDGAR links."""
-    try:
-        url     = "https://www.sec.gov/files/company_tickers.json"
-        headers = {'User-Agent': 'Voskuil Wealth Engine (voskuil@example.com)'}
-        resp    = requests.get(url, headers=headers, timeout=10)
-        data    = resp.json()
-        return {item['ticker']: str(item['cik_str']).zfill(10) for item in data.values()}
-    except Exception:
-        return {}
-
-cik_map = fetch_sec_tickers()
-
-def get_sec_url(ticker):
-    cik = cik_map.get(ticker.upper())
-    return (f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude"
-            if cik else f"https://www.sec.gov/cgi-bin/browse-edgar?CIK={ticker}")
-
 DEFAULT_WEIGHTS = {
     "FCF Yield":              20,
     "ROIC":                   10,
@@ -70,43 +51,22 @@ def safe_float(val):
         return None
 
 def fval(obj, key):
-    """Legacy helper — kept for any remaining old-API usage."""
     try:
         return float(obj[key]["value"])
     except (KeyError, TypeError, ValueError):
         return None
 
-def calc_interest_coverage_legacy(inc):
-    """Legacy vX interest coverage — fields use {value: X} wrappers."""
+def calc_interest_coverage(inc):
+    """
+    Returns (coverage_value_or_None, is_net_creditor bool).
+    Net creditor = positive nonoperating income with no interest expense = full points.
+    """
     op_income    = fval(inc, "operating_income_loss")
     interest_exp = fval(inc, "interest_expense_operating")
     if interest_exp and interest_exp > 0 and op_income is not None:
         return op_income / interest_exp, False
     nonop = fval(inc, "nonoperating_income_loss")
     if nonop is not None and nonop > 0:
-        return None, True
-    return None, False
-
-def sfval(obj, key):
-    """Safe float from flat dict — new Fundamentals API returns raw numbers."""
-    try:
-        return float(obj[key])
-    except (KeyError, TypeError, ValueError):
-        return None
-
-def calc_interest_coverage(inc, cf=None):
-    """Interest coverage from new flat-field API.
-    Returns (coverage_or_None, is_net_creditor bool).
-    """
-    op_income    = sfval(inc, "operating_income")
-    interest_exp = sfval(inc, "interest_expense")
-    interest_inc = sfval(inc, "interest_income")
-    if interest_exp and interest_exp > 0 and op_income is not None:
-        return op_income / interest_exp, False
-    if interest_inc is not None and interest_inc > 0 and (interest_exp is None or interest_exp == 0):
-        return None, True
-    other = sfval(inc, "other_income_expense")
-    if other is not None and other > 0 and (interest_exp is None or interest_exp == 0):
         return None, True
     return None, False
 
@@ -128,108 +88,74 @@ def fetch_fundamentals(ticker):
         except (KeyError, TypeError, IndexError):
             pass
 
-        fin_params = {
-            "tickers": ticker, "timeframe": "annual",
-            "limit": 2, "sort": "period_end.desc",
-        }
-        NEW_BASE = "/stocks/financials/v1"
+        fin_data = poly_get("/vX/reference/financials", {
+            "ticker": ticker, "timeframe": "annual", "limit": 2,
+            "order": "desc", "sort": "period_of_report_date",
+        })
+        if not fin_data or not fin_data.get("results"):
+            return {}
 
-        inc_data = poly_get(f"{NEW_BASE}/income-statements",    fin_params)
-        cf_data  = poly_get(f"{NEW_BASE}/cash-flow-statements", fin_params)
-        bs_data  = poly_get(f"{NEW_BASE}/balance-sheets",       fin_params)
+        results = fin_data["results"]
+        f  = results[0]["financials"]
+        f2 = results[1]["financials"] if len(results) > 1 else {}
 
-        use_new_api = (
-            inc_data and inc_data.get("results") and
-            cf_data  and cf_data.get("results")  and
-            bs_data  and bs_data.get("results")
-        )
+        inc = f.get("income_statement",    {})
+        cf  = f.get("cash_flow_statement", {})
+        bs  = f.get("balance_sheet",       {})
+        cf2 = f2.get("cash_flow_statement", {}) if f2 else {}
 
-        if use_new_api:
-            inc = inc_data["results"][0]
-            cf  = cf_data["results"][0]
-            bs  = bs_data["results"][0]
-            cf2 = cf_data["results"][1] if len(cf_data["results"]) > 1 else {}
+        op_cf  = fval(cf, "net_cash_flow_from_operating_activities")
+        inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
+        fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
 
-            op_cf   = sfval(cf, "net_cash_from_operating_activities")
-            inv_cf  = sfval(cf, "net_cash_from_investing_activities")
-            fcf     = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
-            op_cf2  = sfval(cf2, "net_cash_from_operating_activities")
-            inv_cf2 = sfval(cf2, "net_cash_from_investing_activities")
-            fcf2    = (op_cf2 + inv_cf2) if (op_cf2 is not None and inv_cf2 is not None) else None
-            fcf_growth   = ((fcf / fcf2) - 1) if (fcf and fcf2 and fcf2 != 0) else None
-            fcf_yield    = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
-            gross_profit = sfval(inc, "gross_profit")
-            revenue      = sfval(inc, "revenue")
-            gross_margin = (gross_profit / revenue) if (gross_profit and revenue and revenue > 0) else None
-            net_income   = sfval(inc, "net_income_loss_attributable_common_shareholders") or sfval(cf, "net_income")
-            total_assets = sfval(bs, "total_assets")
-            current_liab = sfval(bs, "total_current_liabilities")
-            invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-            roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-            long_term_debt = sfval(bs, "long_term_debt") or sfval(bs, "long_term_debt_and_capital_lease_obligations") or sfval(bs, "total_noncurrent_liabilities")
-            debt_to_fcf  = (long_term_debt / fcf) if (long_term_debt is not None and fcf and fcf > 0) else None
-            interest_cov, is_net_creditor = calc_interest_coverage(inc, cf)
-            dna          = sfval(cf, "depreciation_depletion_and_amortization") or (op_cf - net_income if op_cf and net_income else 0)
-            capex_abs    = abs(inv_cf) if inv_cf else 0
-            owner_earn   = (net_income + (dna or 0) - capex_abs) if net_income is not None else None
-            poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-            div_raw      = sfval(cf, "dividends")
-            div_yield    = (abs(div_raw) / market_cap) if (div_raw and market_cap and market_cap > 0) else None
-            revenues_out = revenue
+        op_cf2  = fval(cf2, "net_cash_flow_from_operating_activities")
+        inv_cf2 = fval(cf2, "net_cash_flow_from_investing_activities")
+        fcf2    = (op_cf2 + inv_cf2) if (op_cf2 is not None and inv_cf2 is not None) else None
+        fcf_growth = ((fcf / fcf2) - 1) if (fcf and fcf2 and fcf2 != 0) else None
 
-        else:
-            # ── Legacy vX fallback ────────────────────────────────────────
-            fin_data = poly_get("/vX/reference/financials", {
-                "ticker": ticker, "timeframe": "annual", "limit": 2,
-                "order": "desc", "sort": "period_of_report_date",
-            })
-            if not fin_data or not fin_data.get("results"):
-                return {}
+        fcf_yield    = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
+        gross_profit = fval(inc, "gross_profit")
+        revenues     = fval(inc, "revenues")
+        gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
+        net_income   = fval(inc, "net_income_loss")
+        total_assets = fval(bs,  "assets")
+        current_liab = fval(bs,  "current_liabilities")
+        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
 
-            results = fin_data["results"]
-            f  = results[0]["financials"]
-            f2 = results[1]["financials"] if len(results) > 1 else {}
-            inc_vx = f.get("income_statement",    {})
-            cf_vx  = f.get("cash_flow_statement", {})
-            bs_vx  = f.get("balance_sheet",       {})
-            cf2_vx = f2.get("cash_flow_statement", {}) if f2 else {}
+        long_term_debt = fval(bs, "long_term_debt") or fval(bs, "noncurrent_liabilities")
+        debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf and fcf > 0) else None
 
-            op_cf   = fval(cf_vx, "net_cash_flow_from_operating_activities")
-            inv_cf  = fval(cf_vx, "net_cash_flow_from_investing_activities")
-            fcf     = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
-            op_cf2  = fval(cf2_vx, "net_cash_flow_from_operating_activities")
-            inv_cf2 = fval(cf2_vx, "net_cash_flow_from_investing_activities")
-            fcf2    = (op_cf2 + inv_cf2) if (op_cf2 is not None and inv_cf2 is not None) else None
-            fcf_growth   = ((fcf / fcf2) - 1) if (fcf and fcf2 and fcf2 != 0) else None
-            fcf_yield    = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
-            gross_profit = fval(inc_vx, "gross_profit")
-            revenues_out = fval(inc_vx, "revenues")
-            gross_margin = (gross_profit / revenues_out) if (gross_profit and revenues_out and revenues_out > 0) else None
-            net_income   = fval(inc_vx, "net_income_loss")
-            total_assets = fval(bs_vx, "assets")
-            current_liab = fval(bs_vx, "current_liabilities")
-            invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-            roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-            long_term_debt = fval(bs_vx, "long_term_debt") or fval(bs_vx, "noncurrent_liabilities")
-            debt_to_fcf  = (long_term_debt / fcf) if (long_term_debt is not None and fcf and fcf > 0) else None
-            interest_cov, is_net_creditor = calc_interest_coverage_legacy(inc_vx)
-            dna_proxy    = (op_cf - net_income) if (op_cf and net_income) else None
-            capex_abs    = abs(inv_cf) if inv_cf else 0
-            owner_earn   = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
-            poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-            div_ps       = fval(inc_vx, "common_stock_dividends")
-            div_yield    = (div_ps / price) if (div_ps and price and price > 0) else None
+        interest_cov, is_net_creditor = calc_interest_coverage(inc)
+
+        dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
+        capex_abs  = abs(inv_cf) if inv_cf else 0
+        owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+        poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+
+        div_ps    = fval(inc, "common_stock_dividends")
+        div_yield = (div_ps / price) if (div_ps and price and price > 0) else None
 
         return {
-            "name": name, "sector": sector, "description": description,
-            "market_cap": market_cap, "price": price,
-            "fcf": fcf, "fcf_yield": fcf_yield, "fcf_growth": fcf_growth,
-            "gross_margin": gross_margin, "roic": roic,
-            "long_term_debt": long_term_debt, "debt_to_fcf": debt_to_fcf,
-            "interest_coverage": interest_cov, "is_net_creditor": is_net_creditor,
-            "owner_earnings": owner_earn, "price_owner_earn": poe,
-            "dividend_yield": div_yield, "net_income": net_income,
-            "revenues": revenues_out,
+            "name":              name,
+            "sector":            sector,
+            "description":       description,
+            "market_cap":        market_cap,
+            "price":             price,
+            "fcf":               fcf,
+            "fcf_yield":         fcf_yield,
+            "fcf_growth":        fcf_growth,
+            "gross_margin":      gross_margin,
+            "roic":              roic,
+            "long_term_debt":    long_term_debt,
+            "debt_to_fcf":       debt_to_fcf,
+            "interest_coverage": interest_cov,
+            "is_net_creditor":   is_net_creditor,
+            "owner_earnings":    owner_earn,
+            "price_owner_earn":  poe,
+            "dividend_yield":    div_yield,
+            "net_income":        net_income,
+            "revenues":          revenues,
         }
     except Exception as e:
         st.error(f"Could not fetch data for **{ticker}**: {e}")
@@ -357,59 +283,6 @@ def score_to_verdict(score):
     elif score >= 45: return "Proceed with Caution", "#e67e22"
     else:             return "Avoid", "#e74c3c"
 
-DEFAULT_ACTION_THRESHOLDS = {
-    "sell_score_floor":  45,
-    "buy_score_floor":   65,
-    "buy_poe_max":       25.0,
-    "bargain_poe":       15.0,
-    "sell_debt_max":      5.0,
-    "sell_ic_min":        2.5,
-}
-
-def buffett_action(score, data):
-    """Buffett-style Buy / Hold / Sell signal.
-    Reads thresholds from session state (set on dashboard) with fallback to defaults.
-    """
-    if score is None or data is None:
-        return "—", "#888888", ""
-
-    t = st.session_state.get("action_thresholds", DEFAULT_ACTION_THRESHOLDS)
-    sell_floor  = t["sell_score_floor"]
-    buy_floor   = t["buy_score_floor"]
-    buy_poe_max = t["buy_poe_max"]
-    bargain_poe = t["bargain_poe"]
-    sell_debt   = t["sell_debt_max"]
-    sell_ic     = t["sell_ic_min"]
-
-    poe      = data.get("price_owner_earn")
-    debt_fcf = data.get("debt_to_fcf")
-    ic       = data.get("interest_coverage") or 0
-    is_nc    = data.get("is_net_creditor", False)
-    roic     = data.get("roic")
-
-    if score < sell_floor:
-        return "SELL", "#e74c3c", f"Fundamentals below conviction threshold (score < {sell_floor})"
-    if debt_fcf is not None and debt_fcf > sell_debt and not is_nc and ic < sell_ic:
-        return "SELL", "#e74c3c", f"Debt trap: {debt_fcf:.1f}x Debt/FCF, interest coverage only {ic:.1f}x"
-    if roic is not None and roic < 0:
-        return "SELL", "#e74c3c", "Negative ROIC — destroying capital"
-
-    if score >= buy_floor:
-        price_ok = poe is not None and poe <= buy_poe_max
-        debt_ok  = debt_fcf is None or debt_fcf < sell_debt or is_nc
-        if price_ok and debt_ok:
-            label = "bargain" if (poe is not None and poe <= bargain_poe) else "fair"
-            return "BUY", "#2ecc71", f"Quality business at {label} price ({poe:.1f}x P/OE)"
-
-    if score >= buy_floor:
-        if poe is not None and poe > buy_poe_max:
-            return "HOLD", "#3498db", f"Quality business but price stretched ({poe:.1f}x P/OE)"
-        if debt_fcf is not None and debt_fcf >= sell_debt and not is_nc:
-            return "HOLD", "#3498db", f"Quality business but debt elevated ({debt_fcf:.1f}x Debt/FCF)"
-        return "HOLD", "#3498db", "Quality business — monitor for better entry"
-
-    return "HOLD", "#3498db", "Adequate fundamentals — no clear buy or sell signal"
-
 # ── Query params ──────────────────────────────────────────────────────
 params       = st.query_params
 url_ticker   = params.get("ticker", "").upper().strip()
@@ -425,20 +298,41 @@ if url_ticker:
 st.divider()
 
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
-    st.caption("Adjust how much each metric contributes. Must add up to 100.")
+    st.caption("Weights shared across all pages. Set them on the dashboard and they carry through here automatically.")
+
+    # Read from shared session state — falls back to DEFAULT_WEIGHTS if dashboard not visited yet
+    if "scoring_weights" not in st.session_state:
+        st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
+    sw = st.session_state.scoring_weights
+
+    rc1, rc2 = st.columns([1, 5])
+    if rc1.button("↺ Reset to Defaults", key="es_reset_weights"):
+        st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
+        st.rerun()
+    rc2.caption(
+        f"Defaults: FCF Yield {DEFAULT_WEIGHTS['FCF Yield']} · "
+        f"ROIC {DEFAULT_WEIGHTS['ROIC']} · "
+        f"Debt/FCF {DEFAULT_WEIGHTS['Debt / FCF']} · "
+        f"Gross Margin {DEFAULT_WEIGHTS['Gross Margin']} · "
+        f"Interest Coverage {DEFAULT_WEIGHTS['Interest Coverage']} · "
+        f"P/OE {DEFAULT_WEIGHTS['Price / Owner Earnings']}"
+    )
+
     w_col1, w_col2 = st.columns(2)
     with w_col1:
-        w_fcf  = st.slider("FCF Yield",              0, 60, DEFAULT_WEIGHTS["FCF Yield"],              step=5)
-        w_roic = st.slider("ROIC",                   0, 40, DEFAULT_WEIGHTS["ROIC"],                   step=5)
-        w_debt = st.slider("Debt / FCF",             0, 40, DEFAULT_WEIGHTS["Debt / FCF"],             step=5)
+        w_fcf  = st.slider("FCF Yield",              0, 60, sw["FCF Yield"],              step=5, help=f"Default: {DEFAULT_WEIGHTS['FCF Yield']}")
+        w_roic = st.slider("ROIC",                   0, 40, sw["ROIC"],                   step=5, help=f"Default: {DEFAULT_WEIGHTS['ROIC']}")
+        w_debt = st.slider("Debt / FCF",             0, 40, sw["Debt / FCF"],             step=5, help=f"Default: {DEFAULT_WEIGHTS['Debt / FCF']}")
     with w_col2:
-        w_gm   = st.slider("Gross Margin",           0, 40, DEFAULT_WEIGHTS["Gross Margin"],           step=5)
-        w_ic   = st.slider("Interest Coverage",      0, 40, DEFAULT_WEIGHTS["Interest Coverage"],      step=5)
-        w_poe  = st.slider("Price / Owner Earnings", 0, 60, DEFAULT_WEIGHTS["Price / Owner Earnings"], step=5)
+        w_gm   = st.slider("Gross Margin",           0, 40, sw["Gross Margin"],           step=5, help=f"Default: {DEFAULT_WEIGHTS['Gross Margin']}")
+        w_ic   = st.slider("Interest Coverage",      0, 40, sw["Interest Coverage"],      step=5, help=f"Default: {DEFAULT_WEIGHTS['Interest Coverage']}")
+        w_poe  = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, help=f"Default: {DEFAULT_WEIGHTS['Price / Owner Earnings']}")
     weights = {
         "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
         "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
     }
+    # Write back so any change here propagates to other pages too
+    st.session_state.scoring_weights = weights
     total_weight = sum(weights.values())
     if total_weight == 100:   st.success(f"✅ Total: {total_weight} / 100")
     elif total_weight < 100:  st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
@@ -478,14 +372,6 @@ if analyze and ticker_input:
     st.caption(f"{data.get('sector','')}  ·  ${data.get('price',0) or 0:,.2f} per share  ·  Market Cap: ${(data.get('market_cap') or 0)/1e9:.1f}B")
     if data.get('description'):
         st.markdown(f"*{data['description']}*")
-
-    # ── Research links ────────────────────────────────────────────────────
-    _rcol1, _rcol2, _rspc = st.columns([1, 1, 6])
-    with _rcol1:
-        st.link_button("📋 SEC Filings", get_sec_url(ticker_input), use_container_width=True)
-    with _rcol2:
-        st.link_button("📈 Yahoo Finance", f"https://finance.yahoo.com/quote/{ticker_input}", use_container_width=True)
-
     st.divider()
 
     left, right = st.columns([1, 2])
@@ -517,23 +403,6 @@ if analyze and ticker_input:
             st.warning(f"⚠️ Missing data: {', '.join(missing_names)}. Score rebalanced across available metrics.")
         else:
             st.markdown(f"**Score:** {rebalanced_score}/100")
-
-        # ── Buffett Action Signal ─────────────────────────────────────────
-        signal, sig_color, sig_reason = buffett_action(rebalanced_score, data)
-        if signal != "—":
-            st.markdown("---")
-            st.markdown(
-                f"<div style='text-align:center; font-size:1.6em; font-weight:bold; "
-                f"color:{sig_color}; padding:8px 0 4px 0'>{signal}</div>",
-                unsafe_allow_html=True
-            )
-            if sig_reason:
-                st.markdown(
-                    f"<div style='text-align:center; font-size:0.8em; color:#aaa; "
-                    f"padding-bottom:6px'>{sig_reason}</div>",
-                    unsafe_allow_html=True
-                )
-            st.caption("Buffett Action Signal")
 
         st.markdown("**Active Weights**")
         for k, v in weights.items():
