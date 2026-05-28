@@ -303,6 +303,20 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     # Read from shared session state — falls back to DEFAULT_WEIGHTS if dashboard not visited yet
     if "scoring_weights" not in st.session_state:
         st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
+        # Handle pending per-metric resets BEFORE sliders render
+        if st.session_state.pop("pending_reset_w_fcf", False):
+            st.session_state.scoring_weights["FCF Yield"] = DEFAULT_WEIGHTS["FCF Yield"]
+        if st.session_state.pop("pending_reset_w_roic", False):
+            st.session_state.scoring_weights["ROIC"] = DEFAULT_WEIGHTS["ROIC"]
+        if st.session_state.pop("pending_reset_w_debt", False):
+            st.session_state.scoring_weights["Debt / FCF"] = DEFAULT_WEIGHTS["Debt / FCF"]
+        if st.session_state.pop("pending_reset_w_gm", False):
+            st.session_state.scoring_weights["Gross Margin"] = DEFAULT_WEIGHTS["Gross Margin"]
+        if st.session_state.pop("pending_reset_w_ic", False):
+            st.session_state.scoring_weights["Interest Coverage"] = DEFAULT_WEIGHTS["Interest Coverage"]
+        if st.session_state.pop("pending_reset_w_poe", False):
+            st.session_state.scoring_weights["Price / Owner Earnings"] = DEFAULT_WEIGHTS["Price / Owner Earnings"]
+
     sw = st.session_state.scoring_weights
 
     rc1, rc2 = st.columns([1, 5])
@@ -317,7 +331,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         with _sb_w_fcf:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf", help="Reset FCF Yield to default", use_container_width=True):
-                st.session_state["w_fcf"] = DEFAULT_WEIGHTS["FCF Yield"]
+                st.session_state["pending_reset_w_fcf"] = True
                 st.session_state.scoring_weights["FCF Yield"] = DEFAULT_WEIGHTS["FCF Yield"]
                 st.rerun()
         _sc_w_roic, _sb_w_roic = st.columns([4, 1])
@@ -326,7 +340,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         with _sb_w_roic:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic", help="Reset ROIC to default", use_container_width=True):
-                st.session_state["w_roic"] = DEFAULT_WEIGHTS["ROIC"]
+                st.session_state["pending_reset_w_roic"] = True
                 st.session_state.scoring_weights["ROIC"] = DEFAULT_WEIGHTS["ROIC"]
                 st.rerun()
         _sc_w_debt, _sb_w_debt = st.columns([4, 1])
@@ -335,7 +349,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         with _sb_w_debt:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['Debt / FCF']}", key="reset_w_debt", help="Reset Debt / FCF to default", use_container_width=True):
-                st.session_state["w_debt"] = DEFAULT_WEIGHTS["Debt / FCF"]
+                st.session_state["pending_reset_w_debt"] = True
                 st.session_state.scoring_weights["Debt / FCF"] = DEFAULT_WEIGHTS["Debt / FCF"]
                 st.rerun()
     with w_col2:
@@ -345,7 +359,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         with _sb_w_gm:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['Gross Margin']}", key="reset_w_gm", help="Reset Gross Margin to default", use_container_width=True):
-                st.session_state["w_gm"] = DEFAULT_WEIGHTS["Gross Margin"]
+                st.session_state["pending_reset_w_gm"] = True
                 st.session_state.scoring_weights["Gross Margin"] = DEFAULT_WEIGHTS["Gross Margin"]
                 st.rerun()
         _sc_w_ic, _sb_w_ic = st.columns([4, 1])
@@ -354,7 +368,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         with _sb_w_ic:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic", help="Reset Interest Coverage to default", use_container_width=True):
-                st.session_state["w_ic"] = DEFAULT_WEIGHTS["Interest Coverage"]
+                st.session_state["pending_reset_w_ic"] = True
                 st.session_state.scoring_weights["Interest Coverage"] = DEFAULT_WEIGHTS["Interest Coverage"]
                 st.rerun()
         _sc_w_poe, _sb_w_poe = st.columns([4, 1])
@@ -363,7 +377,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         with _sb_w_poe:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe", help="Reset Price / Owner Earnings to default", use_container_width=True):
-                st.session_state["w_poe"] = DEFAULT_WEIGHTS["Price / Owner Earnings"]
+                st.session_state["pending_reset_w_poe"] = True
                 st.session_state.scoring_weights["Price / Owner Earnings"] = DEFAULT_WEIGHTS["Price / Owner Earnings"]
                 st.rerun()
     weights = {
