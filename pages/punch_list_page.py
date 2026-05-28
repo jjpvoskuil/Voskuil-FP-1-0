@@ -10,68 +10,103 @@ st.set_page_config(page_title="Punch List | Voskuil FP", layout="wide")
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
-/* Card styling */
+/* ── Base card ─────────────────────────────────────────────────────── */
 .punch-card {
-    background: #1a1a2e;
-    border: 1px solid #2d2d44;
-    border-radius: 8px;
-    padding: 14px 16px;
-    margin-bottom: 8px;
-    transition: border-color 0.2s;
+    background: #ffffff;
+    border: 1px solid #e8e8ed;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 6px;
+    border-left: 4px solid #e8e8ed;
+    transition: box-shadow 0.15s, border-color 0.15s;
 }
-.punch-card:hover { border-color: #4a4a6a; }
+.punch-card:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
 .punch-card.done {
-    background: #0f1a0f;
-    border-color: #1a3a1a;
-    opacity: 0.6;
+    background: #f9fafb;
+    border-left-color: #22c55e;
+    opacity: 0.75;
 }
 
-/* Priority badges */
+/* ── Left-border accent by priority ────────────────────────────────── */
+.priority-urgent { border-left-color: #ef4444 !important; }
+.priority-high   { border-left-color: #f97316 !important; }
+.priority-medium { border-left-color: #3b82f6 !important; }
+.priority-low    { border-left-color: #9ca3af !important; }
+
+/* ── Priority badges ────────────────────────────────────────────────── */
 .badge {
     display: inline-block;
-    padding: 2px 10px;
-    border-radius: 12px;
-    font-size: 0.72em;
+    padding: 2px 9px;
+    border-radius: 4px;
+    font-size: 0.68em;
     font-weight: 700;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     margin-left: 8px;
     vertical-align: middle;
 }
-.badge-urgent  { background: #4a0000; color: #ff6b6b; border: 1px solid #ff6b6b; }
-.badge-high    { background: #3a2000; color: #ffa64d; border: 1px solid #ffa64d; }
-.badge-medium  { background: #1a2a3a; color: #4db8ff; border: 1px solid #4db8ff; }
-.badge-low     { background: #1a1a1a; color: #888;    border: 1px solid #444; }
-.badge-done    { background: #0f1a0f; color: #4dff88; border: 1px solid #4dff88; }
+.badge-urgent { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
+.badge-high   { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
+.badge-medium { background: #eff6ff; color: #1d4ed8; border: 1px solid #93c5fd; }
+.badge-low    { background: #f9fafb; color: #6b7280; border: 1px solid #d1d5db; }
+.badge-done   { background: #f0fdf4; color: #15803d; border: 1px solid #86efac; }
 
-/* Phase header */
+/* ── Phase header ───────────────────────────────────────────────────── */
 .phase-header {
-    font-size: 0.75em;
+    font-size: 0.72em;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.10em;
     text-transform: uppercase;
-    color: #666;
-    padding: 12px 0 6px 0;
-    border-bottom: 1px solid #2d2d44;
+    color: #6b7280;
+    padding: 14px 0 6px 0;
+    border-bottom: 2px solid #f3f4f6;
     margin-bottom: 10px;
 }
 
-/* Stats bar */
+/* ── Stats bar ──────────────────────────────────────────────────────── */
 .stats-bar {
-    display: flex; gap: 16px; margin-bottom: 20px;
-    padding: 12px 16px;
-    background: #12121e;
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 14px 20px;
+    background: #f8f9fc;
     border-radius: 8px;
-    border: 1px solid #2d2d44;
+    border: 1px solid #e8e8ed;
 }
-.stat-item { text-align: center; }
-.stat-num  { font-size: 1.6em; font-weight: 700; color: #fff; line-height: 1; }
-.stat-lbl  { font-size: 0.72em; color: #666; text-transform: uppercase; letter-spacing: 0.08em; }
+.stat-item { text-align: center; min-width: 56px; }
+.stat-num  {
+    font-size: 1.7em;
+    font-weight: 800;
+    color: #111827;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.stat-lbl  {
+    font-size: 0.68em;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 2px;
+}
 
-/* Title styling */
-.item-title { font-size: 0.95em; font-weight: 600; color: #e0e0f0; }
-.item-title.done-title { text-decoration: line-through; color: #4dff88; }
-.item-note  { font-size: 0.78em; color: #888; margin-top: 4px; line-height: 1.5; }
+/* ── Item text ──────────────────────────────────────────────────────── */
+.item-title {
+    font-size: 0.92em;
+    font-weight: 600;
+    color: #111827;
+}
+.item-title.done-title {
+    text-decoration: line-through;
+    color: #22c55e;
+}
+.item-note {
+    font-size: 0.77em;
+    color: #6b7280;
+    margin-top: 3px;
+    line-height: 1.55;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -192,10 +227,10 @@ high    = sum(1 for i in items if not i["done"] and i["priority"] == "High")
 st.markdown(f"""
 <div class="stats-bar">
   <div class="stat-item"><div class="stat-num">{open_}</div><div class="stat-lbl">Open</div></div>
-  <div class="stat-item"><div class="stat-num" style="color:#ff6b6b">{urgent}</div><div class="stat-lbl">Urgent</div></div>
-  <div class="stat-item"><div class="stat-num" style="color:#ffa64d">{high}</div><div class="stat-lbl">High</div></div>
-  <div class="stat-item"><div class="stat-num" style="color:#4dff88">{done}</div><div class="stat-lbl">Done</div></div>
-  <div class="stat-item"><div class="stat-num">{total}</div><div class="stat-lbl">Total</div></div>
+  <div class="stat-item"><div class="stat-num" style="color:#dc2626">{urgent}</div><div class="stat-lbl">Urgent</div></div>
+  <div class="stat-item"><div class="stat-num" style="color:#c2410c">{high}</div><div class="stat-lbl">High</div></div>
+  <div class="stat-item"><div class="stat-num" style="color:#15803d">{done}</div><div class="stat-lbl">Done</div></div>
+  <div class="stat-item"><div class="stat-num" style="color:#6b7280">{total}</div><div class="stat-lbl">Total</div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -252,10 +287,10 @@ st.divider()
 # ITEM LIST
 # ─────────────────────────────────────────────
 PRIORITY_COLORS = {
-    "Urgent": ("#ff6b6b", "badge-urgent"),
-    "High":   ("#ffa64d", "badge-high"),
-    "Medium": ("#4db8ff", "badge-medium"),
-    "Low":    ("#888",    "badge-low"),
+    "Urgent": ("#dc2626", "badge-urgent"),
+    "High":   ("#c2410c", "badge-high"),
+    "Medium": ("#1d4ed8", "badge-medium"),
+    "Low":    ("#6b7280", "badge-low"),
 }
 
 # Filter
@@ -387,4 +422,3 @@ with col_reset:
         else:
             st.session_state.confirm_reset = True
             st.warning("Click again to confirm reset — all changes will be lost.")
-
