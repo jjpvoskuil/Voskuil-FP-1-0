@@ -210,24 +210,21 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     if rc1.button("↺ Reset to Defaults", key="ms_reset_weights"):
         st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
         st.rerun()
-    rc2.caption(
-        f"Defaults: FCF Yield {DEFAULT_WEIGHTS['FCF Yield']} · "
-        f"ROIC {DEFAULT_WEIGHTS['ROIC']} · "
-        f"Debt/FCF {DEFAULT_WEIGHTS['Debt / FCF']} · "
-        f"Gross Margin {DEFAULT_WEIGHTS['Gross Margin']} · "
-        f"Interest Coverage {DEFAULT_WEIGHTS['Interest Coverage']} · "
-        f"P/OE {DEFAULT_WEIGHTS['Price / Owner Earnings']}"
-    )
-
     w_col1, w_col2 = st.columns(2)
     with w_col1:
-        w_fcf  = st.slider("FCF Yield",              0, 60, sw["FCF Yield"],              step=5, help=f"Default: {DEFAULT_WEIGHTS['FCF Yield']}")
-        w_roic = st.slider("ROIC",                   0, 40, sw["ROIC"],                   step=5, help=f"Default: {DEFAULT_WEIGHTS['ROIC']}")
-        w_debt = st.slider("Debt / FCF",             0, 40, sw["Debt / FCF"],             step=5, help=f"Default: {DEFAULT_WEIGHTS['Debt / FCF']}")
+        w_fcf  = st.slider("FCF Yield",              0, 60, sw["FCF Yield"],              step=5)
+        st.caption(f"Default: {DEFAULT_WEIGHTS['FCF Yield']}")
+        w_roic = st.slider("ROIC",                   0, 40, sw["ROIC"],                   step=5)
+        st.caption(f"Default: {DEFAULT_WEIGHTS['ROIC']}")
+        w_debt = st.slider("Debt / FCF",             0, 40, sw["Debt / FCF"],             step=5)
+        st.caption(f"Default: {DEFAULT_WEIGHTS['Debt / FCF']}")
     with w_col2:
-        w_gm   = st.slider("Gross Margin",           0, 40, sw["Gross Margin"],           step=5, help=f"Default: {DEFAULT_WEIGHTS['Gross Margin']}")
-        w_ic   = st.slider("Interest Coverage",      0, 40, sw["Interest Coverage"],      step=5, help=f"Default: {DEFAULT_WEIGHTS['Interest Coverage']}")
-        w_poe  = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, help=f"Default: {DEFAULT_WEIGHTS['Price / Owner Earnings']}")
+        w_gm   = st.slider("Gross Margin",           0, 40, sw["Gross Margin"],           step=5)
+        st.caption(f"Default: {DEFAULT_WEIGHTS['Gross Margin']}")
+        w_ic   = st.slider("Interest Coverage",      0, 40, sw["Interest Coverage"],      step=5)
+        st.caption(f"Default: {DEFAULT_WEIGHTS['Interest Coverage']}")
+        w_poe  = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5)
+        st.caption(f"Default: {DEFAULT_WEIGHTS['Price / Owner Earnings']}")
     weights = {
         "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
         "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
