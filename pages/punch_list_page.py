@@ -347,6 +347,7 @@ for phase, phase_items in grouped.items():
         with c_main:
             st.markdown(
                 f'<div class="item-title {title_cls}">'
+                f'<span style="color:#9ca3af; font-weight:400; margin-right:6px">#{pid}</span>'
                 f'{item["title"]}'
                 f'<span class="badge {badge_cls}">{item["priority"]}</span>'
                 f'</div>'
