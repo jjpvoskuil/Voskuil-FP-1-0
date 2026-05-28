@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 import requests
 import time
-from plaid_data import get_plaid_token, compute_plaid_metrics, plaid_status_badge
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
@@ -286,94 +285,57 @@ def get_clean_df(filename, anchor_text):
         return None
 
 # ─────────────────────────────────────────────
-# DATA PROCESSING — Plaid-first, CSV fallback
+# DATA PROCESSING
 # ─────────────────────────────────────────────
-total_val          = 0.0
-total_income       = 0.0
-ira_gain_total     = 0.0
+total_val = 0.0
+total_income = 0.0
+ira_gain_total = 0.0
 taxable_gain_total = 0.0
-ytd_dividends      = 0.0
-ytd_interest       = 0.0
-product_mix        = pd.DataFrame()
-df_holdings_raw    = None
-plaid_active       = False   # True when Power Bar is sourced from Plaid
+ytd_dividends = 0.0
+ytd_interest = 0.0
+product_mix = pd.DataFrame()
+df_holdings_raw = None
 
-# ── Try Plaid for balance / transaction data ──────────────────────────────
-plaid_token = get_plaid_token()
-if plaid_token:
-    try:
-        metrics = compute_plaid_metrics(plaid_token)
-        total_val          = metrics["total_val"]
-        ytd_dividends      = metrics["ytd_dividends"]
-        ytd_interest       = metrics["ytd_interest"]
-        taxable_gain_total = metrics["taxable_gain_total"]
-        ira_gain_total     = metrics["ira_gain_total"]
-        plaid_active       = True
-    except Exception:
-        plaid_active = False   # fall through to CSV
-
-# ── CSV fallback for balance / transaction data ───────────────────────────
-if not plaid_active:
-    df_tax = get_clean_df(TAX_FILE, "Account Number")
-    if df_tax is not None:
-        df_tax.columns  = [c.strip() for c in df_tax.columns]
-        df_tax_clean    = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
-        df_tax_clean['Numeric Gain'] = pd.to_numeric(
-            df_tax_clean.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''),
-            errors='coerce'
-        )
-        ira_mask           = df_tax_clean.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
-        ira_gain_total     = df_tax_clean[ira_mask]['Numeric Gain'].sum()
-        taxable_gain_total = df_tax_clean[~ira_mask]['Numeric Gain'].sum()
-
-    df_trans = get_clean_df(TRANS_FILE, "Activity Date")
-    if df_trans is not None:
-        df_trans.columns  = [c.strip() for c in df_trans.columns]
-        df_trans['Amount($)'] = pd.to_numeric(
-            df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''),
-            errors='coerce'
-        )
-        ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
-        ytd_interest  = df_trans[df_trans['Activity'].str.contains('Interest',  na=False, case=False)]['Amount($)'].sum()
-
-# ── Holdings always come from CSV ─────────────────────────────────────────
 df_holdings_raw = get_clean_df(HOLDINGS_FILE, "Account Number")
 if df_holdings_raw is not None:
     df_holdings_raw.columns = [c.strip() for c in df_holdings_raw.columns]
     df_holdings_raw = df_holdings_raw[~df_holdings_raw.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     for col in ['Market Value ($)', 'Est. Annual Income ($)']:
         if col in df_holdings_raw.columns:
-            df_holdings_raw[col] = pd.to_numeric(
-                df_holdings_raw[col].astype(str).str.replace(',', '').str.replace('"', ''),
-                errors='coerce'
-            )
-    # Use CSV total_val if Plaid didn't provide it
-    if not plaid_active:
-        total_val    = df_holdings_raw['Market Value ($)'].sum()
+            df_holdings_raw[col] = pd.to_numeric(df_holdings_raw[col].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
+    total_val = df_holdings_raw['Market Value ($)'].sum()
     total_income = df_holdings_raw['Est. Annual Income ($)'].sum()
-    product_mix  = df_holdings_raw.groupby('Product Type')['Market Value ($)'].sum().reset_index()
-    product_mix  = product_mix.sort_values(by='Market Value ($)', ascending=False)
-    color_palette         = px.colors.qualitative.Prism
-    product_mix['color']  = [color_palette[i % len(color_palette)] for i in range(len(product_mix))]
-    df_holdings_raw       = df_holdings_raw.dropna(subset=['Symbol'])
+    product_mix = df_holdings_raw.groupby('Product Type')['Market Value ($)'].sum().reset_index()
+    product_mix = product_mix.sort_values(by='Market Value ($)', ascending=False)
+    color_palette = px.colors.qualitative.Prism
+    product_mix['color'] = [color_palette[i % len(color_palette)] for i in range(len(product_mix))]
+    df_holdings_raw = df_holdings_raw.dropna(subset=['Symbol'])
+
+df_tax = get_clean_df(TAX_FILE, "Account Number")
+if df_tax is not None:
+    df_tax.columns = [c.strip() for c in df_tax.columns]
+    df_tax_clean = df_tax[~df_tax.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
+    df_tax_clean['Numeric Gain'] = pd.to_numeric(df_tax_clean.iloc[:, 13].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
+    ira_mask = df_tax_clean.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
+    ira_gain_total = df_tax_clean[ira_mask]['Numeric Gain'].sum()
+    taxable_gain_total = df_tax_clean[~ira_mask]['Numeric Gain'].sum()
+
+df_trans = get_clean_df(TRANS_FILE, "Activity Date")
+if df_trans is not None:
+    df_trans.columns = [c.strip() for c in df_trans.columns]
+    df_trans['Amount($)'] = pd.to_numeric(df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
+    ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
+    ytd_interest  = df_trans[df_trans['Activity'].str.contains('Interest',  na=False, case=False)]['Amount($)'].sum()
 
 # ─────────────────────────────────────────────
 # POWER BAR
 # ─────────────────────────────────────────────
-# Show data source badge
-src_badge = plaid_status_badge()
-st.caption(src_badge)
-
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
-with col2: st.metric("Taxable G/L (YTD)",  f"${taxable_gain_total:,.2f}", help="Gains from non-IRA accounts. N/A via Plaid — upload Realized GL CSV for this metric." if plaid_active else "Gains from non-IRA accounts.")
-with col3: st.metric("IRA G/L (YTD)",      f"${ira_gain_total:,.2f}",     help="Tax-deferred growth in IRA buckets. N/A via Plaid — upload Realized GL CSV for this metric." if plaid_active else "Tax-deferred growth in IRA buckets.")
+with col2: st.metric("Taxable G/L (YTD)",  f"${taxable_gain_total:,.2f}", help="Gains from non-IRA accounts.")
+with col3: st.metric("IRA G/L (YTD)",      f"${ira_gain_total:,.2f}",     help="Tax-deferred growth in IRA buckets.")
 with col4: st.metric("YTD Dividends",      f"${ytd_dividends:,.2f}")
 with col5: st.metric("YTD Interest",       f"${ytd_interest:,.2f}")
-
-if plaid_active:
-    st.caption("💡 Balance and transactions sourced from Plaid. Realized G/L requires the CSV upload. [Manage connection](/connect)")
-
 st.divider()
 
 # ─────────────────────────────────────────────
@@ -456,25 +418,43 @@ if df_holdings_raw is not None:
     consolidated['Dive Link']  = consolidated['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
 
     if 'holding_scores'  not in st.session_state: st.session_state.holding_scores  = {}
-    if 'holding_weights' not in st.session_state: st.session_state.holding_weights = DEFAULT_WEIGHTS.copy()
     if 'holding_sources' not in st.session_state: st.session_state.holding_sources = {}
+    if 'scoring_weights' not in st.session_state: st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
+    # holding_weights stays in sync with scoring_weights for backwards compat
+    st.session_state.holding_weights = st.session_state.scoring_weights
 
     # ── Weight Customizer ──────────────────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
-        st.caption("Set weights used to score your holdings. Must add up to 100.")
+        st.caption("Weights shared across Holdings, Equity Scout, and Market Screener. Must add up to 100.")
+
+        rc1, rc2 = st.columns([1, 5])
+        if rc1.button("↺ Reset to Defaults", key="reset_stock_weights"):
+            st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
+            st.rerun()
+        rc2.caption(
+            f"Defaults: FCF Yield {DEFAULT_WEIGHTS['FCF Yield']} · "
+            f"ROIC {DEFAULT_WEIGHTS['ROIC']} · "
+            f"Debt/FCF {DEFAULT_WEIGHTS['Debt / FCF']} · "
+            f"Gross Margin {DEFAULT_WEIGHTS['Gross Margin']} · "
+            f"Interest Coverage {DEFAULT_WEIGHTS['Interest Coverage']} · "
+            f"P/OE {DEFAULT_WEIGHTS['Price / Owner Earnings']}"
+        )
+
+        sw = st.session_state.scoring_weights
         w_col1, w_col2 = st.columns(2)
         with w_col1:
-            w_fcf  = st.slider("FCF Yield",              0, 60, st.session_state.holding_weights["FCF Yield"],              step=5, key="w_fcf")
-            w_roic = st.slider("ROIC",                   0, 40, st.session_state.holding_weights["ROIC"],                   step=5, key="w_roic")
-            w_debt = st.slider("Debt / FCF",             0, 40, st.session_state.holding_weights["Debt / FCF"],             step=5, key="w_debt")
+            w_fcf  = st.slider("FCF Yield",              0, 60, sw["FCF Yield"],              step=5, key="w_fcf",  help=f"Default: {DEFAULT_WEIGHTS['FCF Yield']}")
+            w_roic = st.slider("ROIC",                   0, 40, sw["ROIC"],                   step=5, key="w_roic", help=f"Default: {DEFAULT_WEIGHTS['ROIC']}")
+            w_debt = st.slider("Debt / FCF",             0, 40, sw["Debt / FCF"],             step=5, key="w_debt", help=f"Default: {DEFAULT_WEIGHTS['Debt / FCF']}")
         with w_col2:
-            w_gm   = st.slider("Gross Margin",           0, 40, st.session_state.holding_weights["Gross Margin"],           step=5, key="w_gm")
-            w_ic   = st.slider("Interest Coverage",      0, 40, st.session_state.holding_weights["Interest Coverage"],      step=5, key="w_ic")
-            w_poe  = st.slider("Price / Owner Earnings", 0, 60, st.session_state.holding_weights["Price / Owner Earnings"], step=5, key="w_poe")
+            w_gm   = st.slider("Gross Margin",           0, 40, sw["Gross Margin"],           step=5, key="w_gm",   help=f"Default: {DEFAULT_WEIGHTS['Gross Margin']}")
+            w_ic   = st.slider("Interest Coverage",      0, 40, sw["Interest Coverage"],      step=5, key="w_ic",   help=f"Default: {DEFAULT_WEIGHTS['Interest Coverage']}")
+            w_poe  = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, key="w_poe",  help=f"Default: {DEFAULT_WEIGHTS['Price / Owner Earnings']}")
         active_weights = {
             "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
             "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
         }
+        st.session_state.scoring_weights = active_weights
         st.session_state.holding_weights = active_weights
         total_weight = sum(active_weights.values())
         if total_weight == 100:  st.success(f"✅ Total: {total_weight} / 100")
