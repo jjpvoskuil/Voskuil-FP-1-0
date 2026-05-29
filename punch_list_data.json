@@ -188,6 +188,15 @@
       "priority": "Medium",
       "done": false,
       "created": "2026-05-29"
+    },
+    {
+      "id": 22,
+      "title": "Change the page sequence and titles",
+      "note": "Change the titles of pages on the toolbar and sequence in a differnt order",
+      "phase": "Aesthetics and UX",
+      "priority": "High",
+      "done": false,
+      "created": "2026-05-29"
     }
   ],
   "phases": [
