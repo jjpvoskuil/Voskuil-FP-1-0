@@ -31,7 +31,7 @@
       "id": 17,
       "title": "Punch list page \u2014 light theme polish",
       "note": "Current light-theme styling is functional but basic. Could improve card layout, spacing, and typography to better match the rest of the app. Low priority \u2014 works fine as-is.",
-      "phase": "Immediate / Near-Term",
+      "phase": "Aesthetics and UX",
       "priority": "Low",
       "done": false,
       "created": "2026-05-29"
