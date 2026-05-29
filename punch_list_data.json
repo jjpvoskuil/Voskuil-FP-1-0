@@ -33,7 +33,7 @@
       "note": "Current light-theme styling is functional but basic. Could improve card layout, spacing, and typography to better match the rest of the app. Low priority \u2014 works fine as-is.",
       "phase": "Aesthetics and UX",
       "priority": "Low",
-      "done": false,
+      "done": true,
       "created": "2026-05-29"
     },
     {
