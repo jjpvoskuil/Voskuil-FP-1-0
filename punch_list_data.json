@@ -160,5 +160,14 @@
     "priority": "High",
     "done": false,
     "created": "2026-05-29"
+  },
+  {
+    "id": 19,
+    "title": "Add a transaction page with BoA transaction information",
+    "note": "Create a new page to show BoA transaction information",
+    "phase": "Data Quality",
+    "priority": "High",
+    "done": false,
+    "created": "2026-05-29"
   }
 ]
