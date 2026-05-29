@@ -178,5 +178,14 @@
     "priority": "High",
     "done": false,
     "created": "2026-05-29"
+  },
+  {
+    "id": 21,
+    "title": "Create a Quicken like page",
+    "note": "Create a page to mimic Quicken so I can categorize transactions; possibly link to quicken app or better, API to BoA so I can autoload transaction data to this quicken page",
+    "phase": "Data Quality",
+    "priority": "Medium",
+    "done": false,
+    "created": "2026-05-29"
   }
 ]
