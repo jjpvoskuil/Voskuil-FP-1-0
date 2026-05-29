@@ -191,17 +191,58 @@ def load_items():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE) as f:
-                return json.load(f)
+                data = f.read()
+            items = json.loads(data)
+            # Seed backup on load
+            st.session_state.punch_list_backup   = data
+            st.session_state.punch_list_saved_at = datetime.today().strftime("%b %d %Y %H:%M")
+            return items
         except Exception:
             pass
     # First run — seed with defaults
     save_items(DEFAULT_ITEMS)
     return DEFAULT_ITEMS
 
-def save_items(items):
+def _github_backup(data: str):
+    """Push punch_list_data.json to GitHub via API. Silent on failure."""
     try:
+        import base64, requests as _req
+        token = st.secrets.get("GITHUB_TOKEN", "")
+        repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
+        if not token:
+            return
+
+        api   = f"https://api.github.com/repos/{repo}/contents/{DATA_FILE}"
+        heads = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+        }
+
+        # Get current SHA (needed to update an existing file)
+        r = _req.get(api, headers=heads, timeout=8)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+
+        payload = {
+            "message": f"Auto-backup punch list {datetime.today().strftime('%Y-%m-%d %H:%M')}",
+            "content": base64.b64encode(data.encode()).decode(),
+        }
+        if sha:
+            payload["sha"] = sha
+
+        _req.put(api, headers=heads, json=payload, timeout=8)
+    except Exception:
+        pass   # Never surface GitHub errors to the user — local save is the primary
+
+
+def save_items(items):
+    """Save locally, update session state backup, and auto-commit to GitHub."""
+    try:
+        data = json.dumps(items, indent=2)
         with open(DATA_FILE, "w") as f:
-            json.dump(items, f, indent=2)
+            f.write(data)
+        st.session_state.punch_list_backup   = data
+        st.session_state.punch_list_saved_at = datetime.today().strftime("%b %d %Y %H:%M")
+        _github_backup(data)
     except Exception as e:
         st.error(f"Could not save: {e}")
 
@@ -236,6 +277,28 @@ st.markdown(f"""
   <div class="stat-item"><div class="stat-num" style="color:#6b7280">{total}</div><div class="stat-lbl">Total</div></div>
 </div>
 """, unsafe_allow_html=True)
+
+# ── Always-visible backup download ────────────────────────────────────────
+# Downloads the current punch list as JSON — save this after every editing
+# session as a backup. Streamlit Cloud's filesystem resets on redeploy.
+backup_data = st.session_state.get("punch_list_backup", json.dumps(items, indent=2))
+saved_at    = st.session_state.get("punch_list_saved_at", "now")
+bcol1, bcol2 = st.columns([1, 6])
+with bcol1:
+    st.download_button(
+        "💾 Backup JSON",
+        data=backup_data,
+        file_name=f"punch_list_data.json",
+        mime="application/json",
+        use_container_width=True,
+        help="Download your punch list as JSON. Re-upload to restore after a Streamlit Cloud redeploy wipes the filesystem.",
+    )
+with bcol2:
+    st.caption(
+        f"✅ **Auto-synced to GitHub** on every change. "
+        f"The 💾 button is a manual backup if you want a local copy too. "
+        f"Last saved: {saved_at}"
+    )
 
 # ─────────────────────────────────────────────
 # FILTERS + ADD FORM
@@ -397,6 +460,23 @@ for phase, phase_items in grouped.items():
 st.divider()
 st.caption(f"Data persisted to `{DATA_FILE}` · {total} items · Last session: {datetime.today().strftime('%B %d, %Y')}")
 
+@st.dialog("⚠️ Reset to Defaults?")
+def confirm_reset_dialog():
+    st.warning(
+        f"This will delete all **{len(st.session_state.punch_items)} items** "
+        f"and restore the original {len(DEFAULT_ITEMS)}-item default list. "
+        f"**This cannot be undone** unless you have a backup."
+    )
+    st.caption("Tip: Download a backup first using the 💾 Backup JSON button above.")
+    c1, c2 = st.columns(2)
+    if c1.button("Yes, reset everything", type="primary", use_container_width=True):
+        save_items(DEFAULT_ITEMS)
+        st.session_state.punch_items = DEFAULT_ITEMS.copy()
+        st.session_state.confirm_reset = False
+        st.rerun()
+    if c2.button("Cancel", use_container_width=True):
+        st.rerun()
+
 col_export, col_reset, _ = st.columns([1, 1, 5])
 with col_export:
     md_lines = ["# Voskuil FP 1.0 — Punch List\n"]
@@ -418,11 +498,4 @@ with col_export:
     )
 with col_reset:
     if st.button("↺ Reset to Defaults", use_container_width=True):
-        if st.session_state.get("confirm_reset"):
-            save_items(DEFAULT_ITEMS)
-            st.session_state.punch_items = DEFAULT_ITEMS
-            st.session_state.confirm_reset = False
-            st.rerun()
-        else:
-            st.session_state.confirm_reset = True
-            st.warning("Click again to confirm reset — all changes will be lost.")
+        confirm_reset_dialog()
