@@ -1,0 +1,155 @@
+[
+  {
+    "id": 1,
+    "title": "Watchlist \u2014 save top screener candidates",
+    "note": "Save tickers from Market Screener for later review. Needs session-state persistence or a lightweight store.",
+    "phase": "Immediate / Near-Term",
+    "priority": "Urgent",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 2,
+    "title": "Button styling refinements in Holdings Explorer",
+    "note": "CSS targeting via st.markdown is fragile. Revisit approach for SEC/Yahoo/Deep Dive buttons.",
+    "phase": "Immediate / Near-Term",
+    "priority": "High",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 3,
+    "title": "Sync scoring weights across all three pages",
+    "note": "app.py, equity_scout.py, market_screener.py each have independent sliders. Same ticker can score differently. Store active weights in session state and read on all pages.",
+    "phase": "Immediate / Near-Term",
+    "priority": "High",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 17,
+    "title": "Punch list page \u2014 light theme polish",
+    "note": "Current light-theme styling is functional but basic. Could improve card layout, spacing, and typography to better match the rest of the app. Low priority \u2014 works fine as-is.",
+    "phase": "Immediate / Near-Term",
+    "priority": "Low",
+    "done": false,
+    "created": "2026-05-29"
+  },
+  {
+    "id": 4,
+    "title": "SEC filing deep-dive links in Equity Scout",
+    "note": "SEC and Yahoo Finance buttons added directly to Equity Scout page after Deep Dive click. Complete.",
+    "phase": "Phase 4 \u2014 Deeper Analysis",
+    "priority": "High",
+    "done": true,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 5,
+    "title": "Strategy-matched discovery scan",
+    "note": "Scan for stocks matching specific criteria: Dividend Aristocrats, commodity ETFs, Long Squeeze survivors.",
+    "phase": "Phase 4 \u2014 Deeper Analysis",
+    "priority": "High",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 6,
+    "title": "Real-time tax monitoring (replace MS Parametric)",
+    "note": "Daily cap gains / tax-loss harvesting scanner to replace what Morgan Stanley Parametric currently does.",
+    "phase": "Phase 5 \u2014 Retirement Modeling",
+    "priority": "Medium",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 7,
+    "title": "Separate maintenance vs growth capex",
+    "note": "Currently using total investing CF as proxy \u2014 conservative but imprecise. Investigate Polygon v1 fields.",
+    "phase": "Data Quality",
+    "priority": "Medium",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 8,
+    "title": "D&A direct from financials (not proxy)",
+    "note": "Wired into fetch_score_data (app.py, market_screener.py) via new Massive v1 depreciation_depletion_and_amortization field. Still using proxy in equity_scout fetch_fundamentals \u2014 carry forward.",
+    "phase": "Data Quality",
+    "priority": "Medium",
+    "done": true,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 9,
+    "title": "Historical score trending for a ticker",
+    "note": "How has conviction score changed over 3-5 years? Requires pulling multiple annual filings from Polygon.",
+    "phase": "Data Quality",
+    "priority": "Medium",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 10,
+    "title": "\u26a0\ufe0f Massive API migration \u2014 DEADLINE June 22 2026",
+    "note": "vX endpoint sunsets June 22. v1 migration is built with vX fallback. Blocker: add Financials & Ratios Expansion ($29/mo) at massive.com dashboard. Once added, v1 activates automatically.",
+    "phase": "API / Infrastructure",
+    "priority": "Urgent",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 11,
+    "title": "Replace yfinance foreign ADR scoring with Morningstar via Rapid API",
+    "note": "ASML, ARGX etc. have no SEC filings. Current yfinance fallback works but unreliable. Morningstar ~$10/mo. Deferred until tool proves out on personal portfolio.",
+    "phase": "API / Infrastructure",
+    "priority": "Medium",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 12,
+    "title": "Replace yfinance ETF dist_yield with Polygon when field improves",
+    "note": "Polygon distribution_yield field sparse for ETFs \u2014 rebalanced out currently. Picks up automatically when Polygon improves coverage.",
+    "phase": "API / Infrastructure",
+    "priority": "Low",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 13,
+    "title": "Activate Plaid live connection to Morgan Stanley",
+    "note": "Full Plaid flow built (connect.py, plaid_data.py). Blocker: MS refusing connection despite third-party sharing enabled. Try: wait 24-48hrs, call MS 1-800-869-3326, toggle from mobile app. Financial planner contacted. Sandbox works: user_good/pass_good, PLAID_ENV=sandbox.",
+    "phase": "Commercial Product Track",
+    "priority": "Medium",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 14,
+    "title": "Watchlist / portfolio tracker persistence across sessions",
+    "note": "Saved tickers and notes persist between Streamlit sessions. Options: SQLite, Supabase, secrets-backed JSON.",
+    "phase": "Commercial Product Track",
+    "priority": "Low",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 15,
+    "title": "Multi-user support infrastructure",
+    "note": "Authentication, per-user portfolios, isolated sessions for commercial product launch.",
+    "phase": "Commercial Product Track",
+    "priority": "Low",
+    "done": false,
+    "created": "2026-05-01"
+  },
+  {
+    "id": 16,
+    "title": "Flat-fee subscription + onboarding flow",
+    "note": "Payment infrastructure and new-user onboarding. Flat fee not AUM%. Target: middle-class investors.",
+    "phase": "Commercial Product Track",
+    "priority": "Low",
+    "done": false,
+    "created": "2026-05-01"
+  }
+]
