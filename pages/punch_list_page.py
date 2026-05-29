@@ -115,7 +115,7 @@ st.markdown("""
 # ─────────────────────────────────────────────
 DATA_FILE = "punch_list_data.json"
 
-PHASES = [
+DEFAULT_PHASES = [
     "Immediate / Near-Term",
     "Phase 4 — Deeper Analysis",
     "Phase 5 — Retirement Modeling",
@@ -192,16 +192,25 @@ def load_items():
         try:
             with open(DATA_FILE) as f:
                 data = f.read()
-            items = json.loads(data)
-            # Seed backup on load
+            parsed = json.loads(data)
+            # Support both old format (list) and new format (dict with items + phases)
+            if isinstance(parsed, list):
+                items  = parsed
+                phases = DEFAULT_PHASES.copy()
+            else:
+                items  = parsed.get("items",  DEFAULT_ITEMS)
+                phases = parsed.get("phases", DEFAULT_PHASES.copy())
+                # Ensure any item's phase exists in the phases list
+                for item in items:
+                    if item["phase"] not in phases:
+                        phases.append(item["phase"])
             st.session_state.punch_list_backup   = data
             st.session_state.punch_list_saved_at = datetime.today().strftime("%b %d %Y %H:%M")
-            return items
+            return items, phases
         except Exception:
             pass
-    # First run — seed with defaults
-    save_items(DEFAULT_ITEMS)
-    return DEFAULT_ITEMS
+    save_items(DEFAULT_ITEMS, DEFAULT_PHASES.copy())
+    return DEFAULT_ITEMS, DEFAULT_PHASES.copy()
 
 def _github_backup(data: str):
     """Push punch_list_data.json to GitHub via API. Silent on failure."""
@@ -211,33 +220,30 @@ def _github_backup(data: str):
         repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
         if not token:
             return
-
         api   = f"https://api.github.com/repos/{repo}/contents/{DATA_FILE}"
         heads = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github+json",
         }
-
-        # Get current SHA (needed to update an existing file)
-        r = _req.get(api, headers=heads, timeout=8)
+        r   = _req.get(api, headers=heads, timeout=8)
         sha = r.json().get("sha") if r.status_code == 200 else None
-
         payload = {
             "message": f"Auto-backup punch list {datetime.today().strftime('%Y-%m-%d %H:%M')}",
             "content": base64.b64encode(data.encode()).decode(),
         }
         if sha:
             payload["sha"] = sha
-
         _req.put(api, headers=heads, json=payload, timeout=8)
     except Exception:
-        pass   # Never surface GitHub errors to the user — local save is the primary
+        pass
 
-
-def save_items(items):
-    """Save locally, update session state backup, and auto-commit to GitHub."""
+def save_items(items, phases=None):
+    """Save items + phases to file, session state backup, and GitHub."""
     try:
-        data = json.dumps(items, indent=2)
+        if phases is None:
+            phases = st.session_state.get("punch_phases", DEFAULT_PHASES.copy())
+        payload = {"items": items, "phases": phases}
+        data    = json.dumps(payload, indent=2)
         with open(DATA_FILE, "w") as f:
             f.write(data)
         st.session_state.punch_list_backup   = data
@@ -250,10 +256,13 @@ def next_id(items):
     return max((i["id"] for i in items), default=0) + 1
 
 # Load
-if "punch_items" not in st.session_state:
-    st.session_state.punch_items = load_items()
+if "punch_items" not in st.session_state or "punch_phases" not in st.session_state:
+    _items, _phases = load_items()
+    st.session_state.punch_items  = _items
+    st.session_state.punch_phases = _phases
 
-items = st.session_state.punch_items
+items  = st.session_state.punch_items
+PHASES = st.session_state.punch_phases   # live list — may grow as user adds phases
 
 # ─────────────────────────────────────────────
 # HEADER
@@ -312,6 +321,36 @@ with f_col3:
     show_done = st.toggle("Show Done", value=False)
 with add_col:
     add_clicked = st.button("➕ Add Item", type="primary", use_container_width=True)
+
+# ── Manage Phases ──────────────────────────────────────────────────────────
+with st.expander("🗂️ Manage Phases", expanded=False):
+    st.caption("Add new phases or remove unused ones. Changes apply immediately to all dropdowns.")
+    pc1, pc2 = st.columns([3, 1])
+    new_phase_name = pc1.text_input("New phase name", placeholder="e.g. Bug Fixes, Version 2.0, On Hold...",
+                                     label_visibility="collapsed", key="new_phase_input")
+    if pc2.button("➕ Add Phase", use_container_width=True):
+        name = new_phase_name.strip()
+        if name and name not in PHASES:
+            PHASES.append(name)
+            st.session_state.punch_phases = PHASES
+            save_items(items, PHASES)
+            st.rerun()
+        elif name in PHASES:
+            st.warning(f'"{name}" already exists.')
+        else:
+            st.warning("Enter a phase name first.")
+
+    st.markdown("**Current phases** — click 🗑 to remove (only if no items use it):")
+    for ph in list(PHASES):
+        ph_col1, ph_col2 = st.columns([5, 1])
+        ph_col1.markdown(f"• {ph}")
+        in_use = any(i["phase"] == ph for i in items)
+        if ph_col2.button("🗑", key=f"del_phase_{ph}", disabled=in_use,
+                           help="In use — reassign items first" if in_use else f"Remove '{ph}'"):
+            PHASES.remove(ph)
+            st.session_state.punch_phases = PHASES
+            save_items(items, PHASES)
+            st.rerun()
 
 # ── Add item form ──────────────────────────────────────────────────────────
 if add_clicked:
@@ -470,8 +509,9 @@ def confirm_reset_dialog():
     st.caption("Tip: Download a backup first using the 💾 Backup JSON button above.")
     c1, c2 = st.columns(2)
     if c1.button("Yes, reset everything", type="primary", use_container_width=True):
-        save_items(DEFAULT_ITEMS)
-        st.session_state.punch_items = DEFAULT_ITEMS.copy()
+        save_items(DEFAULT_ITEMS, DEFAULT_PHASES.copy())
+        st.session_state.punch_items  = DEFAULT_ITEMS.copy()
+        st.session_state.punch_phases = DEFAULT_PHASES.copy()
         st.session_state.confirm_reset = False
         st.rerun()
     if c2.button("Cancel", use_container_width=True):
