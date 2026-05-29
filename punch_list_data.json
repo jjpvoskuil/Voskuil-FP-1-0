@@ -151,5 +151,14 @@
     "priority": "Low",
     "done": false,
     "created": "2026-05-01"
+  },
+  {
+    "id": 18,
+    "title": "Add Band of America information to dashboard",
+    "note": "Add financial summary from BOA to the dashboard",
+    "phase": "Data Quality",
+    "priority": "High",
+    "done": false,
+    "created": "2026-05-29"
   }
 ]
