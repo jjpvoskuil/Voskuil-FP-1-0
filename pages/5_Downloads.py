@@ -4,7 +4,6 @@ import requests
 import json
 import os
 
-st.set_page_config(page_title="Downloads | Voskuil FP", layout="wide")
 
 # ─────────────────────────────────────────────
 # PLAID CONFIG
