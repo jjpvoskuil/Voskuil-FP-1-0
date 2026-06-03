@@ -7,9 +7,10 @@ import time
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
-HOLDINGS_FILE = 'Current MS holdings - 042526.csv'
-TAX_FILE      = 'Realized GL 042626.csv'
-TRANS_FILE    = 'Transaction History 042626.csv'
+HOLDINGS_FILE  = 'ms_holdings.csv'
+TAX_FILE       = 'ms_realized_gl_current.csv'
+TAX_FILE_PRIOR = 'ms_realized_gl_prior.csv'
+TRANS_FILE     = 'ms_transactions_12m.csv'
 APP_URL       = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 POLY_URL      = "https://api.polygon.io"
 
