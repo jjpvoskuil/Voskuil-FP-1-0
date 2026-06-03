@@ -9,3 +9,20 @@ __pycache__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local MS data files
+*.xlsx
+*.xls
+
+# Debug screenshots
+debug_*.png
+
+# Local script files
+launch_chrome.bat
+ms_download.py
+
+# Local docs and notes
+*.txt
+*.html
+*.md
+!README.md
