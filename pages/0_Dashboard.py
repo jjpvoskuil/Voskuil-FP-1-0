@@ -40,55 +40,25 @@ THRESHOLDS = {
 # MS DATA REFRESH
 # ─────────────────────────────────────────────
 
-def trigger_ms_refresh() -> tuple[bool, str]:
-    try:
-        token = st.secrets.get("GITHUB_TOKEN", "")
-        repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
-        if not token:
-            return False, "GITHUB_TOKEN not set in Streamlit secrets."
-        url = f"https://api.github.com/repos/{repo}/actions/workflows/ms_refresh.yml/dispatches"
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept":        "application/vnd.github+json",
-        }
-        r = requests.post(url, headers=headers,
-                          json={"ref": "main", "inputs": {"triggered_by": "streamlit_app"}},
-                          timeout=15)
-        if r.status_code == 204:
-            return True, "✅ Refresh started! Data updates in ~2-3 minutes — reload to see fresh data."
-        elif r.status_code == 422:
-            return False, "❌ Workflow file not found. Make sure ms_refresh.yml is in .github/workflows/."
-        elif r.status_code == 401:
-            return False, "❌ GitHub token invalid or expired."
-        else:
-            return False, f"❌ GitHub API error {r.status_code}"
-    except Exception as e:
-        return False, f"❌ Error: {str(e)}"
-
-def get_workflow_status() -> str:
+def get_ms_data_freshness() -> str:
+    """Check when ms_holdings.csv was last updated in GitHub repo."""
     try:
         token = st.secrets.get("GITHUB_TOKEN", "")
         repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
         if not token:
             return "unknown"
-        url = f"https://api.github.com/repos/{repo}/actions/workflows/ms_refresh.yml/runs?per_page=1"
+        url = f"https://api.github.com/repos/{repo}/commits?path=ms_holdings.csv&per_page=1"
         headers = {
             "Authorization": f"token {token}",
             "Accept":        "application/vnd.github+json",
         }
         r = requests.get(url, headers=headers, timeout=10)
         if r.status_code == 200:
-            runs = r.json().get("workflow_runs", [])
-            if runs:
-                run        = runs[0]
-                status     = run.get("status", "unknown")
-                conclusion = run.get("conclusion", "")
-                updated    = run.get("updated_at", "")[:10]
-                if status == "completed":
-                    return f"Last run: {conclusion} ({updated})"
-                else:
-                    return f"Status: {status}..."
-        return "unknown"
+            commits = r.json()
+            if commits:
+                date_str = commits[0]["commit"]["committer"]["date"][:10]
+                return date_str
+        return "never"
     except Exception:
         return "unknown"
 
@@ -96,18 +66,19 @@ def get_workflow_status() -> str:
 # SIDEBAR
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 🔄 MS Data Refresh")
-    st.caption("Pull fresh data from Morgan Stanley")
-    workflow_status = get_workflow_status()
-    if workflow_status != "unknown":
-        st.caption(f"📊 {workflow_status}")
-    if st.button("🔄 Refresh MS Data", type="primary", use_container_width=True):
-        with st.spinner("Triggering refresh..."):
-            ok, msg = trigger_ms_refresh()
-        if ok:
-            st.success(msg)
-        else:
-            st.error(msg)
+    st.markdown("### 📂 MS Data")
+    last_updated = get_ms_data_freshness()
+    if last_updated not in ("unknown", "never"):
+        st.caption(f"📅 Last updated: **{last_updated}**")
+    elif last_updated == "never":
+        st.caption("📅 No data uploaded yet")
+    else:
+        st.caption("📅 Last updated: unknown")
+    st.info(
+        "To refresh MS data, run **ms_download.py** on your local machine. "
+        "It will download your holdings, transactions, and G/L files and push them to GitHub automatically.",
+        icon="💡"
+    )
     st.divider()
     
 # ─────────────────────────────────────────────
