@@ -5,9 +5,9 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
 
-st.set_page_config(page_title="Retirement Modeler | Voskuil FP", layout="wide")
+st.set_page_config(page_title="Financial Modeler | Voskuil FP", layout="wide")
 
-st.title("🏔️ Final Expedition — Retirement Modeler")
+st.title("🏔️ Financial Modeler")
 st.caption("Purpose-built for a two-person household, concentrated value portfolio, Long Squeeze macro overlay.")
 st.markdown("> *\"The goal is not to maximize returns. The goal is to never be a forced seller.\"*")
 st.divider()
