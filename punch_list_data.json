@@ -197,6 +197,15 @@
       "priority": "High",
       "done": true,
       "created": "2026-05-29"
+    },
+    {
+      "id": 23,
+      "title": "Macro for MS file tansfers",
+      "note": "Automate the extraction of MSO files so I don't have to manually download and update",
+      "phase": "Immediate / Near-Term",
+      "priority": "Urgent",
+      "done": false,
+      "created": "2026-06-03"
     }
   ],
   "phases": [
