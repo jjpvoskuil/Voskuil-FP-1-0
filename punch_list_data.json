@@ -242,6 +242,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-06-03"
+    },
+    {
+      "id": 28,
+      "title": "Research Yodlee/Finicity for MS API connectivity",
+      "note": "Plaid does not support Morgan Stanley. Evaluate Yodlee and Finicity as alternatives to eliminate MFA requirement and enable cloud-based automated refresh. Long-term fix for the Refresh Data button.",
+      "phase": "API / Infrastructure",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-06-03"
     }
   ],
   "phases": [
