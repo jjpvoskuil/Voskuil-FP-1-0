@@ -36,7 +36,80 @@ THRESHOLDS = {
     "poe_fair":                 25.0,
     "poe_stretched":            35.0,
 }
+# ─────────────────────────────────────────────
+# MS DATA REFRESH
+# ─────────────────────────────────────────────
 
+def trigger_ms_refresh() -> tuple[bool, str]:
+    try:
+        token = st.secrets.get("GITHUB_TOKEN", "")
+        repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
+        if not token:
+            return False, "GITHUB_TOKEN not set in Streamlit secrets."
+        url = f"https://api.github.com/repos/{repo}/actions/workflows/ms_refresh.yml/dispatches"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept":        "application/vnd.github+json",
+        }
+        r = requests.post(url, headers=headers,
+                          json={"ref": "main", "inputs": {"triggered_by": "streamlit_app"}},
+                          timeout=15)
+        if r.status_code == 204:
+            return True, "✅ Refresh started! Data updates in ~2-3 minutes — reload to see fresh data."
+        elif r.status_code == 422:
+            return False, "❌ Workflow file not found. Make sure ms_refresh.yml is in .github/workflows/."
+        elif r.status_code == 401:
+            return False, "❌ GitHub token invalid or expired."
+        else:
+            return False, f"❌ GitHub API error {r.status_code}"
+    except Exception as e:
+        return False, f"❌ Error: {str(e)}"
+
+def get_workflow_status() -> str:
+    try:
+        token = st.secrets.get("GITHUB_TOKEN", "")
+        repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
+        if not token:
+            return "unknown"
+        url = f"https://api.github.com/repos/{repo}/actions/workflows/ms_refresh.yml/runs?per_page=1"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept":        "application/vnd.github+json",
+        }
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            runs = r.json().get("workflow_runs", [])
+            if runs:
+                run        = runs[0]
+                status     = run.get("status", "unknown")
+                conclusion = run.get("conclusion", "")
+                updated    = run.get("updated_at", "")[:10]
+                if status == "completed":
+                    return f"Last run: {conclusion} ({updated})"
+                else:
+                    return f"Status: {status}..."
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+# ─────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### 🔄 MS Data Refresh")
+    st.caption("Pull fresh data from Morgan Stanley")
+    workflow_status = get_workflow_status()
+    if workflow_status != "unknown":
+        st.caption(f"📊 {workflow_status}")
+    if st.button("🔄 Refresh MS Data", type="primary", use_container_width=True):
+        with st.spinner("Triggering refresh..."):
+            ok, msg = trigger_ms_refresh()
+        if ok:
+            st.success(msg)
+        else:
+            st.error(msg)
+    st.divider()
+    
 # ─────────────────────────────────────────────
 # POLYGON FETCHER
 # ─────────────────────────────────────────────
