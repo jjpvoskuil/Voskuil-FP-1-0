@@ -1,11 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(
-    page_title="MS Financial Modeler | Voskuil FP",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
 
 # Hide Streamlit chrome to give the iframe maximum space
 st.markdown("""
