@@ -3,7 +3,6 @@ import json
 import os
 from datetime import datetime
 
-st.set_page_config(page_title="Punch List | Voskuil FP", layout="wide")
 
 # ─────────────────────────────────────────────
 # STYLING
