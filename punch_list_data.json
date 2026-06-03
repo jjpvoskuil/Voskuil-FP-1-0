@@ -210,8 +210,8 @@
     {
       "id": 24,
       "title": "Rename and order the app pages",
-      "note": "Change the page names on the left toolbar and resequence.",
-      "phase": "Immediate / Near-Term",
+      "note": "Change the page names on the left toolbar and resequence.  Names and sequence:  app = Dashboard, equity scout = Equity Scout, market screener = Market Screener, financial plan = MS Financial Modeler, retirement modeler = Financial Modeler, connect = Downloads, punch list page = Punch List",
+      "phase": "Aesthetics and UX",
       "priority": "Urgent",
       "done": false,
       "created": "2026-06-03"
