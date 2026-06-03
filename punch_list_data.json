@@ -215,6 +215,15 @@
       "priority": "Urgent",
       "done": true,
       "created": "2026-06-03"
+    },
+    {
+      "id": 25,
+      "title": "Yodlee/Finicity MS API research",
+      "note": "Need to figure out a solution to API directly to Morgn Stanley down load files",
+      "phase": "API / Infrastructure",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-06-03"
     }
   ],
   "phases": [
