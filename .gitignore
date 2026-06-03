@@ -23,6 +23,7 @@ ms_download.py
 
 # Local docs and notes
 *.txt
+!requirements.txt
 *.html
 *.md
 !README.md
