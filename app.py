@@ -4,7 +4,7 @@ import plotly.express as px
 import requests
 import time
 
-st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
+st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
 HOLDINGS_FILE  = 'ms_holdings.csv'
