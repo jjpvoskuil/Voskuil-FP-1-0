@@ -224,6 +224,15 @@
       "priority": "Medium",
       "done": false,
       "created": "2026-06-03"
+    },
+    {
+      "id": 26,
+      "title": "\"Refresh Data\" button",
+      "note": "Semi-auto API work around for lack of direct API connection for Morgan Stanly download files",
+      "phase": "Aesthetics and UX",
+      "priority": "Urgent",
+      "done": false,
+      "created": "2026-06-03"
     }
   ],
   "phases": [
