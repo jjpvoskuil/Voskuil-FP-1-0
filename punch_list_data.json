@@ -233,6 +233,15 @@
       "priority": "Urgent",
       "done": false,
       "created": "2026-06-03"
+    },
+    {
+      "id": 27,
+      "title": "Merge ms_download.py and push_files.py into single script",
+      "note": "Currently requires two separate script runs to download and push MS data. Merge into one seamless workflow \u2014 download xlsx, convert, push to GitHub in one command.",
+      "phase": "API / Infrastructure",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-03"
     }
   ],
   "phases": [
