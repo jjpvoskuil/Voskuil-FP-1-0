@@ -324,9 +324,35 @@ if df_tax is not None:
 df_trans = get_clean_df(TRANS_FILE, "Activity Date")
 if df_trans is not None:
     df_trans.columns = [c.strip() for c in df_trans.columns]
-    df_trans['Amount($)'] = pd.to_numeric(df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''), errors='coerce')
-    ytd_dividends = df_trans[df_trans['Activity'].str.contains('Dividend', na=False, case=False)]['Amount($)'].sum()
-    ytd_interest  = df_trans[df_trans['Activity'].str.contains('Interest',  na=False, case=False)]['Amount($)'].sum()
+    df_trans['Amount($)'] = pd.to_numeric(
+        df_trans['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''),
+        errors='coerce'
+    )
+    df_trans['Activity Date'] = pd.to_datetime(df_trans['Activity Date'], errors='coerce')
+
+    # ── Two views from the single rolling-12m file ──────────────────────
+    today     = pd.Timestamp.today()
+    ytd_mask  = df_trans['Activity Date'].dt.year == today.year
+    r12m_mask = df_trans['Activity Date'] >= (today - pd.DateOffset(days=365))
+
+    df_trans_ytd  = df_trans[ytd_mask]
+    df_trans_12m  = df_trans[r12m_mask]
+
+    # YTD figures (used in Power Bar)
+    ytd_dividends = df_trans_ytd[
+        df_trans_ytd['Activity'].str.contains('Dividend', na=False, case=False)
+    ]['Amount($)'].sum()
+    ytd_interest  = df_trans_ytd[
+        df_trans_ytd['Activity'].str.contains('Interest', na=False, case=False)
+    ]['Amount($)'].sum()
+
+    # Rolling 12m figures (available for dashboard metrics)
+    r12m_dividends = df_trans_12m[
+        df_trans_12m['Activity'].str.contains('Dividend', na=False, case=False)
+    ]['Amount($)'].sum()
+    r12m_interest  = df_trans_12m[
+        df_trans_12m['Activity'].str.contains('Interest', na=False, case=False)
+    ]['Amount($)'].sum()
 
 # ─────────────────────────────────────────────
 # POWER BAR
