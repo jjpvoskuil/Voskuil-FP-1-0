@@ -4,7 +4,6 @@ import pandas as pd
 from io import StringIO
 import time
 
-st.set_page_config(page_title="Market Screener | Voskuil FP", layout="wide")
 
 APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 POLY_URL = "https://api.polygon.io"
