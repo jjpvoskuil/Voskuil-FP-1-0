@@ -5,7 +5,6 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import pandas as pd
 
-st.set_page_config(page_title="Financial Modeler | Voskuil FP", layout="wide")
 
 st.title("🏔️ Financial Modeler")
 st.caption("Purpose-built for a two-person household, concentrated value portfolio, Long Squeeze macro overlay.")
