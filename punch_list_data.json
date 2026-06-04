@@ -350,6 +350,15 @@
       "priority": "Medium",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 40,
+      "title": "Add historical ROIC trending \u2014 multi-year view",
+      "note": "Current scoring uses single period ROIC. Add multi-year ROIC chart (5-10 years) to Equity Scout deep dive. Shows consistency and trajectory of capital returns \u2014 key to identifying durable competitive advantage vs cyclical spike.",
+      "phase": "Equity Scoring",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
