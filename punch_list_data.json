@@ -4,8 +4,8 @@
       "id": 1,
       "title": "Watchlist \u2014 save top screener candidates",
       "note": "Save tickers from Market Screener for later review. Needs session-state persistence or a lightweight store.",
-      "phase": "Immediate / Near-Term",
-      "priority": "Urgent",
+      "phase": "Aesthetics and UX",
+      "priority": "Medium",
       "done": false,
       "created": "2026-05-01"
     },
