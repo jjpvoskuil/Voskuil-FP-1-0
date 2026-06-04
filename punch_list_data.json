@@ -11,9 +11,9 @@
     },
     {
       "id": 2,
-      "title": "Button styling refinements in Holdings Explorer",
-      "note": "CSS targeting via st.markdown is fragile. Revisit approach for SEC/Yahoo/Deep Dive buttons.",
-      "phase": "Immediate / Near-Term",
+      "title": "Modify Holding grid with better information and links",
+      "note": "SEC and Yahoo to Equity scout, 1 button for deep dive to equity scout page, add a sell/hold/buy colum, remove accounts column",
+      "phase": "Aesthetics and UX",
       "priority": "High",
       "done": false,
       "created": "2026-05-01"
