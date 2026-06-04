@@ -296,6 +296,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 34,
+      "title": "Overhaul ROIC \u2014 historical 10-year cash accounting basis",
+      "note": "Current ROIC uses single-period accrual accounting. Replace with 10-year historical trend, cash accounting view (owners earnings equivalent). Any company returning >12% after-tax ROIC for 10+ years almost certainly has a durable competitive advantage. Heavily increase default weight.",
+      "phase": "Equity Scoring",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
