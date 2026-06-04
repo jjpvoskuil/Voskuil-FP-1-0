@@ -314,6 +314,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 36,
+      "title": "Add financial firm detection \u2014 flag for alternative scoring",
+      "note": "Banks, insurers, asset managers, mortgage lenders, broker-dealers use fundamentally different accounting. Standard FCF/debt/margin metrics are meaningless or misleading for these firms (JPM scores 20, RKT scores 0). Detect financial firms and flag with warning that standard scoring does not apply. Build alternative model later.",
+      "phase": "Equity Scoring",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
