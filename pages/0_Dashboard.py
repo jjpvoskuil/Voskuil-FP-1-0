@@ -10,7 +10,8 @@ st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 HOLDINGS_FILE  = 'ms_holdings.csv'
 TAX_FILE       = 'ms_realized_gl_current.csv'
 TAX_FILE_PRIOR = 'ms_realized_gl_prior.csv'
-TRANS_FILE     = 'ms_transactions_12m.csv'
+TRANS_FILE_YTD   = 'ms_transactions_ytd.csv'
+TRANS_FILE_PRIOR = 'ms_transactions_prior.csv'
 APP_URL       = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 POLY_URL      = "https://api.polygon.io"
 
