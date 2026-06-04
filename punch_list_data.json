@@ -278,6 +278,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 32,
+      "title": "Restructure Debt/FCF \u2014 use outstanding principal and cash available for debt service",
+      "note": "Replace carrying value of debt with outstanding principal. Replace standard FCF with cash available for debt service. Note: leverage on negative working capital float (insurance model) can be sound practice \u2014 avoid penalizing structural float users. Do not use as binary positive/negative scoring.",
+      "phase": "Equity Scoring",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
