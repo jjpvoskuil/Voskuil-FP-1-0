@@ -382,40 +382,80 @@ if df_trans is not None:
         errors='coerce'
     )
     df_trans['Activity Date'] = pd.to_datetime(df_trans['Activity Date'], errors='coerce')
-
-    # ── Two views from the single rolling-12m file ──────────────────────
-    today     = pd.Timestamp.today()
-    ytd_mask  = df_trans['Activity Date'].dt.year == today.year
-    r12m_mask = df_trans['Activity Date'] >= (today - pd.DateOffset(days=365))
-
-    df_trans_ytd  = df_trans[ytd_mask]
-    df_trans_12m  = df_trans[r12m_mask]
-
-    # YTD figures (used in Power Bar)
+    today    = pd.Timestamp.today()
+    ytd_mask = df_trans['Activity Date'].dt.year == today.year
+    df_trans_ytd = df_trans[ytd_mask]
     ytd_dividends = df_trans_ytd[
         df_trans_ytd['Activity'].str.contains('Dividend', na=False, case=False)
     ]['Amount($)'].sum()
-    ytd_interest  = df_trans_ytd[
+    ytd_interest = df_trans_ytd[
         df_trans_ytd['Activity'].str.contains('Interest', na=False, case=False)
     ]['Amount($)'].sum()
+else:
+    ytd_dividends = 0
+    ytd_interest  = 0
 
-    # Rolling 12m figures (available for dashboard metrics)
-    r12m_dividends = df_trans_12m[
-        df_trans_12m['Activity'].str.contains('Dividend', na=False, case=False)
+# ── Prior Year Transactions ──────────────────────────────────────────
+df_trans_prior = get_clean_df(TRANS_FILE_PRIOR, "Activity Date")
+if df_trans_prior is not None:
+    df_trans_prior.columns = [c.strip() for c in df_trans_prior.columns]
+    df_trans_prior['Amount($)'] = pd.to_numeric(
+        df_trans_prior['Amount($)'].astype(str).str.replace(',', '').str.replace('"', ''),
+        errors='coerce'
+    )
+    df_trans_prior['Activity Date'] = pd.to_datetime(df_trans_prior['Activity Date'], errors='coerce')
+    py_dividends = df_trans_prior[
+        df_trans_prior['Activity'].str.contains('Dividend', na=False, case=False)
     ]['Amount($)'].sum()
-    r12m_interest  = df_trans_12m[
-        df_trans_12m['Activity'].str.contains('Interest', na=False, case=False)
+    py_interest = df_trans_prior[
+        df_trans_prior['Activity'].str.contains('Interest', na=False, case=False)
     ]['Amount($)'].sum()
+else:
+    py_dividends = 0
+    py_interest  = 0
+
+# ── Prior Year G/L ───────────────────────────────────────────────────
+df_tax_prior = get_clean_df(TAX_FILE_PRIOR, "Open Date")
+py_ira_gain_total     = 0
+py_taxable_gain_total = 0
+if df_tax_prior is not None:
+    df_tax_prior.columns = [c.strip() for c in df_tax_prior.columns]
+    gain_col = next((c for c in df_tax_prior.columns if 'gain' in c.lower() or 'loss' in c.lower()), None)
+    if gain_col:
+        df_tax_prior['Numeric Gain'] = pd.to_numeric(
+            df_tax_prior[gain_col].astype(str).str.replace(',', '').str.replace('"', '').str.replace('$', ''),
+            errors='coerce'
+        )
+        ira_mask_prior         = df_tax_prior.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
+        py_ira_gain_total      = df_tax_prior[ira_mask_prior]['Numeric Gain'].sum()
+        py_taxable_gain_total  = df_tax_prior[~ira_mask_prior]['Numeric Gain'].sum()
 
 # ─────────────────────────────────────────────
 # POWER BAR
 # ─────────────────────────────────────────────
 col1, col2, col3, col4, col5 = st.columns(5)
-with col1: st.metric("Total Market Value", f"${total_val:,.2f}")
-with col2: st.metric("Taxable G/L (YTD)",  f"${taxable_gain_total:,.2f}", help="Gains from non-IRA accounts.")
-with col3: st.metric("IRA G/L (YTD)",      f"${ira_gain_total:,.2f}",     help="Tax-deferred growth in IRA buckets.")
-with col4: st.metric("YTD Dividends",      f"${ytd_dividends:,.2f}")
-with col5: st.metric("YTD Interest",       f"${ytd_interest:,.2f}")
+with col1:
+    st.metric("Total Market Value", f"${total_val:,.2f}")
+with col2:
+    py_tax = py_taxable_gain_total if py_taxable_gain_total != 0 else None
+    delta_tax = taxable_gain_total - py_taxable_gain_total if py_tax else None
+    st.metric("Taxable G/L (YTD)", f"${taxable_gain_total:,.2f}",
+              delta=f"${delta_tax:,.0f} vs PY" if delta_tax is not None else None,
+              help="Gains from non-IRA accounts. Delta vs prior year.")
+with col3:
+    py_ira = py_ira_gain_total if py_ira_gain_total != 0 else None
+    delta_ira = ira_gain_total - py_ira_gain_total if py_ira else None
+    st.metric("IRA G/L (YTD)", f"${ira_gain_total:,.2f}",
+              delta=f"${delta_ira:,.0f} vs PY" if delta_ira is not None else None,
+              help="Tax-deferred growth in IRA buckets. Delta vs prior year.")
+with col4:
+    delta_div = ytd_dividends - py_dividends if py_dividends != 0 else None
+    st.metric("YTD Dividends", f"${ytd_dividends:,.2f}",
+              delta=f"${delta_div:,.0f} vs PY" if delta_div is not None else None)
+with col5:
+    delta_int = ytd_interest - py_interest if py_interest != 0 else None
+    st.metric("YTD Interest", f"${ytd_interest:,.2f}",
+              delta=f"${delta_int:,.0f} vs PY" if delta_int is not None else None)
 st.divider()
 
 # ─────────────────────────────────────────────
