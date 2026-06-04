@@ -368,6 +368,15 @@
       "priority": "Medium",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 42,
+      "title": "Fund deep dive \u2014 separate format for ETFs and mutual funds",
+      "note": "Holdings Explorer deep dive currently stock-focused. Add fund-specific deep dive showing: top holdings, historical performance, expense ratio, fund manager, fund summary. Different format than stock deep dive.",
+      "phase": "Fund Deep Dive",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
