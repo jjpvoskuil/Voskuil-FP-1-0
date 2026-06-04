@@ -202,7 +202,7 @@
       "id": 23,
       "title": "Macro for MS file tansfers",
       "note": "Automate the extraction of MSO files so I don't have to manually download and update",
-      "phase": "Immediate / Near-Term",
+      "phase": "API / Infrastructure",
       "priority": "Urgent",
       "done": true,
       "created": "2026-06-03"
