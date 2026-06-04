@@ -287,6 +287,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 33,
+      "title": "Demote FCF Yield and Price/Owner Earnings to secondary screens",
+      "note": "Both are valuation metrics \u2014 having both in composite double-weights relative value. Great businesses (V, MA) will always look expensive. Per Munger: better to buy great business at fair price than fair business at great price. Move both to secondary screen: quality first, then check if price is reasonable",
+      "phase": "Equity Scoring",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
