@@ -404,6 +404,15 @@
       "priority": "Medium",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 46,
+      "title": "Need to download roll 12 month files from MS",
+      "note": "We need to get rolling 12 month and YTD transactions and PY Capital GL",
+      "phase": "API / Infrastructure",
+      "priority": "Urgent",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
