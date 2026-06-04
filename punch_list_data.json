@@ -58,7 +58,7 @@
       "id": 6,
       "title": "Real-time tax monitoring (replace MS Parametric)",
       "note": "Daily cap gains / tax-loss harvesting scanner to replace what Morgan Stanley Parametric currently does.",
-      "phase": "Phase 5 \u2014 Retirement Modeling",
+      "phase": "Modeling",
       "priority": "Medium",
       "done": false,
       "created": "2026-05-01"
