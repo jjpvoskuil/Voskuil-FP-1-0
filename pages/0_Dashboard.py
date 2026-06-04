@@ -76,7 +76,7 @@ with st.sidebar:
         st.caption("📅 No data uploaded yet")
     else:
         st.caption("📅 Last updated: unknown")
-st.info(
+    st.info(
         "**To refresh MS data:**\n\n"
         "1. Log into MS Online\n"
         "2. Download these 5 files:\n"
