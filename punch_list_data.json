@@ -332,6 +332,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 38,
+      "title": "Add scoring transparency \u2014 show raw data driving each metric",
+      "note": "Users cannot see what underlying financial data is being pulled or how each metric is calculated. Add expandable detail panel showing raw inputs (revenue, FCF, debt figures etc.) and how they map to each score component. Critical for trust and debugging.",
+      "phase": "Equity Scoring",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
