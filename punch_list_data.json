@@ -323,6 +323,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-06-04"
+    },
+    {
+      "id": 37,
+      "title": "Add cyclical firm detection \u2014 flag for full-cycle analysis caveat",
+      "note": "Current model uses latest year data \u2014 makes it a momentum scout for cyclicals. Deere, Warrior Met Coal, CF Industries, ADM all score based on where they are in the cycle not intrinsic value. Detect cyclicals and flag that single-period scoring is unreliable. Full-cycle ROIC analysis needed.",
+      "phase": "Equity Scoring",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
