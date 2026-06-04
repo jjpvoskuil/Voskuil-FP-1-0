@@ -366,7 +366,7 @@ if df_tax is not None:
     ira_gain_total = df_tax_clean[ira_mask]['Numeric Gain'].sum()
     taxable_gain_total = df_tax_clean[~ira_mask]['Numeric Gain'].sum()
 
-df_trans = get_clean_df(TRANS_FILE, "Activity Date")
+df_trans = get_clean_df(TRANS_FILE_YTD, "Activity Date")
 if df_trans is not None:
     df_trans.columns = [c.strip() for c in df_trans.columns]
     df_trans['Amount($)'] = pd.to_numeric(
