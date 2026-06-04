@@ -260,6 +260,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-06-03"
+    },
+    {
+      "id": 30,
+      "title": "Fix scoring weights bug \u2014 weight changes not affecting scores",
+      "note": "Changing weight sliders on Equity Scout and Market Screener has no effect on output scores. Affects both pages. Core functionality broken \u2014 fix before any scoring model changes. Likely a session state or recalculation issue.",
+      "phase": "Equity Scoring",
+      "priority": "Urgent",
+      "done": false,
+      "created": "2026-06-04"
     }
   ],
   "phases": [
