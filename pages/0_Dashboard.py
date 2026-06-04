@@ -77,8 +77,17 @@ with st.sidebar:
     else:
         st.caption("📅 Last updated: unknown")
     st.info(
-        "To refresh MS data, run **ms_download.py** on your local machine. "
-        "It will download your holdings, transactions, and G/L files and push them to GitHub automatically.",
+        "**To refresh MS data:**\n\n"
+        "1. Log into MS Online\n"
+        "2. Download all 5 files:\n"
+        "   - Holdings (Current)\n"
+        "   - Activity (Current Year)\n"
+        "   - Activity (Prior Year)\n"
+        "   - Realized G/L (Current Year)\n"
+        "   - Realized G/L (Prior Year)\n"
+        "3. Run **rename_files.py**\n"
+        "4. Run **push_files.py**\n"
+        "5. Reload this page",
         icon="💡"
     )
     st.divider()
