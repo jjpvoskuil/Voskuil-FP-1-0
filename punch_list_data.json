@@ -204,7 +204,7 @@
       "note": "Automate the extraction of MSO files so I don't have to manually download and update",
       "phase": "Immediate / Near-Term",
       "priority": "Urgent",
-      "done": false,
+      "done": true,
       "created": "2026-06-03"
     },
     {
