@@ -391,7 +391,7 @@
       "id": 44,
       "title": "Retirement modeler \u2014 add cash/treasuries/equities allocator",
       "note": "Add allocation slider or input for cash, treasuries, and equities split. Feed into Monte Carlo simulation assumptions \u2014 different return/volatility profiles per asset class.",
-      "phase": "Phase 5 \u2014 Retirement Modeling",
+      "phase": "Modeling",
       "priority": "Medium",
       "done": false,
       "created": "2026-06-04"
