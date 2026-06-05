@@ -42,7 +42,7 @@
       "note": "SEC and Yahoo Finance buttons added directly to Equity Scout page after Deep Dive click. Complete.",
       "phase": "Aesthetics and UX",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-05-01"
     },
     {
