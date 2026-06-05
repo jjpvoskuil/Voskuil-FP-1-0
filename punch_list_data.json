@@ -411,7 +411,7 @@
       "note": "We need to get rolling 12 month and YTD transactions and PY Capital GL",
       "phase": "API / Infrastructure",
       "priority": "Urgent",
-      "done": false,
+      "done": true,
       "created": "2026-06-04"
     }
   ],
