@@ -420,6 +420,7 @@ py_ira_gain_total     = 0
 py_taxable_gain_total = 0
 if df_tax_prior is not None:
     df_tax_prior.columns = [c.strip() for c in df_tax_prior.columns]
+    df_tax_prior = df_tax_prior[~df_tax_prior.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
     gain_col = next((c for c in df_tax_prior.columns if 'Realized Gain' in c), None)
     if gain_col:
         df_tax_prior['Numeric Gain'] = pd.to_numeric(
