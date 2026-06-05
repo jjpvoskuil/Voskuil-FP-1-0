@@ -806,12 +806,6 @@ if df_holdings_raw is not None:
             else:
                 st.caption("—")
         with c7:
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                st.link_button("SEC", row['SEC Link'], use_container_width=True)
-            with btn_col2:
-                st.link_button("Yahoo", row['Yahoo Link'], use_container_width=True)
-        with c8:
             st.link_button("🔍 Deep Dive", row['Dive Link'], use_container_width=True, type="primary")
 
     st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database)")
