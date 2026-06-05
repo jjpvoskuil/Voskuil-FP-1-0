@@ -231,7 +231,7 @@
       "note": "Semi-auto API work around for lack of direct API connection for Morgan Stanly download files",
       "phase": "Aesthetics and UX",
       "priority": "Urgent",
-      "done": false,
+      "done": true,
       "created": "2026-06-03"
     },
     {
