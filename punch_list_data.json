@@ -240,7 +240,7 @@
       "note": "Currently requires two separate script runs to download and push MS data. Merge into one seamless workflow \u2014 download xlsx, convert, push to GitHub in one command.",
       "phase": "API / Infrastructure",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-03"
     },
     {
