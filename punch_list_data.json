@@ -258,7 +258,7 @@
       "note": "Script clicks Download successfully but cannot detect files in Downloads folder. Files land with proper names (Holdings Ungrouped.xlsx, Activity.xlsx, Realized GL.xlsx) but snapshot detection fails. Fix detection logic so script handles full workflow end to end.",
       "phase": "API / Infrastructure",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-03"
     },
     {
