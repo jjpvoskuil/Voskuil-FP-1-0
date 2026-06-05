@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
+st.set_page_config(page_title="MS Financial Modeler", layout="wide")
 
 # Hide Streamlit chrome to give the iframe maximum space
 st.markdown("""
@@ -17,7 +18,7 @@ MGP_URL = "https://ms.moneyguidepro.com/morganstanley-darst/Guests.aspx"
 col1, col2, col3 = st.columns([1, 6, 1])
 with col1:
     if st.button("← Dashboard", type="secondary"):
-    st.switch_page("pages/0_Dashboard.py")
+        st.switch_page("pages/0_Dashboard.py")
 with col2:
     st.markdown(
         "<div style='text-align:center; padding:6px 0; font-size:0.9em; color:#888;'>"
@@ -29,7 +30,6 @@ with col3:
     st.link_button("↗ Open full page", MGP_URL)
 
 # Full-height iframe — fills the remaining viewport
-# Use viewport height minus ~50px for the nav bar above
 components.html(
     f"""
     <iframe
@@ -47,4 +47,3 @@ components.html(
     height=900,
     scrolling=False,
 )
-
