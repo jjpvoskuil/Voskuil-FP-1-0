@@ -445,9 +445,8 @@ def power_metric(col, label, current, prior, help=None, is_delta_good=True):
         else:
             st.metric(label, f"${current:,.2f}")
         if prior != 0:
-            st.caption(f"PY: ${prior:,.2f}")
-            st.markdown(f"<span style='color:{color};font-size:1em'>{arrow} ${abs(delta):,.0f} vs PY</span>",
-                       unsafe_allow_html=True)
+            st.markdown(f"<p style='font-size:1.5rem;margin:0;padding:0'>PY: ${prior:,.2f}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='font-size:1.5rem;margin:0;padding:0;color:{color}'>{arrow} ${abs(delta):,.0f} vs PY</p>", unsafe_allow_html=True)
 
 with col1:
     st.metric("Total Market Value", f"${total_val:,.2f}")
