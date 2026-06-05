@@ -415,7 +415,15 @@ else:
     py_interest  = 0
 
 # ── Prior Year G/L ───────────────────────────────────────────────────
-df_tax_prior = get_clean_df(TAX_FILE_PRIOR, "Open Date")
+df_tax_prior = None
+try:
+    import os
+    prior_path = TAX_FILE_PRIOR
+    if os.path.exists(prior_path):
+        df_tax_prior = pd.read_csv(prior_path, skiprows=6)
+        df_tax_prior.columns = [c.strip() for c in df_tax_prior.columns]
+except Exception:
+    df_tax_prior = None
 py_ira_gain_total     = 0
 py_taxable_gain_total = 0
 if df_tax_prior is not None:
