@@ -439,15 +439,19 @@ def power_metric(col, label, current, prior, help=None, is_delta_good=True):
     delta = current - prior if prior != 0 else None
     arrow = "▲" if delta and delta > 0 else "▼" if delta and delta < 0 else ""
     color = "green" if (delta and delta > 0 and is_delta_good) or (delta and delta < 0 and not is_delta_good) else "red" if delta else "gray"
+    py_label = label.replace("YTD", "PY").replace("(YTD)", "(PY)")
     with col:
         if help:
             st.metric(label, f"${current:,.2f}", help=help)
         else:
             st.metric(label, f"${current:,.2f}")
         if prior != 0:
-            st.markdown(f"<p style='font-size:1.5rem;margin:0;padding:0'>PY: ${prior:,.2f}</p>", unsafe_allow_html=True)
-            st.markdown(f"<p style='font-size:1.5rem;margin:0;padding:0;color:{color}'>{arrow} ${abs(delta):,.0f} vs PY</p>", unsafe_allow_html=True)
-
+            st.markdown(
+                f"<p style='font-size:0.875rem;color:rgb(120,120,120);margin:0.5rem 0 0 0'>{py_label}</p>"
+                f"<p style='font-size:2rem;font-weight:600;margin:0;padding:0'>${prior:,.2f}</p>"
+                f"<p style='font-size:1rem;margin:0;padding:0;color:{color}'>{arrow} ${abs(delta):,.0f} vs PY</p>",
+                unsafe_allow_html=True
+            )
 with col1:
     st.metric("Total Market Value", f"${total_val:,.2f}")
 
