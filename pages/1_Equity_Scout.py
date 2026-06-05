@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import plotly.graph_objects as go
 
+st.set_page_config(page_title="Equity Scout", layout="wide")
 
 APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 POLY_URL = "https://api.polygon.io"
