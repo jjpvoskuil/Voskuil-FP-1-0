@@ -542,7 +542,7 @@ if df_holdings_raw is not None:
 
     consolidated['SEC Link']   = consolidated['Symbol'].apply(get_sec_link)
     consolidated['Yahoo Link'] = consolidated['Symbol'].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
-    consolidated['Dive Link']  = consolidated['Symbol'].apply(lambda s: f"{APP_URL}/equity_scout?ticker={s}&auto=1")
+    consolidated['Dive Link'] = consolidated['Symbol'].apply(lambda s: f"{APP_URL}/Equity_Scout?ticker={s}&auto=1")
 
     if 'holding_scores'     not in st.session_state: st.session_state.holding_scores     = {}
     if 'holding_sources'    not in st.session_state: st.session_state.holding_sources    = {}
