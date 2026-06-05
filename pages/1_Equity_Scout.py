@@ -455,6 +455,15 @@ if analyze and ticker_input:
     st.caption(f"{data.get('sector','')}  ·  ${data.get('price',0) or 0:,.2f} per share  ·  Market Cap: ${(data.get('market_cap') or 0)/1e9:.1f}B")
     if data.get('description'):
         st.markdown(f"*{data['description']}*")
+        
+    # ── Research Links ────────────────────────────────────────────────
+    sec_link   = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={ticker_input}&type=10-K&dateb=&owner=include&count=10"
+    yahoo_link = f"https://finance.yahoo.com/quote/{ticker_input}"
+    rl1, rl2, rl3 = st.columns([1, 1, 6])
+    with rl1:
+        st.link_button("📋 SEC Filings", sec_link)
+    with rl2:
+        st.link_button("📈 Yahoo Finance", yahoo_link)
     st.divider()
 
     left, right = st.columns([1, 2])
