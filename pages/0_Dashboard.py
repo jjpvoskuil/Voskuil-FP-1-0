@@ -448,7 +448,7 @@ def power_metric(col, label, current, prior, help=None, is_delta_good=True):
         if prior != 0:
             st.markdown(
                 f"<p style='font-size:0.875rem;color:rgb(120,120,120);margin:0.5rem 0 0 0'>{py_label}</p>"
-                f"<p style='font-size:2.25rem;font-weight:700;color:rgb(49,51,63);margin:0;padding:0'>${prior:,.2f}</p>"
+                f"<p style='font-size:2.25rem;font-weight:400;color:rgb(49,51,63);margin:0;padding:0'>${prior:,.2f}</p>"
                 f"<p style='font-size:0.875rem;margin:0;padding:0;color:{color}'>{arrow} ${abs(delta):,.0f} vs PY</p>",
                 unsafe_allow_html=True
             )
