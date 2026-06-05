@@ -1,5 +1,5 @@
 import streamlit as st
-import pst.write(f"DEBUG — prior GL columns: {list(df_tax_prior.columns)}, gain_col: {gain_col}")andas as pd
+import pandas as pd
 import plotly.express as px
 import requests
 import time
