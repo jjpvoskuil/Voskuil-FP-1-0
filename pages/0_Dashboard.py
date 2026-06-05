@@ -415,29 +415,20 @@ else:
     py_interest  = 0
 
 # ── Prior Year G/L ───────────────────────────────────────────────────
-df_tax_prior = None
-try:
-    import os
-    prior_path = TAX_FILE_PRIOR
-    if os.path.exists(prior_path):
-        df_tax_prior = pd.read_csv(prior_path, skiprows=6)
-        df_tax_prior.columns = [c.strip() for c in df_tax_prior.columns]
-except Exception:
-    df_tax_prior = None
+df_tax_prior = get_clean_df(TAX_FILE_PRIOR, "Realized Gain/Loss")
 py_ira_gain_total     = 0
 py_taxable_gain_total = 0
 if df_tax_prior is not None:
     df_tax_prior.columns = [c.strip() for c in df_tax_prior.columns]
-    gain_col = next((c for c in df_tax_prior.columns if 'gain' in c.lower()), None)
-    st.write(f"DEBUG — prior GL columns: {list(df_tax_prior.columns)}, gain_col: {gain_col}")
+    gain_col = next((c for c in df_tax_prior.columns if 'Realized Gain' in c), None)
     if gain_col:
         df_tax_prior['Numeric Gain'] = pd.to_numeric(
             df_tax_prior[gain_col].astype(str).str.replace(',', '').str.replace('"', '').str.replace('$', ''),
             errors='coerce'
         )
-        ira_mask_prior         = df_tax_prior.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
-        py_ira_gain_total      = df_tax_prior[ira_mask_prior]['Numeric Gain'].sum()
-        py_taxable_gain_total  = df_tax_prior[~ira_mask_prior]['Numeric Gain'].sum()
+        ira_mask_prior        = df_tax_prior.iloc[:, 0].astype(str).str.contains('IRA', case=False, na=False)
+        py_ira_gain_total     = df_tax_prior[ira_mask_prior]['Numeric Gain'].sum()
+        py_taxable_gain_total = df_tax_prior[~ira_mask_prior]['Numeric Gain'].sum()
 
 # ─────────────────────────────────────────────
 # POWER BAR
