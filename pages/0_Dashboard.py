@@ -446,7 +446,7 @@ def power_metric(col, label, current, prior, help=None, is_delta_good=True):
             st.metric(label, f"${current:,.2f}")
         if prior != 0:
             st.caption(f"PY: ${prior:,.2f}")
-            st.markdown(f"<span style='color:{color};font-size:0.8em'>{arrow} ${abs(delta):,.0f} vs PY</span>",
+            st.markdown(f"<span style='color:{color};font-size:1em'>{arrow} ${abs(delta):,.0f} vs PY</span>",
                        unsafe_allow_html=True)
 
 with col1:
