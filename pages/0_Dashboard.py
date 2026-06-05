@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pst.write(f"DEBUG — prior GL columns: {list(df_tax_prior.columns)}, gain_col: {gain_col}")andas as pd
 import plotly.express as px
 import requests
 import time
@@ -421,6 +421,7 @@ py_taxable_gain_total = 0
 if df_tax_prior is not None:
     df_tax_prior.columns = [c.strip() for c in df_tax_prior.columns]
     gain_col = next((c for c in df_tax_prior.columns if 'gain' in c.lower()), None)
+    st.write(f"DEBUG — prior GL columns: {list(df_tax_prior.columns)}, gain_col: {gain_col}")
     if gain_col:
         df_tax_prior['Numeric Gain'] = pd.to_numeric(
             df_tax_prior[gain_col].astype(str).str.replace(',', '').str.replace('"', '').str.replace('$', ''),
