@@ -286,7 +286,10 @@ def score_to_verdict(score):
 # ── Query params ──────────────────────────────────────────────────────
 params       = st.query_params
 url_ticker   = params.get("ticker", "").upper().strip()
-auto_analyze = params.get("auto", "0") == "1"
+# Also check session state (set by Deep Dive button on Dashboard)
+if not url_ticker and "dive_ticker" in st.session_state:
+    url_ticker = st.session_state.pop("dive_ticker", "").upper().strip()
+auto_analyze = bool(url_ticker)
 
 st.title("🔍 Equity Scout")
 st.caption("Concentrated, Buffett-style fundamental analysis. One business at a time.")
