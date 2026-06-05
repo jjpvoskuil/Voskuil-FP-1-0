@@ -770,15 +770,14 @@ if df_holdings_raw is not None:
         display_df = display_df.sort_values('Symbol', ascending=False)
 
     # ── Column Headers ─────────────────────────────────────────────────────
-    h1, h2, h3, h4, h5, h6, h7, h8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.5, 1.5])
+    h1, h2, h3, h4, h5, h6, h7 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 2])
     with h1: st.markdown("**Symbol**")
     with h2: st.markdown("**Name**")
     with h3: st.markdown("**Type**")
     with h4: st.markdown("**Value**")
     with h5: st.markdown("**Accts**")
     with h6: st.markdown("**Score**")
-    with h7: st.markdown("**Research**")
-    with h8: st.markdown("**Analysis**")
+    with h7: st.markdown("**Analysis**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     # ── Rows ───────────────────────────────────────────────────────────────
