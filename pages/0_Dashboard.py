@@ -434,28 +434,31 @@ if df_tax_prior is not None:
 # POWER BAR
 # ─────────────────────────────────────────────
 col1, col2, col3, col4, col5 = st.columns(5)
+
+def power_metric(col, label, current, prior, help=None, is_delta_good=True):
+    delta = current - prior if prior != 0 else None
+    arrow = "▲" if delta and delta > 0 else "▼" if delta and delta < 0 else ""
+    color = "green" if (delta and delta > 0 and is_delta_good) or (delta and delta < 0 and not is_delta_good) else "red" if delta else "gray"
+    with col:
+        if help:
+            st.metric(label, f"${current:,.2f}", help=help)
+        else:
+            st.metric(label, f"${current:,.2f}")
+        if prior != 0:
+            st.caption(f"PY: ${prior:,.2f}")
+            st.markdown(f"<span style='color:{color};font-size:0.8em'>{arrow} ${abs(delta):,.0f} vs PY</span>",
+                       unsafe_allow_html=True)
+
 with col1:
     st.metric("Total Market Value", f"${total_val:,.2f}")
-with col2:
-    py_tax = py_taxable_gain_total if py_taxable_gain_total != 0 else None
-    delta_tax = taxable_gain_total - py_taxable_gain_total if py_tax else None
-    st.metric("Taxable G/L (YTD)", f"${taxable_gain_total:,.2f}",
-              delta=f"${delta_tax:,.0f} vs PY" if delta_tax is not None else None,
-              help="Gains from non-IRA accounts. Delta vs prior year.")
-with col3:
-    py_ira = py_ira_gain_total if py_ira_gain_total != 0 else None
-    delta_ira = ira_gain_total - py_ira_gain_total if py_ira else None
-    st.metric("IRA G/L (YTD)", f"${ira_gain_total:,.2f}",
-              delta=f"${delta_ira:,.0f} vs PY" if delta_ira is not None else None,
-              help="Tax-deferred growth in IRA buckets. Delta vs prior year.")
-with col4:
-    delta_div = ytd_dividends - py_dividends if py_dividends != 0 else None
-    st.metric("YTD Dividends", f"${ytd_dividends:,.2f}",
-              delta=f"${delta_div:,.0f} vs PY" if delta_div is not None else None)
-with col5:
-    delta_int = ytd_interest - py_interest if py_interest != 0 else None
-    st.metric("YTD Interest", f"${ytd_interest:,.2f}",
-              delta=f"${delta_int:,.0f} vs PY" if delta_int is not None else None)
+
+power_metric(col2, "Taxable G/L (YTD)", taxable_gain_total, py_taxable_gain_total,
+             help="Gains from non-IRA accounts.")
+power_metric(col3, "IRA G/L (YTD)", ira_gain_total, py_ira_gain_total,
+             help="Tax-deferred growth in IRA buckets.")
+power_metric(col4, "YTD Dividends", ytd_dividends, py_dividends)
+power_metric(col5, "YTD Interest", ytd_interest, py_interest)
+
 st.divider()
 
 # ─────────────────────────────────────────────
