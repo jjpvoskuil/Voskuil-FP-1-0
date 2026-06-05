@@ -16,7 +16,8 @@ MGP_URL = "https://ms.moneyguidepro.com/morganstanley-darst/Guests.aspx"
 # Thin top bar with nav back to dashboard
 col1, col2, col3 = st.columns([1, 6, 1])
 with col1:
-    st.page_link("app.py", label="← Dashboard", icon="🛡️")
+    if st.button("← Dashboard", type="secondary"):
+    st.switch_page("pages/0_Dashboard.py")
 with col2:
     st.markdown(
         "<div style='text-align:center; padding:6px 0; font-size:0.9em; color:#888;'>"
