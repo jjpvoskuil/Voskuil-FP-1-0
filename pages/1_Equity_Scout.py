@@ -293,7 +293,11 @@ st.caption("Concentrated, Buffett-style fundamental analysis. One business at a 
 st.markdown("> *\"Price is what you pay. Value is what you get.\"* — Warren Buffett")
 
 if url_ticker:
-    st.info(f"📌 Analyzing **{url_ticker}** — arrived from Holdings Explorer. [← Back to Dashboard]({APP_URL})")
+    col_back, _ = st.columns([1, 4])
+    with col_back:
+        if st.button("← Back to Dashboard"):
+            st.switch_page("pages/0_Dashboard.py")
+    st.info(f"📌 Analyzing **{url_ticker}** — arrived from Holdings Explorer.")
 
 st.divider()
 
