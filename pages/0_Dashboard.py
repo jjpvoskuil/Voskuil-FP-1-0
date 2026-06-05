@@ -415,7 +415,7 @@ else:
     py_interest  = 0
 
 # ── Prior Year G/L ───────────────────────────────────────────────────
-df_tax_prior = get_clean_df(TAX_FILE_PRIOR, "Realized Gain/Loss")
+df_tax_prior = get_clean_df(TAX_FILE_PRIOR, "Account Number")
 py_ira_gain_total     = 0
 py_taxable_gain_total = 0
 if df_tax_prior is not None:
