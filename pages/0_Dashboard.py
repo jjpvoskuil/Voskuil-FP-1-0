@@ -805,8 +805,10 @@ if df_holdings_raw is not None:
             else:
                 st.caption("—")
         with c7:
-            st.link_button("🔍 Deep Dive", row['Dive Link'], use_container_width=True, type="primary")
-
+            if st.button("🔍 Deep Dive", key=f"dive_{row['Symbol']}", use_container_width=True, type="primary"):
+                st.query_params["ticker"] = row['Symbol']
+                st.query_params["auto"] = "1"
+                st.switch_page("pages/1_Equity_Scout.py")
     st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database)")
     st.divider()
 
