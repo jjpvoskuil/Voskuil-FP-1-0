@@ -3,6 +3,9 @@ import requests
 import pandas as pd
 from io import StringIO
 import time
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from claude_utils import ask_claude_about_equity
 
 
 APP_URL  = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
@@ -373,6 +376,11 @@ if run_screen:
     results_df = pd.DataFrame(results)
     results_df = results_df.sort_values('score', ascending=False).head(top_n).reset_index(drop=True)
 
+    # Cache screen results so Claude panel persists across chat reruns
+    st.session_state['ms_results_df']     = results_df
+    st.session_state['ms_total_tickers']  = total_tickers
+    st.session_state['ms_results_count']  = len(results)
+
     st.divider()
     st.markdown(f"## 🏆 Top {min(top_n, len(results_df))} Concentrated Opportunities")
     st.caption("Ranked by Voskuil Owner's Framework score.")
@@ -422,6 +430,252 @@ if run_screen:
                           'Debt/FCF','Interest Coverage','Price/Owner Earnings','Dividend Yield','Price','Market Cap']
     st.download_button(label="⬇️ Download Results as CSV", data=export_df.to_csv(index=False),
                         file_name="voskuil_screen_results.csv", mime="text/csv")
+
+    # ── Ask Claude Panel ──────────────────────────────────────────────
+    st.divider()
+    st.markdown("### 🤖 Ask Claude — Analyze These Results")
+    st.caption(
+        "Claude Sonnet reasons over the full screen results above. Ask it to compare, "
+        "rank by thesis fit, flag risks, or identify the best income play for a Long Squeeze portfolio."
+    )
+
+    ms_convo_key   = "ms_claude_convo"
+    ms_context_key = "ms_claude_context_sent"
+    if ms_convo_key not in st.session_state:
+        st.session_state[ms_convo_key]   = []
+        st.session_state[ms_context_key] = False
+
+    # Display conversation history
+    for msg in st.session_state[ms_convo_key]:
+        if msg["role"] == "user":
+            display_content = msg["content"]
+            if "\n---\nQUESTION: " in display_content:
+                display_content = display_content.split("\n---\nQUESTION: ", 1)[-1]
+            with st.chat_message("user"):
+                st.markdown(display_content)
+        else:
+            with st.chat_message("assistant", avatar="🤖"):
+                st.markdown(msg["content"])
+
+    # Suggested starter questions
+    if not st.session_state[ms_convo_key]:
+        st.markdown("**Suggested questions:**")
+        ms_sq_cols = st.columns(2)
+        ms_starters = [
+            "Which of these fits best for a retiree needing $8K/month income?",
+            "Which has the strongest moat for a Long Squeeze environment?",
+            "Compare the top 3 on debt risk and balance sheet quality.",
+            "Which would Buffett most likely hold for 10 years and why?",
+        ]
+        for i, q in enumerate(ms_starters):
+            with ms_sq_cols[i % 2]:
+                if st.button(q, key=f"ms_starter_{i}", use_container_width=True):
+                    st.session_state["ms_pending_claude_q"] = q
+                    st.rerun()
+
+    ms_pending_q = st.session_state.pop("ms_pending_claude_q", None)
+    ms_user_q    = st.chat_input("Ask Claude about these screen results...", key="ms_claude_input")
+    ms_active_q  = ms_pending_q or ms_user_q
+
+    if ms_active_q:
+        # Build context from results_df
+        def build_ms_context(df):
+            lines = ["MARKET SCREEN RESULTS — Voskuil Owner's Framework\n"]
+            lines.append("Investment context: Buffett-style concentrated value, Long Squeeze macro overlay.")
+            lines.append("Owner is 57, targeting $8K/month retirement income. Hold horizon 5-10 years.\n")
+            lines.append(f"Top {len(df)} results from S&P 500 screen:\n")
+            for _, row in df.iterrows():
+                def f(v, t="pct"):
+                    if v is None or (isinstance(v, float) and pd.isna(v)): return "N/A"
+                    if t == "pct":   return f"{v:.1%}"
+                    if t == "ratio": return f"{v:.1f}x"
+                    if t == "money": return f"${v/1e9:.1f}B" if v and abs(v) >= 1e9 else f"${v/1e6:.0f}M" if v else "N/A"
+                    return str(v)
+                lines.append(
+                    f"{row['ticker']} ({row.get('name','')}) | Score: {int(row['score'])}/100 | "
+                    f"FCF Yield: {f(row.get('fcf_yield'))} | ROIC: {f(row.get('roic'))} | "
+                    f"Debt/FCF: {f(row.get('debt_to_fcf'),'ratio')} | Gross Margin: {f(row.get('gross_margin'))} | "
+                    f"P/OE: {f(row.get('price_owner_earn'),'ratio')} | Div: {f(row.get('dividend_yield'))} | "
+                    f"Sector: {row.get('sector','N/A')}"
+                )
+            return "\n".join(lines)
+
+        with st.chat_message("user"):
+            st.markdown(ms_active_q)
+
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Analyzing screen results..."):
+                context_str = build_ms_context(results_df)
+
+                if not st.session_state[ms_context_key]:
+                    full_msg = f"{context_str}\n\n---\nQUESTION: {ms_active_q}"
+                    response = ask_claude_about_equity(
+                        ticker="SCREEN", data={}, scores={},
+                        sections={}, user_question=full_msg,
+                        conversation_history=None,
+                    )
+                    st.session_state[ms_convo_key].append({"role": "user", "content": full_msg})
+                    st.session_state[ms_context_key] = True
+                else:
+                    response = ask_claude_about_equity(
+                        ticker="SCREEN", data={}, scores={},
+                        sections={}, user_question=ms_active_q,
+                        conversation_history=st.session_state[ms_convo_key],
+                    )
+                    st.session_state[ms_convo_key].append({"role": "user", "content": ms_active_q})
+
+                st.session_state[ms_convo_key].append({"role": "assistant", "content": response})
+                st.markdown(response)
+
+    if st.session_state[ms_convo_key]:
+        if st.button("🗑️ Clear conversation", key="ms_clear_convo"):
+            st.session_state[ms_convo_key]   = []
+            st.session_state[ms_context_key] = False
+            st.rerun()
+
+
+elif 'ms_results_df' in st.session_state and not run_screen:
+    # Restore cached screen results so Claude panel persists across chat reruns
+    results_df    = st.session_state['ms_results_df']
+    total_tickers = st.session_state.get('ms_total_tickers', 0)
+    results       = [{}] * st.session_state.get('ms_results_count', 0)
+
+    st.info("💡 Showing results from last screen run. Click **Run Screen** to refresh.")
+
+    def fmt(val, fmt_type):
+        if val is None or (isinstance(val, float) and pd.isna(val)): return "N/A"
+        if fmt_type == "pct":   return f"{val:.1%}"
+        if fmt_type == "ratio": return f"{val:.1f}x"
+        return str(val)
+
+    for rank, row in results_df.iterrows():
+        score       = int(row['score'])
+        label, icon = score_to_label(score)
+        with st.container():
+            c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1, 3, 2, 2, 2, 2, 2, 2])
+            with c1:
+                st.markdown(f"### {icon}")
+                st.markdown(f"**#{rank+1}**")
+            with c2:
+                st.markdown(f"**{row['ticker']}**")
+                st.caption(row.get('name', ''))
+                st.caption(row.get('sector', ''))
+            with c3: st.metric("Score",        f"{score}/100")
+            with c4: st.metric("FCF Yield",    fmt(row.get('fcf_yield'),       "pct"))
+            with c5: st.metric("ROIC",         fmt(row.get('roic'),            "pct"))
+            with c6: st.metric("Gross Margin", fmt(row.get('gross_margin'),    "pct"))
+            with c7: st.metric("Debt/FCF",     fmt(row.get('debt_to_fcf'),     "ratio"))
+            with c8: st.metric("P/OE",         fmt(row.get('price_owner_earn'),"ratio"))
+            div = row.get('dividend_yield')
+            if div: st.caption(f"💰 Dividend Yield: {div:.2%}")
+            ic_note = "Net Creditor" if row.get('is_net_creditor') else ""
+            if ic_note: st.caption(f"✨ {ic_note}")
+            st.markdown(f"[🔍 Deep Dive in Equity Scout]({APP_URL}/equity_scout?ticker={row['ticker']}&auto=1)")
+            st.divider()
+
+
+    # ── Ask Claude Panel ──────────────────────────────────────────────
+    st.divider()
+    st.markdown("### 🤖 Ask Claude — Analyze These Results")
+    st.caption(
+        "Claude Sonnet reasons over the full screen results above. Ask it to compare, "
+        "rank by thesis fit, flag risks, or identify the best income play for a Long Squeeze portfolio."
+    )
+
+    ms_convo_key   = "ms_claude_convo"
+    ms_context_key = "ms_claude_context_sent"
+    if ms_convo_key not in st.session_state:
+        st.session_state[ms_convo_key]   = []
+        st.session_state[ms_context_key] = False
+
+    # Display conversation history
+    for msg in st.session_state[ms_convo_key]:
+        if msg["role"] == "user":
+            display_content = msg["content"]
+            if "\n---\nQUESTION: " in display_content:
+                display_content = display_content.split("\n---\nQUESTION: ", 1)[-1]
+            with st.chat_message("user"):
+                st.markdown(display_content)
+        else:
+            with st.chat_message("assistant", avatar="🤖"):
+                st.markdown(msg["content"])
+
+    # Suggested starter questions
+    if not st.session_state[ms_convo_key]:
+        st.markdown("**Suggested questions:**")
+        ms_sq_cols = st.columns(2)
+        ms_starters = [
+            "Which of these fits best for a retiree needing $8K/month income?",
+            "Which has the strongest moat for a Long Squeeze environment?",
+            "Compare the top 3 on debt risk and balance sheet quality.",
+            "Which would Buffett most likely hold for 10 years and why?",
+        ]
+        for i, q in enumerate(ms_starters):
+            with ms_sq_cols[i % 2]:
+                if st.button(q, key=f"ms_starter_{i}", use_container_width=True):
+                    st.session_state["ms_pending_claude_q"] = q
+                    st.rerun()
+
+    ms_pending_q = st.session_state.pop("ms_pending_claude_q", None)
+    ms_user_q    = st.chat_input("Ask Claude about these screen results...", key="ms_claude_input")
+    ms_active_q  = ms_pending_q or ms_user_q
+
+    if ms_active_q:
+        # Build context from results_df
+        def build_ms_context(df):
+            lines = ["MARKET SCREEN RESULTS — Voskuil Owner's Framework\n"]
+            lines.append("Investment context: Buffett-style concentrated value, Long Squeeze macro overlay.")
+            lines.append("Owner is 57, targeting $8K/month retirement income. Hold horizon 5-10 years.\n")
+            lines.append(f"Top {len(df)} results from S&P 500 screen:\n")
+            for _, row in df.iterrows():
+                def f(v, t="pct"):
+                    if v is None or (isinstance(v, float) and pd.isna(v)): return "N/A"
+                    if t == "pct":   return f"{v:.1%}"
+                    if t == "ratio": return f"{v:.1f}x"
+                    if t == "money": return f"${v/1e9:.1f}B" if v and abs(v) >= 1e9 else f"${v/1e6:.0f}M" if v else "N/A"
+                    return str(v)
+                lines.append(
+                    f"{row['ticker']} ({row.get('name','')}) | Score: {int(row['score'])}/100 | "
+                    f"FCF Yield: {f(row.get('fcf_yield'))} | ROIC: {f(row.get('roic'))} | "
+                    f"Debt/FCF: {f(row.get('debt_to_fcf'),'ratio')} | Gross Margin: {f(row.get('gross_margin'))} | "
+                    f"P/OE: {f(row.get('price_owner_earn'),'ratio')} | Div: {f(row.get('dividend_yield'))} | "
+                    f"Sector: {row.get('sector','N/A')}"
+                )
+            return "\n".join(lines)
+
+        with st.chat_message("user"):
+            st.markdown(ms_active_q)
+
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Analyzing screen results..."):
+                context_str = build_ms_context(results_df)
+
+                if not st.session_state[ms_context_key]:
+                    full_msg = f"{context_str}\n\n---\nQUESTION: {ms_active_q}"
+                    response = ask_claude_about_equity(
+                        ticker="SCREEN", data={}, scores={},
+                        sections={}, user_question=full_msg,
+                        conversation_history=None,
+                    )
+                    st.session_state[ms_convo_key].append({"role": "user", "content": full_msg})
+                    st.session_state[ms_context_key] = True
+                else:
+                    response = ask_claude_about_equity(
+                        ticker="SCREEN", data={}, scores={},
+                        sections={}, user_question=ms_active_q,
+                        conversation_history=st.session_state[ms_convo_key],
+                    )
+                    st.session_state[ms_convo_key].append({"role": "user", "content": ms_active_q})
+
+                st.session_state[ms_convo_key].append({"role": "assistant", "content": response})
+                st.markdown(response)
+
+    if st.session_state[ms_convo_key]:
+        if st.button("🗑️ Clear conversation", key="ms_clear_convo"):
+            st.session_state[ms_convo_key]   = []
+            st.session_state[ms_context_key] = False
+            st.rerun()
+
 
 else:
     st.markdown("""
