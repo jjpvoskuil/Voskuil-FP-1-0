@@ -196,12 +196,89 @@ def score_to_label(score):
     elif score >= 45: return "Caution",    "🟠"
     else:             return "Avoid",      "🔴"
 
+import concurrent.futures
+from sec_utils import fetch_10k_sections
+
+# ── Helper: build context string from results dataframe ──────────────
+def build_ms_context(df):
+    lines = [
+        "MARKET SCREEN RESULTS — Voskuil Owner's Framework\n",
+        "Investment context: Buffett-style concentrated value, Long Squeeze macro overlay.",
+        "Owner is 57, targeting $8K/month retirement income. Hold horizon 5-10 years.\n",
+        f"Top {len(df)} results from S&P 500 screen:\n",
+    ]
+    for _, row in df.iterrows():
+        def f(v, t="pct"):
+            if v is None or (isinstance(v, float) and pd.isna(v)): return "N/A"
+            if t == "pct":   return f"{v:.1%}"
+            if t == "ratio": return f"{v:.1f}x"
+            return str(v)
+        lines.append(
+            f"{row['ticker']} ({row.get('name','')}) | Score: {int(row['score'])}/100 | "
+            f"FCF Yield: {f(row.get('fcf_yield'))} | ROIC: {f(row.get('roic'))} | "
+            f"Debt/FCF: {f(row.get('debt_to_fcf'),'ratio')} | Gross Margin: {f(row.get('gross_margin'))} | "
+            f"P/OE: {f(row.get('price_owner_earn'),'ratio')} | Div: {f(row.get('dividend_yield'))} | "
+            f"Sector: {row.get('sector','N/A')}"
+        )
+    return "\n".join(lines)
+
+
+# ── Helper: fetch 10-K sections for a list of tickers in parallel ─────
+def fetch_filings_parallel(tickers: list) -> dict:
+    """Returns {ticker: filing_result} fetched concurrently."""
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        future_map = {executor.submit(fetch_10k_sections, t): t for t in tickers}
+        for future in concurrent.futures.as_completed(future_map):
+            ticker = future_map[future]
+            try:
+                results[ticker] = future.result()
+            except Exception as e:
+                results[ticker] = {"sections": {}, "error": str(e)}
+    return results
+
+
+# ── Helper: build deep-dive context with filing sections ──────────────
+def build_deep_dive_context(df, filings: dict, question: str) -> str:
+    lines = [build_ms_context(df), "\n\n=== SEC 10-K FILING EXCERPTS ===\n"]
+    for ticker, filing in filings.items():
+        sections = filing.get("sections", {})
+        err      = filing.get("error")
+        lines.append(f"\n--- {ticker} ---")
+        if err:
+            lines.append(f"[Filing unavailable: {err}]")
+            continue
+        for key, label in [
+            ("business",     "BUSINESS"),
+            ("risk_factors", "RISK FACTORS"),
+            ("mda",          "MD&A"),
+        ]:
+            text = sections.get(key, "")
+            if text:
+                lines.append(f"[{label}]: {text[:3000]}")
+    lines.append(f"\n\nQUESTION: {question}")
+    return "\n".join(lines)
+
+
+# ── Helper: extract ticker mentions from a message ────────────────────
+def extract_tickers_from_text(text: str, valid_tickers: list) -> list:
+    """Find uppercase 1-5 letter words in text that match valid tickers."""
+    words   = re.findall(r'\b[A-Z]{1,5}\b', text)
+    matches = [w for w in words if w in valid_tickers]
+    return list(dict.fromkeys(matches))  # deduplicate preserving order
+
+
+import re
+
+# ─────────────────────────────────────────────────────────────────────
+# PAGE UI
+# ─────────────────────────────────────────────────────────────────────
 st.title("📡 Market Screener")
 st.caption("Scans the S&P 500 through the Voskuil Owner's Framework. Surfaces the top concentrated opportunities.")
 st.info("**How this works:** Fetches fundamentals from Polygon.io SEC filings, scores each company on the 6-metric Owner's Framework, and surfaces the top results. Negative FCF companies are automatically eliminated.")
 st.divider()
 
-# ── Weight reset handler — runs BEFORE any widget with these keys renders ──
+# ── Weight reset handler ──────────────────────────────────────────────
 _weight_map = [("w_fcf","FCF Yield"),("w_roic","ROIC"),("w_debt","Debt / FCF"),
                ("w_gm","Gross Margin"),("w_ic","Interest Coverage"),("w_poe","Price / Owner Earnings")]
 for _wkey, _mkey in _weight_map:
@@ -211,14 +288,11 @@ for _wkey, _mkey in _weight_map:
 
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     st.caption("Adjust freely — scoring uses the last Applied set. Click Apply Weights when total hits 100.")
-
     if "scoring_weights"   not in st.session_state:
         st.session_state.scoring_weights   = DEFAULT_WEIGHTS.copy()
     if "committed_weights" not in st.session_state:
         st.session_state.committed_weights = DEFAULT_WEIGHTS.copy()
-
     sw = st.session_state.scoring_weights
-
     rc1, rc2, rc3 = st.columns([1.2, 1.2, 4])
     if rc1.button("↺ Reset to Defaults", key="ms_reset_weights"):
         st.session_state.scoring_weights   = DEFAULT_WEIGHTS.copy()
@@ -226,7 +300,6 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         for _wkey, _mkey in _weight_map:
             st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
         st.rerun()
-
     draft_weights = {
         "FCF Yield":              st.session_state.get("w_fcf",  sw["FCF Yield"]),
         "ROIC":                   st.session_state.get("w_roic", sw["ROIC"]),
@@ -242,13 +315,11 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         st.session_state.committed_weights = draft_weights.copy()
         st.session_state.scoring_weights   = draft_weights.copy()
         st.rerun()
-
     cw = st.session_state.committed_weights
     rc3.caption(
         f"**Active:** FCF {cw['FCF Yield']} · ROIC {cw['ROIC']} · Debt {cw['Debt / FCF']} · "
         f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']} · P/OE {cw['Price / Owner Earnings']}"
     )
-
     w_col1, w_col2 = st.columns(2)
     with w_col1:
         _sc_w_fcf, _sb_w_fcf = st.columns([4, 1])
@@ -256,7 +327,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_fcf = st.slider("FCF Yield", 0, 60, sw["FCF Yield"], step=5, key="w_fcf")
         with _sb_w_fcf:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf", help="Reset FCF Yield to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf", use_container_width=True):
                 st.session_state["pending_reset_w_fcf"] = True
                 st.rerun()
         _sc_w_roic, _sb_w_roic = st.columns([4, 1])
@@ -264,7 +335,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_roic = st.slider("ROIC", 0, 40, sw["ROIC"], step=5, key="w_roic")
         with _sb_w_roic:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic", help="Reset ROIC to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic", use_container_width=True):
                 st.session_state["pending_reset_w_roic"] = True
                 st.rerun()
         _sc_w_debt, _sb_w_debt = st.columns([4, 1])
@@ -272,7 +343,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_debt = st.slider("Debt / FCF", 0, 40, sw["Debt / FCF"], step=5, key="w_debt")
         with _sb_w_debt:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Debt / FCF']}", key="reset_w_debt", help="Reset Debt / FCF to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Debt / FCF']}", key="reset_w_debt", use_container_width=True):
                 st.session_state["pending_reset_w_debt"] = True
                 st.rerun()
     with w_col2:
@@ -281,7 +352,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_gm = st.slider("Gross Margin", 0, 40, sw["Gross Margin"], step=5, key="w_gm")
         with _sb_w_gm:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Gross Margin']}", key="reset_w_gm", help="Reset Gross Margin to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Gross Margin']}", key="reset_w_gm", use_container_width=True):
                 st.session_state["pending_reset_w_gm"] = True
                 st.rerun()
         _sc_w_ic, _sb_w_ic = st.columns([4, 1])
@@ -289,7 +360,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_ic = st.slider("Interest Coverage", 0, 40, sw["Interest Coverage"], step=5, key="w_ic")
         with _sb_w_ic:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic", help="Reset Interest Coverage to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic", use_container_width=True):
                 st.session_state["pending_reset_w_ic"] = True
                 st.rerun()
         _sc_w_poe, _sb_w_poe = st.columns([4, 1])
@@ -297,10 +368,9 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_poe = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, key="w_poe")
         with _sb_w_poe:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe", help="Reset Price / Owner Earnings to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe", use_container_width=True):
                 st.session_state["pending_reset_w_poe"] = True
                 st.rerun()
-
     active_weights = {
         "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
         "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
@@ -314,7 +384,6 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     else:
         st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts")
 
-# Scoring uses committed weights
 weights = st.session_state.get("committed_weights", DEFAULT_WEIGHTS.copy())
 
 col1, col2, col3 = st.columns(3)
@@ -333,6 +402,7 @@ with col3:
 st.divider()
 run_screen = st.button("🚀 Run Screen", type="primary", use_container_width=True)
 
+# ── Run screen ────────────────────────────────────────────────────────
 if run_screen:
     if total_weight != 100:
         st.error(f"Weights must add up to 100. Currently at {total_weight}.")
@@ -376,13 +446,25 @@ if run_screen:
     results_df = pd.DataFrame(results)
     results_df = results_df.sort_values('score', ascending=False).head(top_n).reset_index(drop=True)
 
-    # Cache screen results so Claude panel persists across chat reruns
-    st.session_state['ms_results_df']     = results_df
-    st.session_state['ms_total_tickers']  = total_tickers
-    st.session_state['ms_results_count']  = len(results)
+    # Cache screen results so Claude panel persists across reruns
+    st.session_state['ms_results_df']    = results_df
+    st.session_state['ms_total_tickers'] = total_tickers
+    st.session_state['ms_results_count'] = len(results)
+    # Clear previous Claude conversation when a new screen runs
+    st.session_state['ms_claude_convo']        = []
+    st.session_state['ms_claude_context_sent'] = False
+    st.session_state.pop('ms_filings', None)
+
+# ── Render results (fresh or cached) ─────────────────────────────────
+if 'ms_results_df' in st.session_state:
+    results_df    = st.session_state['ms_results_df']
+    total_tickers = st.session_state.get('ms_total_tickers', 0)
+
+    if not run_screen:
+        st.info("💡 Showing results from last screen run. Click **Run Screen** to refresh.")
 
     st.divider()
-    st.markdown(f"## 🏆 Top {min(top_n, len(results_df))} Concentrated Opportunities")
+    st.markdown(f"## 🏆 Top {len(results_df)} Concentrated Opportunities")
     st.caption("Ranked by Voskuil Owner's Framework score.")
 
     def fmt(val, fmt_type):
@@ -404,22 +486,21 @@ if run_screen:
                 st.caption(row.get('name', ''))
                 st.caption(row.get('sector', ''))
             with c3: st.metric("Score",        f"{score}/100")
-            with c4: st.metric("FCF Yield",    fmt(row.get('fcf_yield'),       "pct"))
-            with c5: st.metric("ROIC",         fmt(row.get('roic'),            "pct"))
-            with c6: st.metric("Gross Margin", fmt(row.get('gross_margin'),    "pct"))
-            with c7: st.metric("Debt/FCF",     fmt(row.get('debt_to_fcf'),     "ratio"))
-            with c8: st.metric("P/OE",         fmt(row.get('price_owner_earn'),"ratio"))
+            with c4: st.metric("FCF Yield",    fmt(row.get('fcf_yield'),        "pct"))
+            with c5: st.metric("ROIC",         fmt(row.get('roic'),             "pct"))
+            with c6: st.metric("Gross Margin", fmt(row.get('gross_margin'),     "pct"))
+            with c7: st.metric("Debt/FCF",     fmt(row.get('debt_to_fcf'),      "ratio"))
+            with c8: st.metric("P/OE",         fmt(row.get('price_owner_earn'), "ratio"))
             div = row.get('dividend_yield')
             if div: st.caption(f"💰 Dividend Yield: {div:.2%}")
-            ic_note = "Net Creditor" if row.get('is_net_creditor') else ""
-            if ic_note: st.caption(f"✨ {ic_note}")
+            if row.get('is_net_creditor'): st.caption("✨ Net Creditor")
             st.markdown(f"[🔍 Deep Dive in Equity Scout]({APP_URL}/equity_scout?ticker={row['ticker']}&auto=1)")
             st.divider()
 
     st.markdown("### 📊 Screen Summary")
     s1, s2, s3, s4 = st.columns(4)
     with s1: st.metric("Scanned",           total_tickers)
-    with s2: st.metric("Passed FCF Filter", len(results))
+    with s2: st.metric("Passed FCF Filter", st.session_state.get('ms_results_count', len(results_df)))
     with s3: st.metric("Avg Score",         f"{results_df['score'].mean():.0f}")
     with s4: st.metric("Strong Buys (80+)", len(results_df[results_df['score'] >= 80]))
 
@@ -435,32 +516,66 @@ if run_screen:
     st.divider()
     st.markdown("### 🤖 Ask Claude — Analyze These Results")
     st.caption(
-        "Claude Sonnet reasons over the full screen results above. Ask it to compare, "
-        "rank by thesis fit, flag risks, or identify the best income play for a Long Squeeze portfolio."
+        "Claude reasons over the full screen results. Ask it to compare, rank by thesis fit, "
+        "or flag risks. Use **Deep Dive Top 3** to pull the actual 10-K filings for the top scorers."
     )
 
+    # ── Deep Dive Top 3 button ────────────────────────────────────────
+    top3_tickers = results_df['ticker'].head(3).tolist()
+    dd_col1, dd_col2 = st.columns([2, 5])
+    with dd_col1:
+        if st.button("🔬 Deep Dive Top 3 — Pull SEC Filings", type="primary", use_container_width=True):
+            st.session_state['ms_pending_deep_dive'] = top3_tickers
+            st.rerun()
+
+    # Show which tickers are loaded
+    loaded_filings = st.session_state.get('ms_filings', {})
+    if loaded_filings:
+        loaded_str = ", ".join(
+            f"{'✅' if not v.get('error') else '⚠️'} {k}"
+            for k, v in loaded_filings.items()
+        )
+        with dd_col2:
+            st.caption(f"Filings loaded: {loaded_str}")
+
+    # Handle deep dive trigger
+    if st.session_state.pop('ms_pending_deep_dive', None):
+        with st.spinner(f"📄 Fetching 10-K filings for {', '.join(top3_tickers)} in parallel..."):
+            st.session_state['ms_filings'] = fetch_filings_parallel(top3_tickers)
+        # Inject a question into the conversation
+        st.session_state['ms_pending_claude_q'] = (
+            f"I've now loaded the SEC 10-K filings for {', '.join(top3_tickers)}. "
+            f"Please do a full qualitative comparison of these three companies using both "
+            f"the quantitative scores and the actual filing text. "
+            f"Rank them for a 57-year-old investor targeting $8K/month retirement income "
+            f"in a Long Squeeze environment. Which one would you concentrate in and why?"
+        )
+        st.rerun()
+
+    # ── Conversation state ────────────────────────────────────────────
     ms_convo_key   = "ms_claude_convo"
     ms_context_key = "ms_claude_context_sent"
     if ms_convo_key not in st.session_state:
         st.session_state[ms_convo_key]   = []
         st.session_state[ms_context_key] = False
 
-    # Display conversation history
+    # Display history
     for msg in st.session_state[ms_convo_key]:
-        if msg["role"] == "user":
-            display_content = msg["content"]
-            if "\n---\nQUESTION: " in display_content:
-                display_content = display_content.split("\n---\nQUESTION: ", 1)[-1]
+        role = msg["role"]
+        content = msg["content"]
+        if role == "user":
+            if "\n---\nQUESTION: " in content:
+                content = content.split("\n---\nQUESTION: ", 1)[-1]
             with st.chat_message("user"):
-                st.markdown(display_content)
+                st.markdown(content)
         else:
             with st.chat_message("assistant", avatar="🤖"):
-                st.markdown(msg["content"])
+                st.markdown(content)
 
-    # Suggested starter questions
+    # Suggested starters (only before first message)
     if not st.session_state[ms_convo_key]:
         st.markdown("**Suggested questions:**")
-        ms_sq_cols = st.columns(2)
+        sq_cols = st.columns(2)
         ms_starters = [
             "Which of these fits best for a retiree needing $8K/month income?",
             "Which has the strongest moat for a Long Squeeze environment?",
@@ -468,7 +583,7 @@ if run_screen:
             "Which would Buffett most likely hold for 10 years and why?",
         ]
         for i, q in enumerate(ms_starters):
-            with ms_sq_cols[i % 2]:
+            with sq_cols[i % 2]:
                 if st.button(q, key=f"ms_starter_{i}", use_container_width=True):
                     st.session_state["ms_pending_claude_q"] = q
                     st.rerun()
@@ -478,48 +593,41 @@ if run_screen:
     ms_active_q  = ms_pending_q or ms_user_q
 
     if ms_active_q:
-        # Build context from results_df
-        def build_ms_context(df):
-            lines = ["MARKET SCREEN RESULTS — Voskuil Owner's Framework\n"]
-            lines.append("Investment context: Buffett-style concentrated value, Long Squeeze macro overlay.")
-            lines.append("Owner is 57, targeting $8K/month retirement income. Hold horizon 5-10 years.\n")
-            lines.append(f"Top {len(df)} results from S&P 500 screen:\n")
-            for _, row in df.iterrows():
-                def f(v, t="pct"):
-                    if v is None or (isinstance(v, float) and pd.isna(v)): return "N/A"
-                    if t == "pct":   return f"{v:.1%}"
-                    if t == "ratio": return f"{v:.1f}x"
-                    if t == "money": return f"${v/1e9:.1f}B" if v and abs(v) >= 1e9 else f"${v/1e6:.0f}M" if v else "N/A"
-                    return str(v)
-                lines.append(
-                    f"{row['ticker']} ({row.get('name','')}) | Score: {int(row['score'])}/100 | "
-                    f"FCF Yield: {f(row.get('fcf_yield'))} | ROIC: {f(row.get('roic'))} | "
-                    f"Debt/FCF: {f(row.get('debt_to_fcf'),'ratio')} | Gross Margin: {f(row.get('gross_margin'))} | "
-                    f"P/OE: {f(row.get('price_owner_earn'),'ratio')} | Div: {f(row.get('dividend_yield'))} | "
-                    f"Sector: {row.get('sector','N/A')}"
-                )
-            return "\n".join(lines)
+        # Check if user is requesting a filing for a specific ticker
+        all_tickers   = results_df['ticker'].tolist()
+        filings_cache = st.session_state.get('ms_filings', {})
+        mentioned     = extract_tickers_from_text(ms_active_q, all_tickers)
+        new_tickers   = [t for t in mentioned if t not in filings_cache]
+
+        if new_tickers:
+            with st.spinner(f"📄 Fetching 10-K filings for {', '.join(new_tickers)}..."):
+                new_filings = fetch_filings_parallel(new_tickers)
+                filings_cache.update(new_filings)
+                st.session_state['ms_filings'] = filings_cache
 
         with st.chat_message("user"):
             st.markdown(ms_active_q)
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Analyzing screen results..."):
-                context_str = build_ms_context(results_df)
+            with st.spinner("Analyzing..."):
+                # Build context — include filing sections if available
+                if filings_cache:
+                    context_str = build_deep_dive_context(results_df, filings_cache, ms_active_q)
+                else:
+                    context_str = build_ms_context(results_df) + f"\n\n---\nQUESTION: {ms_active_q}"
 
                 if not st.session_state[ms_context_key]:
-                    full_msg = f"{context_str}\n\n---\nQUESTION: {ms_active_q}"
                     response = ask_claude_about_equity(
-                        ticker="SCREEN", data={}, scores={},
-                        sections={}, user_question=full_msg,
+                        ticker="SCREEN", data={}, scores={}, sections={},
+                        user_question=context_str,
                         conversation_history=None,
                     )
-                    st.session_state[ms_convo_key].append({"role": "user", "content": full_msg})
+                    st.session_state[ms_convo_key].append({"role": "user", "content": context_str})
                     st.session_state[ms_context_key] = True
                 else:
                     response = ask_claude_about_equity(
-                        ticker="SCREEN", data={}, scores={},
-                        sections={}, user_question=ms_active_q,
+                        ticker="SCREEN", data={}, scores={}, sections={},
+                        user_question=ms_active_q,
                         conversation_history=st.session_state[ms_convo_key],
                     )
                     st.session_state[ms_convo_key].append({"role": "user", "content": ms_active_q})
@@ -527,155 +635,12 @@ if run_screen:
                 st.session_state[ms_convo_key].append({"role": "assistant", "content": response})
                 st.markdown(response)
 
-    if st.session_state[ms_convo_key]:
+    if st.session_state.get(ms_convo_key):
         if st.button("🗑️ Clear conversation", key="ms_clear_convo"):
             st.session_state[ms_convo_key]   = []
             st.session_state[ms_context_key] = False
+            st.session_state.pop('ms_filings', None)
             st.rerun()
-
-
-elif 'ms_results_df' in st.session_state and not run_screen:
-    # Restore cached screen results so Claude panel persists across chat reruns
-    results_df    = st.session_state['ms_results_df']
-    total_tickers = st.session_state.get('ms_total_tickers', 0)
-    results       = [{}] * st.session_state.get('ms_results_count', 0)
-
-    st.info("💡 Showing results from last screen run. Click **Run Screen** to refresh.")
-
-    def fmt(val, fmt_type):
-        if val is None or (isinstance(val, float) and pd.isna(val)): return "N/A"
-        if fmt_type == "pct":   return f"{val:.1%}"
-        if fmt_type == "ratio": return f"{val:.1f}x"
-        return str(val)
-
-    for rank, row in results_df.iterrows():
-        score       = int(row['score'])
-        label, icon = score_to_label(score)
-        with st.container():
-            c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1, 3, 2, 2, 2, 2, 2, 2])
-            with c1:
-                st.markdown(f"### {icon}")
-                st.markdown(f"**#{rank+1}**")
-            with c2:
-                st.markdown(f"**{row['ticker']}**")
-                st.caption(row.get('name', ''))
-                st.caption(row.get('sector', ''))
-            with c3: st.metric("Score",        f"{score}/100")
-            with c4: st.metric("FCF Yield",    fmt(row.get('fcf_yield'),       "pct"))
-            with c5: st.metric("ROIC",         fmt(row.get('roic'),            "pct"))
-            with c6: st.metric("Gross Margin", fmt(row.get('gross_margin'),    "pct"))
-            with c7: st.metric("Debt/FCF",     fmt(row.get('debt_to_fcf'),     "ratio"))
-            with c8: st.metric("P/OE",         fmt(row.get('price_owner_earn'),"ratio"))
-            div = row.get('dividend_yield')
-            if div: st.caption(f"💰 Dividend Yield: {div:.2%}")
-            ic_note = "Net Creditor" if row.get('is_net_creditor') else ""
-            if ic_note: st.caption(f"✨ {ic_note}")
-            st.markdown(f"[🔍 Deep Dive in Equity Scout]({APP_URL}/equity_scout?ticker={row['ticker']}&auto=1)")
-            st.divider()
-
-
-    # ── Ask Claude Panel ──────────────────────────────────────────────
-    st.divider()
-    st.markdown("### 🤖 Ask Claude — Analyze These Results")
-    st.caption(
-        "Claude Sonnet reasons over the full screen results above. Ask it to compare, "
-        "rank by thesis fit, flag risks, or identify the best income play for a Long Squeeze portfolio."
-    )
-
-    ms_convo_key   = "ms_claude_convo"
-    ms_context_key = "ms_claude_context_sent"
-    if ms_convo_key not in st.session_state:
-        st.session_state[ms_convo_key]   = []
-        st.session_state[ms_context_key] = False
-
-    # Display conversation history
-    for msg in st.session_state[ms_convo_key]:
-        if msg["role"] == "user":
-            display_content = msg["content"]
-            if "\n---\nQUESTION: " in display_content:
-                display_content = display_content.split("\n---\nQUESTION: ", 1)[-1]
-            with st.chat_message("user"):
-                st.markdown(display_content)
-        else:
-            with st.chat_message("assistant", avatar="🤖"):
-                st.markdown(msg["content"])
-
-    # Suggested starter questions
-    if not st.session_state[ms_convo_key]:
-        st.markdown("**Suggested questions:**")
-        ms_sq_cols = st.columns(2)
-        ms_starters = [
-            "Which of these fits best for a retiree needing $8K/month income?",
-            "Which has the strongest moat for a Long Squeeze environment?",
-            "Compare the top 3 on debt risk and balance sheet quality.",
-            "Which would Buffett most likely hold for 10 years and why?",
-        ]
-        for i, q in enumerate(ms_starters):
-            with ms_sq_cols[i % 2]:
-                if st.button(q, key=f"ms_starter_{i}", use_container_width=True):
-                    st.session_state["ms_pending_claude_q"] = q
-                    st.rerun()
-
-    ms_pending_q = st.session_state.pop("ms_pending_claude_q", None)
-    ms_user_q    = st.chat_input("Ask Claude about these screen results...", key="ms_claude_input")
-    ms_active_q  = ms_pending_q or ms_user_q
-
-    if ms_active_q:
-        # Build context from results_df
-        def build_ms_context(df):
-            lines = ["MARKET SCREEN RESULTS — Voskuil Owner's Framework\n"]
-            lines.append("Investment context: Buffett-style concentrated value, Long Squeeze macro overlay.")
-            lines.append("Owner is 57, targeting $8K/month retirement income. Hold horizon 5-10 years.\n")
-            lines.append(f"Top {len(df)} results from S&P 500 screen:\n")
-            for _, row in df.iterrows():
-                def f(v, t="pct"):
-                    if v is None or (isinstance(v, float) and pd.isna(v)): return "N/A"
-                    if t == "pct":   return f"{v:.1%}"
-                    if t == "ratio": return f"{v:.1f}x"
-                    if t == "money": return f"${v/1e9:.1f}B" if v and abs(v) >= 1e9 else f"${v/1e6:.0f}M" if v else "N/A"
-                    return str(v)
-                lines.append(
-                    f"{row['ticker']} ({row.get('name','')}) | Score: {int(row['score'])}/100 | "
-                    f"FCF Yield: {f(row.get('fcf_yield'))} | ROIC: {f(row.get('roic'))} | "
-                    f"Debt/FCF: {f(row.get('debt_to_fcf'),'ratio')} | Gross Margin: {f(row.get('gross_margin'))} | "
-                    f"P/OE: {f(row.get('price_owner_earn'),'ratio')} | Div: {f(row.get('dividend_yield'))} | "
-                    f"Sector: {row.get('sector','N/A')}"
-                )
-            return "\n".join(lines)
-
-        with st.chat_message("user"):
-            st.markdown(ms_active_q)
-
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Analyzing screen results..."):
-                context_str = build_ms_context(results_df)
-
-                if not st.session_state[ms_context_key]:
-                    full_msg = f"{context_str}\n\n---\nQUESTION: {ms_active_q}"
-                    response = ask_claude_about_equity(
-                        ticker="SCREEN", data={}, scores={},
-                        sections={}, user_question=full_msg,
-                        conversation_history=None,
-                    )
-                    st.session_state[ms_convo_key].append({"role": "user", "content": full_msg})
-                    st.session_state[ms_context_key] = True
-                else:
-                    response = ask_claude_about_equity(
-                        ticker="SCREEN", data={}, scores={},
-                        sections={}, user_question=ms_active_q,
-                        conversation_history=st.session_state[ms_convo_key],
-                    )
-                    st.session_state[ms_convo_key].append({"role": "user", "content": ms_active_q})
-
-                st.session_state[ms_convo_key].append({"role": "assistant", "content": response})
-                st.markdown(response)
-
-    if st.session_state[ms_convo_key]:
-        if st.button("🗑️ Clear conversation", key="ms_clear_convo"):
-            st.session_state[ms_convo_key]   = []
-            st.session_state[ms_context_key] = False
-            st.rerun()
-
 
 else:
     st.markdown("""
@@ -687,9 +652,10 @@ else:
     4. **Returns top results** ranked by conviction score
 
     ### What's new
-    - **Net Creditor detection** — companies that earn more interest than they pay score full points on Interest Coverage
-    - **Long-term debt** used instead of total noncurrent liabilities for more accurate Debt/FCF
-    - **Updated weights** — Price/Owner Earnings now 25 pts (was 15), FCF Yield 20 pts (was 30)
+    - 🤖 **Ask Claude** — compare results, rank by thesis fit, or pull SEC 10-K filings for any ticker
+    - 🔬 **Deep Dive Top 3** — fetches actual 10-K filings for the top 3 scorers in parallel
+    - **Net Creditor detection** — companies earning more interest than they pay score full points
+    - **Long-term debt** used for more accurate Debt/FCF
 
     ---
     **Score guide:** 🟢 80+ Strong Buy · 🟡 65-79 Watch · 🟠 45-64 Caution · 🔴 <45 Avoid
