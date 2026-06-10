@@ -1,6 +1,10 @@
 import streamlit as st
 import requests
 import plotly.graph_objects as go
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from sec_utils import fetch_10k_sections
+from claude_utils import ask_claude_about_equity
 
 st.set_page_config(page_title="Equity Scout", layout="wide")
 
@@ -573,6 +577,158 @@ if analyze and ticker_input:
     else:                        verdict_text += "Does not meet the criteria for a concentrated bet. Risk of permanent capital loss outweighs the upside."
     st.markdown(verdict_text)
     st.info("⚠️ **Macro Overlay Reminder:** In a 'Long Squeeze' environment, prioritize companies with low debt, strong FCF, and pricing power. Your $8K/month withdrawal target requires this portfolio to be recession-resistant, not just return-maximizing.")
+
+    # ── Ask Claude Panel ──────────────────────────────────────────────
+    st.divider()
+    st.markdown("### 🤖 Ask Claude — SEC Filing Analysis")
+    st.caption(
+        "Claude Opus reads the actual 10-K filing alongside the quantitative scores above. "
+        "Ask anything: red flags, management tone, moat durability, Long Squeeze resilience. "
+        "Conversation is multi-turn — follow up freely."
+    )
+
+    # ── Load SEC filing (cached per ticker in session state) ──────────
+    filing_key = f"sec_filing_{ticker_input}"
+    if filing_key not in st.session_state:
+        with st.spinner(f"📄 Fetching {ticker_input} 10-K from SEC EDGAR..."):
+            st.session_state[filing_key] = fetch_10k_sections(ticker_input)
+
+    filing_result = st.session_state[filing_key]
+    sections      = filing_result.get("sections", {})
+    filing_error  = filing_result.get("error")
+    filing_url    = filing_result.get("filing_url")
+
+    if filing_error:
+        st.warning(f"⚠️ SEC filing issue: {filing_error}")
+        if filing_url:
+            st.markdown(f"[📋 View filings manually on EDGAR]({filing_url})")
+    else:
+        found_sections = [k for k, v in sections.items() if v]
+        st.success(
+            f"✅ 10-K loaded — sections found: "
+            f"{', '.join(found_sections) if found_sections else 'none'}. "
+            f"{'[View on EDGAR](' + filing_url + ')' if filing_url else ''}"
+        )
+        if filing_url:
+            st.markdown(f"[📋 View full 10-K on EDGAR]({filing_url})", unsafe_allow_html=False)
+
+    # ── Conversation state ────────────────────────────────────────────
+    convo_key   = f"claude_convo_{ticker_input}"
+    context_key = f"claude_context_sent_{ticker_input}"
+    if convo_key not in st.session_state:
+        st.session_state[convo_key]   = []   # list of {role, content}
+        st.session_state[context_key] = False
+
+    # ── Display conversation history ──────────────────────────────────
+    for msg in st.session_state[convo_key]:
+        if msg["role"] == "user":
+            # Strip the big context block from display (only in first message)
+            display_content = msg["content"]
+            if "\n---\nQUESTION: " in display_content:
+                display_content = display_content.split("\n---\nQUESTION: ", 1)[-1]
+            with st.chat_message("user"):
+                st.markdown(display_content)
+        else:
+            with st.chat_message("assistant", avatar="🤖"):
+                st.markdown(msg["content"])
+
+    # ── Suggested starter questions ───────────────────────────────────
+    if not st.session_state[convo_key]:
+        st.markdown("**Suggested questions:**")
+        sq_cols = st.columns(2)
+        starters = [
+            "What are the biggest qualitative red flags in this filing?",
+            "Does management's tone in the MD&A match the numbers?",
+            "How resilient is this business in a Long Squeeze / credit crunch?",
+            "What does the filing say about competitive moat and pricing power?",
+        ]
+        for i, q in enumerate(starters):
+            with sq_cols[i % 2]:
+                if st.button(q, key=f"starter_{i}_{ticker_input}", use_container_width=True):
+                    st.session_state[f"pending_claude_q_{ticker_input}"] = q
+                    st.rerun()
+
+    # ── Handle pending starter question ──────────────────────────────
+    pending_q_key = f"pending_claude_q_{ticker_input}"
+    pending_q     = st.session_state.pop(pending_q_key, None)
+
+    # ── Chat input ────────────────────────────────────────────────────
+    user_q = st.chat_input(
+        f"Ask Claude about {ticker_input}'s 10-K filing...",
+        key=f"claude_input_{ticker_input}"
+    )
+
+    # Use pending starter or typed input
+    active_q = pending_q or user_q
+
+    if active_q and sections:
+        scores_dict = {
+            "rebalanced": rebalanced_score,
+            "raw":        raw_score,
+            "verdict":    verdict_label,
+        }
+
+        with st.chat_message("user"):
+            st.markdown(active_q)
+
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Reading the 10-K and thinking..."):
+                # First turn: inject full context. Subsequent turns: pass history.
+                if not st.session_state[context_key]:
+                    response = ask_claude_about_equity(
+                        ticker=ticker_input,
+                        data=data,
+                        scores=scores_dict,
+                        sections=sections,
+                        user_question=active_q,
+                        conversation_history=None,
+                    )
+                    # Store the full first message (with context) in history
+                    from claude_utils import build_context
+                    context_str = build_context(ticker_input, data, scores_dict, sections)
+                    st.session_state[convo_key].append({
+                        "role":    "user",
+                        "content": f"{context_str}\n\n---\nQUESTION: {active_q}"
+                    })
+                    st.session_state[context_key] = True
+                else:
+                    response = ask_claude_about_equity(
+                        ticker=ticker_input,
+                        data=data,
+                        scores=scores_dict,
+                        sections=sections,
+                        user_question=active_q,
+                        conversation_history=st.session_state[convo_key],
+                    )
+                    st.session_state[convo_key].append({
+                        "role":    "user",
+                        "content": active_q,
+                    })
+
+                st.session_state[convo_key].append({
+                    "role":    "assistant",
+                    "content": response,
+                })
+                st.markdown(response)
+
+    elif active_q and not sections:
+        st.warning("SEC filing sections couldn't be loaded — Claude can still answer based on the quantitative data alone.")
+        scores_dict = {"rebalanced": rebalanced_score, "raw": raw_score, "verdict": verdict_label}
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Analyzing based on quantitative data..."):
+                response = ask_claude_about_equity(
+                    ticker=ticker_input, data=data, scores=scores_dict,
+                    sections={}, user_question=active_q,
+                    conversation_history=None,
+                )
+                st.markdown(response)
+
+    # ── Clear conversation ────────────────────────────────────────────
+    if st.session_state[convo_key]:
+        if st.button("🗑️ Clear conversation", key=f"clear_convo_{ticker_input}"):
+            st.session_state[convo_key]   = []
+            st.session_state[context_key] = False
+            st.rerun()
 
 elif analyze and not ticker_input:
     st.warning("Please enter a ticker symbol to analyze.")
