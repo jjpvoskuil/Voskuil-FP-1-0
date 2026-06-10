@@ -63,7 +63,10 @@ def get_latest_10k_accession(cik: str):
         # Check older filing pages
         for file_entry in data.get("filings", {}).get("files", []):
             fname    = file_entry.get("name", "")
-            sub_resp = requests.get(f"{EDGAR_BASE}/submissions/{fname}", headers=HEADERS, timeout=10)
+            sub_resp = requests.get(
+                f"{EDGAR_BASE}/submissions/{fname}",
+                headers=HEADERS, timeout=10
+            )
             if sub_resp.status_code == 200:
                 sub = sub_resp.json()
                 for i, form in enumerate(sub.get("form", [])):
@@ -77,49 +80,81 @@ def get_latest_10k_accession(cik: str):
 
 def get_10k_document_url(cik: str, accession_dashed: str):
     """
-    Fetch the filing index HTML page and extract the primary 10-K document URL.
+    Fetch the filing index page and find the primary 10-K document URL.
+
+    EDGAR index URL pattern (NO subfolder in path):
+      https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_dashed}-index.html
+
+    Documents in the index are listed as bare filenames. The full document URL is:
+      https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_nodash}/{filename}
+
     Returns (doc_url, index_url) or (None, index_url).
     """
-    accession_nodash = accession_dashed.replace("-", "")
     cik_int          = str(int(cik))
-    index_url        = f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/{accession_dashed}-index.htm"
+    accession_nodash = accession_dashed.replace("-", "")
+
+    # Index page — no subfolder, .html extension
+    index_url = (
+        f"{SEC_BASE}/Archives/edgar/data/{cik_int}/"
+        f"{accession_dashed}-index.html"
+    )
+    # Base path for resolving document filenames
+    doc_base = (
+        f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/"
+    )
 
     try:
         resp = requests.get(index_url, headers=HEADERS, timeout=10)
         if resp.status_code != 200:
-            # Try .html extension
-            index_url = index_url.replace("-index.htm", "-index.html")
+            # Try .htm fallback
+            index_url = index_url.replace("-index.html", "-index.htm")
             resp      = requests.get(index_url, headers=HEADERS, timeout=10)
             if resp.status_code != 200:
                 return None, index_url
 
         text = resp.text
 
-        # Find all document links in the index table
-        # Pattern matches href="/Archives/edgar/data/.../filename.htm"
-        all_links = re.findall(
-            r'href="(/Archives/edgar/data/[^"]+\.(htm|html))"',
-            text, re.IGNORECASE
+        # Parse the document table — look for rows with type 10-K
+        # The table has columns: Seq | Description | Document | Type | Size
+        # We want the Document filename where Type = 10-K
+        rows = re.findall(
+            r'<tr[^>]*>(.*?)</tr>',
+            text, re.IGNORECASE | re.DOTALL
         )
 
-        # Filter to likely main documents — exclude exhibits and data files
+        for row in rows:
+            cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
+            if len(cells) >= 4:
+                # Strip tags from each cell
+                cell_text = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+                # Type column (index 3) should be "10-K"
+                if cell_text[3] in ("10-K", "10-K/A"):
+                    # Document column (index 2) has the filename — extract from href or text
+                    doc_match = re.search(r'href="([^"]+\.htm[l]?)"', cells[2], re.IGNORECASE)
+                    if doc_match:
+                        fname = doc_match.group(1)
+                        # fname may be bare filename or partial path
+                        if fname.startswith("http"):
+                            return fname, index_url
+                        elif fname.startswith("/"):
+                            return SEC_BASE + fname, index_url
+                        else:
+                            return doc_base + fname, index_url
+
+        # Fallback: first .htm link that isn't an exhibit or data file
         exclude = re.compile(
-            r'(ex[-_]|exhibit|xbrl|_htm\.xml|def\.xml|lab\.xml|pre\.xml|\.xsd)',
+            r'(xex|ex-|exhibit|_htm\.xml|\.xsd|_cal\.|_def\.|_lab\.|_pre\.)',
             re.IGNORECASE
         )
-
-        candidates = [
-            SEC_BASE + href
-            for href, _ in all_links
-            if not exclude.search(href)
-        ]
-
-        if candidates:
-            return candidates[0], index_url
-
-        # Last resort: any .htm that isn't clearly an exhibit
-        if all_links:
-            return SEC_BASE + all_links[0][0], index_url
+        all_links = re.findall(r'href="([^"]+\.htm[l]?)"', text, re.IGNORECASE)
+        for link in all_links:
+            if not exclude.search(link):
+                if link.startswith("http"):
+                    return link, index_url
+                elif link.startswith("/"):
+                    return SEC_BASE + link, index_url
+                else:
+                    return doc_base + link, index_url
 
         return None, index_url
 
@@ -137,7 +172,6 @@ def extract_sections(doc_url: str) -> dict:
         if resp.status_code != 200:
             return {}
 
-        # Strip HTML and clean text
         clean = re.sub(r'<[^>]+>', ' ', resp.text)
         clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
         clean = re.sub(r'\s+', ' ', clean).strip()
@@ -152,7 +186,7 @@ def extract_sections(doc_url: str) -> dict:
         positions = {}
         for key, pattern in item_patterns.items():
             matches = list(re.finditer(pattern, clean, re.IGNORECASE))
-            # Use second match if available (skip table of contents)
+            # Second match skips table of contents
             if len(matches) >= 2:
                 positions[key] = matches[1].start()
             elif len(matches) == 1:
@@ -193,8 +227,8 @@ def fetch_10k_sections(ticker: str) -> dict:
     doc_url, index_url = get_10k_document_url(cik, accession)
     if not doc_url:
         return {"sections": {}, "filing_url": index_url,
-                "error": f"Found 10-K index ({accession}) but could not locate the main document. "
-                         f"Check manually: {index_url}"}
+                "error": f"Found 10-K index but could not locate main document. "
+                         f"Accession: {accession}. Index: {index_url}"}
 
     sections = extract_sections(doc_url)
     if not sections:
