@@ -13,21 +13,19 @@ Uses only the public EDGAR REST API — no auth required.
 import re
 import requests
 
-EDGAR_BASE    = "https://data.sec.gov"
-EDGAR_SEARCH  = "https://efts.sec.gov/LATEST/search-index"
-HEADERS       = {"User-Agent": "VoskuilFP/1.0 research@voskuilfp.com"}
+EDGAR_BASE = "https://data.sec.gov"
+SEC_BASE   = "https://www.sec.gov"
+HEADERS    = {"User-Agent": "VoskuilFP/1.0 jvoskuil@foxdenholdings.com"}
 
-# Max chars to extract per section — keeps context window manageable
+# Max chars to extract per section
 SECTION_LIMIT = 8_000
 
 
-def get_cik(ticker: str) -> str | None:
-    """Resolve ticker → zero-padded 10-digit CIK via EDGAR company search."""
+def get_cik(ticker: str):
+    """Resolve ticker -> zero-padded 10-digit CIK via EDGAR company tickers JSON."""
     try:
-        url = f"https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22&dateRange=custom&startdt=2020-01-01&forms=10-K"
-        # Use the company tickers JSON — most reliable mapping
         resp = requests.get(
-            "https://www.sec.gov/files/company_tickers.json",
+            f"{SEC_BASE}/files/company_tickers.json",
             headers=HEADERS, timeout=10
         )
         if resp.status_code != 200:
@@ -42,126 +40,124 @@ def get_cik(ticker: str) -> str | None:
         return None
 
 
-def get_latest_10k_url(cik: str) -> tuple[str | None, str | None]:
+def get_latest_10k_accession(cik: str):
     """
-    Given a CIK, find the most recent 10-K filing index URL.
-    Returns (filing_index_url, accession_number) or (None, None).
+    Use the EDGAR submissions REST API to find the most recent 10-K.
+    Returns (accession_number_dashed, filing_date) or (None, None).
+    The submissions API returns JSON directly — no HTML parsing needed.
     """
     try:
-        url = f"{EDGAR_BASE}/cgi-bin/browse-edgar?action=getcompany&CIK={cik}&type=10-K&dateb=&owner=include&count=5&search_text=&output=atom"
+        url  = f"{EDGAR_BASE}/submissions/CIK{cik}.json"
         resp = requests.get(url, headers=HEADERS, timeout=10)
         if resp.status_code != 200:
             return None, None
 
-        # Parse accession numbers from the atom feed
-        text = resp.text
-        accessions = re.findall(r'Accession Number:</b>\s*([\d-]+)', text)
-        if not accessions:
-            # Try alternate pattern
-            accessions = re.findall(r'(\d{18}|\d{10}-\d{2}-\d{6})', text)
-
-        # Use submissions JSON — cleaner approach
-        sub_url = f"{EDGAR_BASE}/submissions/CIK{cik}.json"
-        sub_resp = requests.get(sub_url, headers=HEADERS, timeout=10)
-        if sub_resp.status_code != 200:
-            return None, None
-
-        sub_data = sub_resp.json()
-        filings  = sub_data.get("filings", {}).get("recent", {})
-        forms    = filings.get("form", [])
-        accnos   = filings.get("accessionNumber", [])
+        data     = resp.json()
+        recent   = data.get("filings", {}).get("recent", {})
+        forms    = recent.get("form", [])
+        accnos   = recent.get("accessionNumber", [])
+        dates    = recent.get("filingDate", [])
 
         for i, form in enumerate(forms):
             if form in ("10-K", "10-K/A"):
-                accno = accnos[i].replace("-", "")
-                accno_dashed = accnos[i]
-                index_url = (
-                    f"https://www.sec.gov/Archives/edgar/data/"
-                    f"{int(cik)}/{accno}/{accno_dashed}-index.htm"
-                )
-                return index_url, accno_dashed
+                return accnos[i], dates[i]   # e.g. "0001551152-24-000007", "2024-02-16"
+
+        # If not in recent, check older filings pages
+        older_files = data.get("filings", {}).get("files", [])
+        for file_entry in older_files:
+            fname = file_entry.get("name", "")
+            sub_resp = requests.get(f"{EDGAR_BASE}/submissions/{fname}", headers=HEADERS, timeout=10)
+            if sub_resp.status_code == 200:
+                sub_data = sub_resp.json()
+                o_forms  = sub_data.get("form", [])
+                o_accnos = sub_data.get("accessionNumber", [])
+                o_dates  = sub_data.get("filingDate", [])
+                for i, form in enumerate(o_forms):
+                    if form in ("10-K", "10-K/A"):
+                        return o_accnos[i], o_dates[i]
 
         return None, None
     except Exception:
         return None, None
 
 
-def get_10k_document_url(index_url: str) -> str | None:
+def get_10k_document_url(cik: str, accession_dashed: str):
     """
-    Given the filing index page URL, find the URL of the actual 10-K document
-    (the primary htm/html document, not exhibits).
+    Given CIK and accession number, fetch the filing index JSON and
+    find the URL of the primary 10-K htm document.
     """
     try:
+        accession_nodash = accession_dashed.replace("-", "")
+        index_url = (
+            f"{EDGAR_BASE}/Archives/edgar/data/{int(cik)}/"
+            f"{accession_nodash}/{accession_dashed}-index.json"
+        )
         resp = requests.get(index_url, headers=HEADERS, timeout=10)
         if resp.status_code != 200:
-            return None
-        text = resp.text
+            return None, None
 
-        # Look for the primary document in the filing index table
-        # Pattern: type=10-K document listed first
-        matches = re.findall(
-            r'href="(/Archives/edgar/data/[^"]+\.htm[l]?)"[^>]*>[^<]*(?:10-K|10k)',
-            text, re.IGNORECASE
-        )
-        if matches:
-            return "https://www.sec.gov" + matches[0]
+        data     = resp.json()
+        docs     = data.get("documents", [])
 
-        # Fallback: find all .htm files and take the largest one (usually the main doc)
-        all_htm = re.findall(r'href="(/Archives/edgar/data/[^"]+\.htm[l]?)"', text)
-        # Filter out exhibits (usually labeled ex-*)
-        main_docs = [h for h in all_htm if not re.search(r'ex[-_]', h, re.IGNORECASE)]
-        if main_docs:
-            return "https://www.sec.gov" + main_docs[0]
+        # Primary document is type 10-K
+        for doc in docs:
+            if doc.get("type") in ("10-K", "10-K/A") and doc.get("documentUrl"):
+                doc_url = doc["documentUrl"]
+                if not doc_url.startswith("http"):
+                    doc_url = SEC_BASE + doc_url
+                return doc_url, index_url.replace("-index.json", "-index.htm")
 
-        return None
+        # Fallback: first .htm file that isn't an exhibit
+        for doc in docs:
+            name = doc.get("name", "")
+            if name.endswith((".htm", ".html")) and not re.search(r'ex[-_]', name, re.IGNORECASE):
+                doc_url = doc.get("documentUrl", "")
+                if not doc_url.startswith("http"):
+                    doc_url = SEC_BASE + doc_url
+                return doc_url, index_url.replace("-index.json", "-index.htm")
+
+        return None, None
     except Exception:
-        return None
+        return None, None
 
 
-def extract_sections(doc_url: str) -> dict[str, str]:
+def extract_sections(doc_url: str):
     """
     Fetch the 10-K document and extract key sections by Item number.
     Returns dict with keys: business, risk_factors, mda, quantitative.
-    Strips HTML tags and limits each section to SECTION_LIMIT chars.
     """
     try:
-        resp = requests.get(doc_url, headers=HEADERS, timeout=20)
+        resp = requests.get(doc_url, headers=HEADERS, timeout=30)
         if resp.status_code != 200:
             return {}
 
-        raw = resp.text
-
-        # Strip HTML tags
+        raw   = resp.text
         clean = re.sub(r'<[^>]+>', ' ', raw)
-        # Collapse whitespace
+        clean = re.sub(r'&[a-zA-Z]+;', ' ', clean)   # HTML entities
         clean = re.sub(r'\s+', ' ', clean).strip()
 
-        sections = {}
-
-        # Patterns for common Item headers in 10-Ks
-        # Items can be formatted many ways: "Item 1.", "ITEM 1A.", "Item 1A —", etc.
         item_patterns = {
-            "business":     r'Item\s+1[\.\s](?!A)[^\n]{0,40}(?:Business)',
-            "risk_factors": r'Item\s+1A[\.\s][^\n]{0,40}(?:Risk Factor)',
-            "mda":          r'Item\s+7[\.\s](?!A)[^\n]{0,60}(?:Management.{0,30}Discussion)',
-            "quantitative": r'Item\s+7A[\.\s][^\n]{0,60}(?:Quantitative)',
+            "business":     r'Item\s+1[\.\s](?!A\b)[^\n]{0,60}?(?:Business\b)',
+            "risk_factors": r'Item\s+1A[\.\s][^\n]{0,60}?(?:Risk\s+Factor)',
+            "mda":          r'Item\s+7[\.\s](?!A\b)[^\n]{0,80}?(?:Management.{0,40}?Discussion)',
+            "quantitative": r'Item\s+7A[\.\s][^\n]{0,80}?(?:Quantitative)',
         }
 
-        # Find positions of each section
         positions = {}
         for key, pattern in item_patterns.items():
-            match = re.search(pattern, clean, re.IGNORECASE)
-            if match:
-                positions[key] = match.start()
+            # Find the SECOND occurrence — first is usually table of contents
+            matches = list(re.finditer(pattern, clean, re.IGNORECASE))
+            if len(matches) >= 2:
+                positions[key] = matches[1].start()
+            elif len(matches) == 1:
+                positions[key] = matches[0].start()
 
-        # Extract content between sections (stop at next found section)
-        sorted_keys = sorted(positions.keys(), key=lambda k: positions[k])
+        sections      = {}
+        sorted_keys   = sorted(positions.keys(), key=lambda k: positions[k])
         for i, key in enumerate(sorted_keys):
             start = positions[key]
-            # End at next section start, or SECTION_LIMIT chars, whichever is less
             if i + 1 < len(sorted_keys):
-                next_key  = sorted_keys[i + 1]
-                end       = min(positions[next_key], start + SECTION_LIMIT)
+                end = min(positions[sorted_keys[i + 1]], start + SECTION_LIMIT)
             else:
                 end = start + SECTION_LIMIT
             sections[key] = clean[start:end].strip()
@@ -181,24 +177,28 @@ def fetch_10k_sections(ticker: str) -> dict:
     """
     cik = get_cik(ticker)
     if not cik:
-        return {"sections": {}, "filing_url": None, "error": f"Could not find CIK for {ticker} on EDGAR."}
+        return {"sections": {}, "filing_url": None,
+                "error": f"Could not find CIK for {ticker} on EDGAR."}
 
-    index_url, accno = get_latest_10k_url(cik)
-    if not index_url:
-        return {"sections": {}, "filing_url": None, "error": f"No 10-K filing found for {ticker}."}
+    accession, filing_date = get_latest_10k_accession(cik)
+    if not accession:
+        return {"sections": {}, "filing_url": None,
+                "error": f"No 10-K filing found for {ticker} in EDGAR submissions."}
 
-    doc_url = get_10k_document_url(index_url)
+    doc_url, index_url = get_10k_document_url(cik, accession)
     if not doc_url:
-        return {"sections": {}, "filing_url": index_url, "error": "Found filing index but could not locate the main 10-K document."}
+        return {"sections": {}, "filing_url": index_url,
+                "error": "Found 10-K filing index but could not locate the main document."}
 
     sections = extract_sections(doc_url)
     if not sections:
-        return {"sections": {}, "filing_url": index_url, "error": "Found the 10-K document but could not extract readable sections."}
+        return {"sections": {}, "filing_url": index_url,
+                "error": "Found the 10-K document but could not extract readable sections."}
 
     return {
         "sections":    sections,
         "filing_url":  index_url,
         "doc_url":     doc_url,
+        "filing_date": filing_date,
         "error":       None,
     }
-
