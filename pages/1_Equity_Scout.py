@@ -61,10 +61,6 @@ def fval(obj, key):
         return None
 
 def calc_interest_coverage(inc):
-    """
-    Returns (coverage_value_or_None, is_net_creditor bool).
-    Net creditor = positive nonoperating income with no interest expense = full points.
-    """
     op_income    = fval(inc, "operating_income_loss")
     interest_exp = fval(inc, "interest_expense_operating")
     if interest_exp and interest_exp > 0 and op_income is not None:
@@ -168,7 +164,6 @@ def fetch_fundamentals(ticker):
 def score_stock(data, weights):
     criteria = []
 
-    # ── FCF Yield ─────────────────────────────────────────────────────
     max_pts   = weights["FCF Yield"]
     fcf_yield = data.get('fcf_yield')
     if fcf_yield is not None:
@@ -184,7 +179,6 @@ def score_stock(data, weights):
                       "note": "What you earn as an owner relative to price. Buffett wants real cash, not accounting earnings.",
                       "missing": fcf_yield is None})
 
-    # ── ROIC ──────────────────────────────────────────────────────────
     max_pts = weights["ROIC"]
     roic    = data.get('roic')
     if roic is not None:
@@ -200,7 +194,6 @@ def score_stock(data, weights):
                       "note": "Munger: 'Show me the incentives and I'll show you the outcome.' ROIC shows if management deploys capital wisely.",
                       "missing": roic is None})
 
-    # ── Debt / FCF ────────────────────────────────────────────────────
     max_pts  = weights["Debt / FCF"]
     debt_fcf = data.get('debt_to_fcf')
     ic       = data.get('interest_coverage') or 0
@@ -219,7 +212,6 @@ def score_stock(data, weights):
                       "note": "Years of FCF needed to pay off long-term debt. In a credit crunch, this is the survival metric.",
                       "missing": debt_fcf is None})
 
-    # ── Gross Margin ──────────────────────────────────────────────────
     max_pts = weights["Gross Margin"]
     gm      = data.get('gross_margin')
     if gm is not None:
@@ -234,7 +226,6 @@ def score_stock(data, weights):
                       "note": "Buffett's favorite moat signal. Can the company raise prices without losing customers?",
                       "missing": gm is None})
 
-    # ── Interest Coverage ─────────────────────────────────────────────
     max_pts = weights["Interest Coverage"]
     ic_val  = data.get('interest_coverage')
     is_nc   = data.get('is_net_creditor', False)
@@ -254,7 +245,6 @@ def score_stock(data, weights):
                       "note": "How many times can earnings cover interest payments? 'Net Creditor' means the company earns more interest than it pays.",
                       "missing": (not is_nc and ic_val is None)})
 
-    # ── Price / Owner Earnings ────────────────────────────────────────
     max_pts = weights["Price / Owner Earnings"]
     poe     = data.get('price_owner_earn')
     if poe is not None:
@@ -270,12 +260,9 @@ def score_stock(data, weights):
                       "note": "Buffett's valuation test. What are you paying per dollar of real owner earnings? Under 15x is a bargain.",
                       "missing": poe is None})
 
-    # ── Totals ────────────────────────────────────────────────────────
     raw_score      = sum(c['points_earned'] for c in criteria)
     missing_pts    = sum(c['points_max'] for c in criteria if c.get('missing'))
     missing_names  = [c['name'] for c in criteria if c.get('missing')]
-
-    # Rebalanced score: redistribute missing points proportionally
     available_pts  = 100 - missing_pts
     rebalanced     = round(raw_score / available_pts * 100) if available_pts > 0 else raw_score
 
@@ -287,10 +274,16 @@ def score_to_verdict(score):
     elif score >= 45: return "Proceed with Caution", "#e67e22"
     else:             return "Avoid", "#e74c3c"
 
+def fmt_val(val, fmt="money"):
+    if val is None: return "N/A"
+    if fmt == "money":  return f"${val/1e9:.2f}B" if abs(val) >= 1e9 else f"${val/1e6:.1f}M"
+    if fmt == "pct":    return f"{val:.1%}"
+    if fmt == "ratio":  return f"{val:.1f}x"
+    return str(val)
+
 # ── Query params ──────────────────────────────────────────────────────
-params       = st.query_params
-url_ticker   = params.get("ticker", "").upper().strip()
-# Also check session state (set by Deep Dive button on Dashboard)
+params     = st.query_params
+url_ticker = params.get("ticker", "").upper().strip()
 if not url_ticker and "dive_ticker" in st.session_state:
     url_ticker = st.session_state.pop("dive_ticker", "").upper().strip()
 auto_analyze = bool(url_ticker)
@@ -308,7 +301,7 @@ if url_ticker:
 
 st.divider()
 
-# ── Weight reset handler — runs BEFORE any widget with these keys renders ──
+# ── Weight reset handler ──────────────────────────────────────────────
 _weight_map = [("w_fcf","FCF Yield"),("w_roic","ROIC"),("w_debt","Debt / FCF"),
                ("w_gm","Gross Margin"),("w_ic","Interest Coverage"),("w_poe","Price / Owner Earnings")]
 for _wkey, _mkey in _weight_map:
@@ -318,15 +311,11 @@ for _wkey, _mkey in _weight_map:
 
 with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     st.caption("Weights shared across all pages. Set them on the dashboard and they carry through here automatically.")
-
-    # Read from shared session state — falls back to DEFAULT_WEIGHTS if dashboard not visited yet
     if "scoring_weights"   not in st.session_state:
         st.session_state.scoring_weights   = DEFAULT_WEIGHTS.copy()
     if "committed_weights" not in st.session_state:
         st.session_state.committed_weights = DEFAULT_WEIGHTS.copy()
-
     sw = st.session_state.scoring_weights
-
     rc1, rc2, rc3 = st.columns([1.2, 1.2, 4])
     if rc1.button("↺ Reset to Defaults", key="es_reset_weights"):
         st.session_state.scoring_weights   = DEFAULT_WEIGHTS.copy()
@@ -334,7 +323,6 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         for _wkey, _mkey in _weight_map:
             st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
         st.rerun()
-
     draft_weights = {
         "FCF Yield":              st.session_state.get("w_fcf",  sw["FCF Yield"]),
         "ROIC":                   st.session_state.get("w_roic", sw["ROIC"]),
@@ -350,13 +338,11 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         st.session_state.committed_weights = draft_weights.copy()
         st.session_state.scoring_weights   = draft_weights.copy()
         st.rerun()
-
     cw = st.session_state.committed_weights
     rc3.caption(
         f"**Active:** FCF {cw['FCF Yield']} · ROIC {cw['ROIC']} · Debt {cw['Debt / FCF']} · "
         f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']} · P/OE {cw['Price / Owner Earnings']}"
     )
-
     w_col1, w_col2 = st.columns(2)
     with w_col1:
         _sc_w_fcf, _sb_w_fcf = st.columns([4, 1])
@@ -364,7 +350,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_fcf = st.slider("FCF Yield", 0, 60, sw["FCF Yield"], step=5, key="w_fcf")
         with _sb_w_fcf:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf", help="Reset FCF Yield to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf", use_container_width=True):
                 st.session_state["pending_reset_w_fcf"] = True
                 st.rerun()
         _sc_w_roic, _sb_w_roic = st.columns([4, 1])
@@ -372,7 +358,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_roic = st.slider("ROIC", 0, 40, sw["ROIC"], step=5, key="w_roic")
         with _sb_w_roic:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic", help="Reset ROIC to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic", use_container_width=True):
                 st.session_state["pending_reset_w_roic"] = True
                 st.rerun()
         _sc_w_debt, _sb_w_debt = st.columns([4, 1])
@@ -380,7 +366,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_debt = st.slider("Debt / FCF", 0, 40, sw["Debt / FCF"], step=5, key="w_debt")
         with _sb_w_debt:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Debt / FCF']}", key="reset_w_debt", help="Reset Debt / FCF to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Debt / FCF']}", key="reset_w_debt", use_container_width=True):
                 st.session_state["pending_reset_w_debt"] = True
                 st.rerun()
     with w_col2:
@@ -389,7 +375,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_gm = st.slider("Gross Margin", 0, 40, sw["Gross Margin"], step=5, key="w_gm")
         with _sb_w_gm:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Gross Margin']}", key="reset_w_gm", help="Reset Gross Margin to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Gross Margin']}", key="reset_w_gm", use_container_width=True):
                 st.session_state["pending_reset_w_gm"] = True
                 st.rerun()
         _sc_w_ic, _sb_w_ic = st.columns([4, 1])
@@ -397,7 +383,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_ic = st.slider("Interest Coverage", 0, 40, sw["Interest Coverage"], step=5, key="w_ic")
         with _sb_w_ic:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic", help="Reset Interest Coverage to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic", use_container_width=True):
                 st.session_state["pending_reset_w_ic"] = True
                 st.rerun()
         _sc_w_poe, _sb_w_poe = st.columns([4, 1])
@@ -405,10 +391,9 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             w_poe = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, key="w_poe")
         with _sb_w_poe:
             st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe", help="Reset Price / Owner Earnings to default", use_container_width=True):
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe", use_container_width=True):
                 st.session_state["pending_reset_w_poe"] = True
                 st.rerun()
-
     active_weights = {
         "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
         "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
@@ -422,7 +407,6 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     else:
         st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts")
 
-# Scoring uses committed weights
 weights = st.session_state.get("committed_weights", DEFAULT_WEIGHTS.copy())
 
 col_input, col_btn = st.columns([3, 1])
@@ -441,7 +425,12 @@ if auto_analyze and url_ticker and not analyze:
     analyze      = True
     ticker_input = url_ticker
 
+# ── Results cache key — persists across chat reruns ───────────────────
+_cache_key = f"es_results_{ticker_input}" if ticker_input else None
+
+# ── Run analysis and cache, OR restore from cache ────────────────────
 if analyze and ticker_input:
+    total_weight = sum(st.session_state.get("committed_weights", DEFAULT_WEIGHTS).values())
     if total_weight != 100:
         st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
 
@@ -455,12 +444,32 @@ if analyze and ticker_input:
     raw_score, rebalanced_score, missing_names, criteria = score_stock(data, weights)
     verdict_label, verdict_color = score_to_verdict(rebalanced_score)
 
+    # Cache so page stays rendered when chat input triggers reruns
+    st.session_state[_cache_key] = {
+        "data": data, "raw_score": raw_score, "rebalanced_score": rebalanced_score,
+        "missing_names": missing_names, "criteria": criteria,
+        "verdict_label": verdict_label, "verdict_color": verdict_color,
+    }
+
+elif _cache_key and _cache_key in st.session_state:
+    # Restore from cache on any rerun (chat input, button clicks, etc.)
+    _c = st.session_state[_cache_key]
+    data             = _c["data"]
+    raw_score        = _c["raw_score"]
+    rebalanced_score = _c["rebalanced_score"]
+    missing_names    = _c["missing_names"]
+    criteria         = _c["criteria"]
+    verdict_label    = _c["verdict_label"]
+    verdict_color    = _c["verdict_color"]
+
+# ── Render results if we have them (fresh or cached) ─────────────────
+if _cache_key and _cache_key in st.session_state:
+
     st.markdown(f"## {data.get('name', ticker_input)}")
     st.caption(f"{data.get('sector','')}  ·  ${data.get('price',0) or 0:,.2f} per share  ·  Market Cap: ${(data.get('market_cap') or 0)/1e9:.1f}B")
     if data.get('description'):
         st.markdown(f"*{data['description']}*")
-        
-    # ── Research Links ────────────────────────────────────────────────
+
     sec_link   = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={ticker_input}&type=10-K&dateb=&owner=include&count=10"
     yahoo_link = f"https://finance.yahoo.com/quote/{ticker_input}"
     rl1, rl2, rl3 = st.columns([1, 1, 6])
@@ -491,15 +500,12 @@ if analyze and ticker_input:
         fig.update_layout(height=260, margin=dict(t=30, b=0, l=20, r=20))
         st.plotly_chart(fig, use_container_width=True)
         st.markdown(f"<div style='text-align:center; font-size:1.4em; font-weight:bold; color:{verdict_color}'>{verdict_label}</div>", unsafe_allow_html=True)
-
-        # Show both scores if any data is missing
         if missing_names:
             st.markdown(f"**Rebalanced Score:** {rebalanced_score}/100")
             st.markdown(f"**Raw Score:** {raw_score}/100")
             st.warning(f"⚠️ Missing data: {', '.join(missing_names)}. Score rebalanced across available metrics.")
         else:
             st.markdown(f"**Score:** {rebalanced_score}/100")
-
         st.markdown("**Active Weights**")
         for k, v in weights.items():
             st.caption(f"{k}: {v} pts")
@@ -525,23 +531,15 @@ if analyze and ticker_input:
     st.divider()
     st.markdown("### 📊 Key Metrics at a Glance")
     m1, m2, m3, m4 = st.columns(4)
-
-    def fmt_val(val, fmt="money"):
-        if val is None: return "N/A"
-        if fmt == "money":  return f"${val/1e9:.2f}B" if abs(val) >= 1e9 else f"${val/1e6:.1f}M"
-        if fmt == "pct":    return f"{val:.1%}"
-        if fmt == "ratio":  return f"{val:.1f}x"
-        return str(val)
-
     with m1:
-        st.metric("Free Cash Flow",       fmt_val(data.get('fcf')))
-        st.metric("Owner Earnings",       fmt_val(data.get('owner_earnings')))
+        st.metric("Free Cash Flow",   fmt_val(data.get('fcf')))
+        st.metric("Owner Earnings",   fmt_val(data.get('owner_earnings')))
     with m2:
-        st.metric("FCF Yield",            fmt_val(data.get('fcf_yield'), "pct"))
-        st.metric("FCF Growth (1yr)",     fmt_val(data.get('fcf_growth'), "pct"))
+        st.metric("FCF Yield",        fmt_val(data.get('fcf_yield'), "pct"))
+        st.metric("FCF Growth (1yr)", fmt_val(data.get('fcf_growth'), "pct"))
     with m3:
-        st.metric("ROIC",                 fmt_val(data.get('roic'), "pct"))
-        st.metric("Gross Margin",         fmt_val(data.get('gross_margin'), "pct"))
+        st.metric("ROIC",             fmt_val(data.get('roic'), "pct"))
+        st.metric("Gross Margin",     fmt_val(data.get('gross_margin'), "pct"))
     with m4:
         st.metric("Long-Term Debt/FCF",   fmt_val(data.get('debt_to_fcf'), "ratio"))
         st.metric("Price/Owner Earnings", fmt_val(data.get('price_owner_earn'), "ratio"))
@@ -587,7 +585,6 @@ if analyze and ticker_input:
         "Conversation is multi-turn — follow up freely."
     )
 
-    # ── Load SEC filing (cached per ticker in session state) ──────────
     filing_key = f"sec_filing_{ticker_input}"
     if filing_key not in st.session_state:
         with st.spinner(f"📄 Fetching {ticker_input} 10-K from SEC EDGAR..."):
@@ -604,25 +601,18 @@ if analyze and ticker_input:
             st.markdown(f"[📋 View filings manually on EDGAR]({filing_url})")
     else:
         found_sections = [k for k, v in sections.items() if v]
-        st.success(
-            f"✅ 10-K loaded — sections found: "
-            f"{', '.join(found_sections) if found_sections else 'none'}. "
-            f"{'[View on EDGAR](' + filing_url + ')' if filing_url else ''}"
-        )
+        st.success(f"✅ 10-K loaded — sections found: {', '.join(found_sections) if found_sections else 'none'}.")
         if filing_url:
-            st.markdown(f"[📋 View full 10-K on EDGAR]({filing_url})", unsafe_allow_html=False)
+            st.markdown(f"[📋 View full 10-K on EDGAR]({filing_url})")
 
-    # ── Conversation state ────────────────────────────────────────────
     convo_key   = f"claude_convo_{ticker_input}"
     context_key = f"claude_context_sent_{ticker_input}"
     if convo_key not in st.session_state:
-        st.session_state[convo_key]   = []   # list of {role, content}
+        st.session_state[convo_key]   = []
         st.session_state[context_key] = False
 
-    # ── Display conversation history ──────────────────────────────────
     for msg in st.session_state[convo_key]:
         if msg["role"] == "user":
-            # Strip the big context block from display (only in first message)
             display_content = msg["content"]
             if "\n---\nQUESTION: " in display_content:
                 display_content = display_content.split("\n---\nQUESTION: ", 1)[-1]
@@ -632,7 +622,6 @@ if analyze and ticker_input:
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(msg["content"])
 
-    # ── Suggested starter questions ───────────────────────────────────
     if not st.session_state[convo_key]:
         st.markdown("**Suggested questions:**")
         sq_cols = st.columns(2)
@@ -648,82 +637,44 @@ if analyze and ticker_input:
                     st.session_state[f"pending_claude_q_{ticker_input}"] = q
                     st.rerun()
 
-    # ── Handle pending starter question ──────────────────────────────
-    pending_q_key = f"pending_claude_q_{ticker_input}"
-    pending_q     = st.session_state.pop(pending_q_key, None)
+    pending_q = st.session_state.pop(f"pending_claude_q_{ticker_input}", None)
 
-    # ── Chat input ────────────────────────────────────────────────────
-    user_q = st.chat_input(
-        f"Ask Claude about {ticker_input}'s 10-K filing...",
-        key=f"claude_input_{ticker_input}"
-    )
-
-    # Use pending starter or typed input
+    user_q   = st.chat_input(f"Ask Claude about {ticker_input}'s 10-K filing...",
+                              key=f"claude_input_{ticker_input}")
     active_q = pending_q or user_q
 
-    if active_q and sections:
-        scores_dict = {
-            "rebalanced": rebalanced_score,
-            "raw":        raw_score,
-            "verdict":    verdict_label,
-        }
+    if active_q:
+        scores_dict = {"rebalanced": rebalanced_score, "raw": raw_score, "verdict": verdict_label}
 
         with st.chat_message("user"):
             st.markdown(active_q)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Reading the 10-K and thinking..."):
-                # First turn: inject full context. Subsequent turns: pass history.
                 if not st.session_state[context_key]:
                     response = ask_claude_about_equity(
-                        ticker=ticker_input,
-                        data=data,
-                        scores=scores_dict,
-                        sections=sections,
-                        user_question=active_q,
+                        ticker=ticker_input, data=data, scores=scores_dict,
+                        sections=sections, user_question=active_q,
                         conversation_history=None,
                     )
-                    # Store the full first message (with context) in history
                     from claude_utils import build_context
                     context_str = build_context(ticker_input, data, scores_dict, sections)
                     st.session_state[convo_key].append({
-                        "role":    "user",
+                        "role": "user",
                         "content": f"{context_str}\n\n---\nQUESTION: {active_q}"
                     })
                     st.session_state[context_key] = True
                 else:
                     response = ask_claude_about_equity(
-                        ticker=ticker_input,
-                        data=data,
-                        scores=scores_dict,
-                        sections=sections,
-                        user_question=active_q,
+                        ticker=ticker_input, data=data, scores=scores_dict,
+                        sections=sections, user_question=active_q,
                         conversation_history=st.session_state[convo_key],
                     )
-                    st.session_state[convo_key].append({
-                        "role":    "user",
-                        "content": active_q,
-                    })
+                    st.session_state[convo_key].append({"role": "user", "content": active_q})
 
-                st.session_state[convo_key].append({
-                    "role":    "assistant",
-                    "content": response,
-                })
+                st.session_state[convo_key].append({"role": "assistant", "content": response})
                 st.markdown(response)
 
-    elif active_q and not sections:
-        st.warning("SEC filing sections couldn't be loaded — Claude can still answer based on the quantitative data alone.")
-        scores_dict = {"rebalanced": rebalanced_score, "raw": raw_score, "verdict": verdict_label}
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Analyzing based on quantitative data..."):
-                response = ask_claude_about_equity(
-                    ticker=ticker_input, data=data, scores=scores_dict,
-                    sections={}, user_question=active_q,
-                    conversation_history=None,
-                )
-                st.markdown(response)
-
-    # ── Clear conversation ────────────────────────────────────────────
     if st.session_state[convo_key]:
         if st.button("🗑️ Clear conversation", key=f"clear_convo_{ticker_input}"):
             st.session_state[convo_key]   = []
