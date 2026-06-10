@@ -17,12 +17,11 @@ EDGAR_BASE = "https://data.sec.gov"
 SEC_BASE   = "https://www.sec.gov"
 HEADERS    = {"User-Agent": "VoskuilFP/1.0 jvoskuil@foxdenholdings.com"}
 
-# Max chars to extract per section
 SECTION_LIMIT = 8_000
 
 
 def get_cik(ticker: str):
-    """Resolve ticker -> zero-padded 10-digit CIK via EDGAR company tickers JSON."""
+    """Resolve ticker -> zero-padded 10-digit CIK."""
     try:
         resp = requests.get(
             f"{SEC_BASE}/files/company_tickers.json",
@@ -30,10 +29,8 @@ def get_cik(ticker: str):
         )
         if resp.status_code != 200:
             return None
-        data = resp.json()
-        ticker_upper = ticker.upper()
-        for entry in data.values():
-            if entry.get("ticker", "").upper() == ticker_upper:
+        for entry in resp.json().values():
+            if entry.get("ticker", "").upper() == ticker.upper():
                 return str(entry["cik_str"]).zfill(10)
         return None
     except Exception:
@@ -42,39 +39,36 @@ def get_cik(ticker: str):
 
 def get_latest_10k_accession(cik: str):
     """
-    Use the EDGAR submissions REST API to find the most recent 10-K.
-    Returns (accession_number_dashed, filing_date) or (None, None).
-    The submissions API returns JSON directly — no HTML parsing needed.
+    Use EDGAR submissions REST API to find most recent 10-K.
+    Returns (accession_dashed, filing_date) or (None, None).
     """
     try:
-        url  = f"{EDGAR_BASE}/submissions/CIK{cik}.json"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
+        resp = requests.get(
+            f"{EDGAR_BASE}/submissions/CIK{cik}.json",
+            headers=HEADERS, timeout=10
+        )
         if resp.status_code != 200:
             return None, None
 
-        data     = resp.json()
-        recent   = data.get("filings", {}).get("recent", {})
-        forms    = recent.get("form", [])
-        accnos   = recent.get("accessionNumber", [])
-        dates    = recent.get("filingDate", [])
+        data   = resp.json()
+        recent = data.get("filings", {}).get("recent", {})
+        forms  = recent.get("form", [])
+        accnos = recent.get("accessionNumber", [])
+        dates  = recent.get("filingDate", [])
 
         for i, form in enumerate(forms):
             if form in ("10-K", "10-K/A"):
-                return accnos[i], dates[i]   # e.g. "0001551152-24-000007", "2024-02-16"
+                return accnos[i], dates[i]
 
-        # If not in recent, check older filings pages
-        older_files = data.get("filings", {}).get("files", [])
-        for file_entry in older_files:
-            fname = file_entry.get("name", "")
+        # Check older filing pages
+        for file_entry in data.get("filings", {}).get("files", []):
+            fname    = file_entry.get("name", "")
             sub_resp = requests.get(f"{EDGAR_BASE}/submissions/{fname}", headers=HEADERS, timeout=10)
             if sub_resp.status_code == 200:
-                sub_data = sub_resp.json()
-                o_forms  = sub_data.get("form", [])
-                o_accnos = sub_data.get("accessionNumber", [])
-                o_dates  = sub_data.get("filingDate", [])
-                for i, form in enumerate(o_forms):
+                sub = sub_resp.json()
+                for i, form in enumerate(sub.get("form", [])):
                     if form in ("10-K", "10-K/A"):
-                        return o_accnos[i], o_dates[i]
+                        return sub["accessionNumber"][i], sub["filingDate"][i]
 
         return None, None
     except Exception:
@@ -83,83 +77,96 @@ def get_latest_10k_accession(cik: str):
 
 def get_10k_document_url(cik: str, accession_dashed: str):
     """
-    Given CIK and accession number, fetch the filing index JSON and
-    find the URL of the primary 10-K htm document.
+    Fetch the filing index HTML page and extract the primary 10-K document URL.
+    Returns (doc_url, index_url) or (None, index_url).
     """
+    accession_nodash = accession_dashed.replace("-", "")
+    cik_int          = str(int(cik))
+    index_url        = f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/{accession_dashed}-index.htm"
+
     try:
-        accession_nodash = accession_dashed.replace("-", "")
-        index_url = (
-            f"{EDGAR_BASE}/Archives/edgar/data/{int(cik)}/"
-            f"{accession_nodash}/{accession_dashed}-index.json"
-        )
         resp = requests.get(index_url, headers=HEADERS, timeout=10)
         if resp.status_code != 200:
-            return None, None
+            # Try .html extension
+            index_url = index_url.replace("-index.htm", "-index.html")
+            resp      = requests.get(index_url, headers=HEADERS, timeout=10)
+            if resp.status_code != 200:
+                return None, index_url
 
-        data     = resp.json()
-        docs     = data.get("documents", [])
+        text = resp.text
 
-        # Primary document is type 10-K
-        for doc in docs:
-            if doc.get("type") in ("10-K", "10-K/A") and doc.get("documentUrl"):
-                doc_url = doc["documentUrl"]
-                if not doc_url.startswith("http"):
-                    doc_url = SEC_BASE + doc_url
-                return doc_url, index_url.replace("-index.json", "-index.htm")
+        # Find all document links in the index table
+        # Pattern matches href="/Archives/edgar/data/.../filename.htm"
+        all_links = re.findall(
+            r'href="(/Archives/edgar/data/[^"]+\.(htm|html))"',
+            text, re.IGNORECASE
+        )
 
-        # Fallback: first .htm file that isn't an exhibit
-        for doc in docs:
-            name = doc.get("name", "")
-            if name.endswith((".htm", ".html")) and not re.search(r'ex[-_]', name, re.IGNORECASE):
-                doc_url = doc.get("documentUrl", "")
-                if not doc_url.startswith("http"):
-                    doc_url = SEC_BASE + doc_url
-                return doc_url, index_url.replace("-index.json", "-index.htm")
+        # Filter to likely main documents — exclude exhibits and data files
+        exclude = re.compile(
+            r'(ex[-_]|exhibit|xbrl|_htm\.xml|def\.xml|lab\.xml|pre\.xml|\.xsd)',
+            re.IGNORECASE
+        )
 
-        return None, None
+        candidates = [
+            SEC_BASE + href
+            for href, _ in all_links
+            if not exclude.search(href)
+        ]
+
+        if candidates:
+            return candidates[0], index_url
+
+        # Last resort: any .htm that isn't clearly an exhibit
+        if all_links:
+            return SEC_BASE + all_links[0][0], index_url
+
+        return None, index_url
+
     except Exception:
-        return None, None
+        return None, index_url
 
 
-def extract_sections(doc_url: str):
+def extract_sections(doc_url: str) -> dict:
     """
-    Fetch the 10-K document and extract key sections by Item number.
-    Returns dict with keys: business, risk_factors, mda, quantitative.
+    Fetch the 10-K document and extract key sections.
+    Uses second occurrence of each Item header (first = table of contents).
     """
     try:
         resp = requests.get(doc_url, headers=HEADERS, timeout=30)
         if resp.status_code != 200:
             return {}
 
-        raw   = resp.text
-        clean = re.sub(r'<[^>]+>', ' ', raw)
-        clean = re.sub(r'&[a-zA-Z]+;', ' ', clean)   # HTML entities
+        # Strip HTML and clean text
+        clean = re.sub(r'<[^>]+>', ' ', resp.text)
+        clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
         clean = re.sub(r'\s+', ' ', clean).strip()
 
         item_patterns = {
-            "business":     r'Item\s+1[\.\s](?!A\b)[^\n]{0,60}?(?:Business\b)',
-            "risk_factors": r'Item\s+1A[\.\s][^\n]{0,60}?(?:Risk\s+Factor)',
-            "mda":          r'Item\s+7[\.\s](?!A\b)[^\n]{0,80}?(?:Management.{0,40}?Discussion)',
-            "quantitative": r'Item\s+7A[\.\s][^\n]{0,80}?(?:Quantitative)',
+            "business":     r'ITEM\s+1[\.\s](?!A\b).{0,60}?BUSINESS\b',
+            "risk_factors": r'ITEM\s+1A[\.\s].{0,60}?RISK\s+FACTOR',
+            "mda":          r'ITEM\s+7[\.\s](?!A\b).{0,80}?MANAGEMENT.{0,40}?DISCUSSION',
+            "quantitative": r'ITEM\s+7A[\.\s].{0,80}?QUANTITATIVE',
         }
 
         positions = {}
         for key, pattern in item_patterns.items():
-            # Find the SECOND occurrence — first is usually table of contents
             matches = list(re.finditer(pattern, clean, re.IGNORECASE))
+            # Use second match if available (skip table of contents)
             if len(matches) >= 2:
                 positions[key] = matches[1].start()
             elif len(matches) == 1:
                 positions[key] = matches[0].start()
 
-        sections      = {}
-        sorted_keys   = sorted(positions.keys(), key=lambda k: positions[k])
+        if not positions:
+            return {}
+
+        sections    = {}
+        sorted_keys = sorted(positions.keys(), key=lambda k: positions[k])
         for i, key in enumerate(sorted_keys):
             start = positions[key]
-            if i + 1 < len(sorted_keys):
-                end = min(positions[sorted_keys[i + 1]], start + SECTION_LIMIT)
-            else:
-                end = start + SECTION_LIMIT
+            end   = positions[sorted_keys[i + 1]] if i + 1 < len(sorted_keys) else start + SECTION_LIMIT
+            end   = min(end, start + SECTION_LIMIT)
             sections[key] = clean[start:end].strip()
 
         return sections
@@ -170,10 +177,8 @@ def extract_sections(doc_url: str):
 
 def fetch_10k_sections(ticker: str) -> dict:
     """
-    Main entry point. Returns dict with:
-      - sections: {business, risk_factors, mda, quantitative}
-      - filing_url: the index page URL for display
-      - error: error message string if something failed, else None
+    Main entry point.
+    Returns dict: {sections, filing_url, doc_url, filing_date, error}
     """
     cik = get_cik(ticker)
     if not cik:
@@ -188,12 +193,14 @@ def fetch_10k_sections(ticker: str) -> dict:
     doc_url, index_url = get_10k_document_url(cik, accession)
     if not doc_url:
         return {"sections": {}, "filing_url": index_url,
-                "error": "Found 10-K filing index but could not locate the main document."}
+                "error": f"Found 10-K index ({accession}) but could not locate the main document. "
+                         f"Check manually: {index_url}"}
 
     sections = extract_sections(doc_url)
     if not sections:
         return {"sections": {}, "filing_url": index_url,
-                "error": "Found the 10-K document but could not extract readable sections."}
+                "error": "Fetched the 10-K document but could not extract Item sections. "
+                         "The filing may use an unusual format."}
 
     return {
         "sections":    sections,
