@@ -5,9 +5,9 @@ sec_utils.py — SEC EDGAR filing fetcher for Voskuil FP 1.0
 import re
 import requests
 
-EDGAR_BASE = "https://data.sec.gov"
-SEC_BASE   = "https://www.sec.gov"
-HEADERS    = {"User-Agent": "VoskuilFP/1.0 jvoskuil@foxdenholdings.com"}
+EDGAR_BASE    = "https://data.sec.gov"
+SEC_BASE      = "https://www.sec.gov"
+HEADERS       = {"User-Agent": "VoskuilFP/1.0 jvoskuil@foxdenholdings.com"}
 SECTION_LIMIT = 8_000
 
 
@@ -26,22 +26,17 @@ def get_cik(ticker: str):
 
 def get_latest_10k_accession(cik: str):
     try:
-        url  = f"{EDGAR_BASE}/submissions/CIK{cik}.json"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
+        resp = requests.get(f"{EDGAR_BASE}/submissions/CIK{cik}.json", headers=HEADERS, timeout=10)
         if resp.status_code != 200:
-            return None, None, f"submissions API returned {resp.status_code} for CIK {cik}"
-
+            return None, None, f"submissions API returned {resp.status_code}"
         data   = resp.json()
         recent = data.get("filings", {}).get("recent", {})
         forms  = recent.get("form", [])
         accnos = recent.get("accessionNumber", [])
         dates  = recent.get("filingDate", [])
-
         for i, form in enumerate(forms):
             if form in ("10-K", "10-K/A"):
                 return accnos[i], dates[i], None
-
-        # Check older filing pages
         for file_entry in data.get("filings", {}).get("files", []):
             fname    = file_entry.get("name", "")
             sub_resp = requests.get(f"{EDGAR_BASE}/submissions/{fname}", headers=HEADERS, timeout=10)
@@ -50,23 +45,36 @@ def get_latest_10k_accession(cik: str):
                 for i, form in enumerate(sub.get("form", [])):
                     if form in ("10-K", "10-K/A"):
                         return sub["accessionNumber"][i], sub["filingDate"][i], None
-
-        return None, None, "No 10-K found in submissions (recent or older pages)"
+        return None, None, "No 10-K found in submissions"
     except Exception as e:
         return None, None, str(e)
+
+
+def resolve_doc_url(raw_href: str, doc_base: str) -> str:
+    """
+    Convert a raw href from the EDGAR index page into a full document URL.
+    Key fix: strip the /ix?doc= inline XBRL viewer prefix that EDGAR wraps iXBRL docs in.
+    """
+    # Strip inline XBRL viewer wrapper: /ix?doc=/Archives/... -> /Archives/...
+    href = re.sub(r'^/ix\?doc=', '', raw_href)
+
+    if href.startswith("http"):
+        return href
+    elif href.startswith("/"):
+        return SEC_BASE + href
+    else:
+        return doc_base + href
 
 
 def get_10k_document_url(cik: str, accession_dashed: str):
     """
     Returns (doc_url, index_url, debug_info).
-    Tries multiple index URL patterns and document resolution strategies.
     """
     cik_int          = str(int(cik))
     accession_nodash = accession_dashed.replace("-", "")
     doc_base         = f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/"
     debug            = []
 
-    # EDGAR has two possible index URL patterns — try both
     candidate_index_urls = [
         f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_dashed}-index.html",
         f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_dashed}-index.htm",
@@ -79,7 +87,7 @@ def get_10k_document_url(cik: str, accession_dashed: str):
 
     for idx_url in candidate_index_urls:
         resp = requests.get(idx_url, headers=HEADERS, timeout=10)
-        debug.append(f"Index URL tried: {idx_url} -> {resp.status_code}")
+        debug.append(f"{idx_url} -> {resp.status_code}")
         if resp.status_code == 200:
             index_text    = resp.text
             index_url_hit = idx_url
@@ -88,7 +96,7 @@ def get_10k_document_url(cik: str, accession_dashed: str):
     if not index_text:
         return None, candidate_index_urls[0], " | ".join(debug)
 
-    # Strategy 1: parse table rows, find Type=10-K, get document filename
+    # Strategy 1: find table row where Type column = 10-K, grab its document href
     rows = re.findall(r'<tr[^>]*>(.*?)</tr>', index_text, re.IGNORECASE | re.DOTALL)
     for row in rows:
         cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
@@ -97,32 +105,23 @@ def get_10k_document_url(cik: str, accession_dashed: str):
             if cell_text[3] in ("10-K", "10-K/A"):
                 doc_match = re.search(r'href="([^"]+\.htm[l]?)"', cells[2], re.IGNORECASE)
                 if doc_match:
-                    fname = doc_match.group(1)
-                    debug.append(f"Strategy 1 found filename: {fname}")
-                    if fname.startswith("http"):
-                        return fname, index_url_hit, " | ".join(debug)
-                    elif fname.startswith("/"):
-                        return SEC_BASE + fname, index_url_hit, " | ".join(debug)
-                    else:
-                        return doc_base + fname, index_url_hit, " | ".join(debug)
+                    raw_href = doc_match.group(1)
+                    doc_url  = resolve_doc_url(raw_href, doc_base)
+                    debug.append(f"Strategy 1: raw={raw_href} resolved={doc_url}")
+                    return doc_url, index_url_hit, " | ".join(debug)
 
-    # Strategy 2: find all href links, filter out exhibits/data files
-    debug.append("Strategy 1 failed — trying strategy 2 (all links)")
+    # Strategy 2: any .htm link that isn't an exhibit or data file
+    debug.append("Strategy 1 failed — trying strategy 2")
     all_links = re.findall(r'href="([^"]+\.htm[l]?)"', index_text, re.IGNORECASE)
-    debug.append(f"All .htm links found: {all_links[:10]}")
-
+    debug.append(f"Links found: {all_links[:8]}")
     exclude = re.compile(r'(xex|ex-|exhibit|_htm\.xml|\.xsd|_cal\.|_def\.|_lab\.|_pre\.)', re.IGNORECASE)
     for link in all_links:
         if not exclude.search(link):
-            debug.append(f"Strategy 2 selected: {link}")
-            if link.startswith("http"):
-                return link, index_url_hit, " | ".join(debug)
-            elif link.startswith("/"):
-                return SEC_BASE + link, index_url_hit, " | ".join(debug)
-            else:
-                return doc_base + link, index_url_hit, " | ".join(debug)
+            doc_url = resolve_doc_url(link, doc_base)
+            debug.append(f"Strategy 2 selected: {link} -> {doc_url}")
+            return doc_url, index_url_hit, " | ".join(debug)
 
-    debug.append(f"All strategies failed. Index HTML snippet: {index_text[:500]}")
+    debug.append(f"All strategies failed. HTML snippet: {index_text[:300]}")
     return None, index_url_hit, " | ".join(debug)
 
 
@@ -131,7 +130,6 @@ def extract_sections(doc_url: str) -> dict:
         resp = requests.get(doc_url, headers=HEADERS, timeout=30)
         if resp.status_code != 200:
             return {}
-
         clean = re.sub(r'<[^>]+>', ' ', resp.text)
         clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
         clean = re.sub(r'\s+', ' ', clean).strip()
