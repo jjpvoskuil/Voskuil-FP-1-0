@@ -15,7 +15,7 @@ import requests
 import json
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-MODEL         = "claude-opus-4-6"
+MODEL         = "claude-sonnet-4-6"
 
 SYSTEM_PROMPT = """You are a senior investment analyst embedded inside Voskuil FP 1.0, 
 a personal financial dashboard built for a 57-year-old investor following a 
@@ -173,4 +173,3 @@ def ask_claude_about_equity(
         return "⚠️ Request timed out — the filing analysis can take up to 60 seconds. Please try again."
     except Exception as e:
         return f"⚠️ Unexpected error: {e}"
-
