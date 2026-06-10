@@ -1,13 +1,5 @@
 """
 sec_utils.py — SEC EDGAR filing fetcher for Voskuil FP 1.0
-
-Fetches the most recent 10-K for a ticker and extracts key sections:
-  - Item 1  (Business)
-  - Item 1A (Risk Factors)
-  - Item 7  (MD&A)
-  - Item 7A (Quantitative Disclosures)
-
-Uses only the public EDGAR REST API — no auth required.
 """
 
 import re
@@ -16,39 +8,28 @@ import requests
 EDGAR_BASE = "https://data.sec.gov"
 SEC_BASE   = "https://www.sec.gov"
 HEADERS    = {"User-Agent": "VoskuilFP/1.0 jvoskuil@foxdenholdings.com"}
-
 SECTION_LIMIT = 8_000
 
 
 def get_cik(ticker: str):
-    """Resolve ticker -> zero-padded 10-digit CIK."""
     try:
-        resp = requests.get(
-            f"{SEC_BASE}/files/company_tickers.json",
-            headers=HEADERS, timeout=10
-        )
+        resp = requests.get(f"{SEC_BASE}/files/company_tickers.json", headers=HEADERS, timeout=10)
         if resp.status_code != 200:
-            return None
+            return None, f"company_tickers.json returned {resp.status_code}"
         for entry in resp.json().values():
             if entry.get("ticker", "").upper() == ticker.upper():
-                return str(entry["cik_str"]).zfill(10)
-        return None
-    except Exception:
-        return None
+                return str(entry["cik_str"]).zfill(10), None
+        return None, f"Ticker {ticker} not found in EDGAR tickers list"
+    except Exception as e:
+        return None, str(e)
 
 
 def get_latest_10k_accession(cik: str):
-    """
-    Use EDGAR submissions REST API to find most recent 10-K.
-    Returns (accession_dashed, filing_date) or (None, None).
-    """
     try:
-        resp = requests.get(
-            f"{EDGAR_BASE}/submissions/CIK{cik}.json",
-            headers=HEADERS, timeout=10
-        )
+        url  = f"{EDGAR_BASE}/submissions/CIK{cik}.json"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
         if resp.status_code != 200:
-            return None, None
+            return None, None, f"submissions API returned {resp.status_code} for CIK {cik}"
 
         data   = resp.json()
         recent = data.get("filings", {}).get("recent", {})
@@ -58,115 +39,94 @@ def get_latest_10k_accession(cik: str):
 
         for i, form in enumerate(forms):
             if form in ("10-K", "10-K/A"):
-                return accnos[i], dates[i]
+                return accnos[i], dates[i], None
 
         # Check older filing pages
         for file_entry in data.get("filings", {}).get("files", []):
             fname    = file_entry.get("name", "")
-            sub_resp = requests.get(
-                f"{EDGAR_BASE}/submissions/{fname}",
-                headers=HEADERS, timeout=10
-            )
+            sub_resp = requests.get(f"{EDGAR_BASE}/submissions/{fname}", headers=HEADERS, timeout=10)
             if sub_resp.status_code == 200:
                 sub = sub_resp.json()
                 for i, form in enumerate(sub.get("form", [])):
                     if form in ("10-K", "10-K/A"):
-                        return sub["accessionNumber"][i], sub["filingDate"][i]
+                        return sub["accessionNumber"][i], sub["filingDate"][i], None
 
-        return None, None
-    except Exception:
-        return None, None
+        return None, None, "No 10-K found in submissions (recent or older pages)"
+    except Exception as e:
+        return None, None, str(e)
 
 
 def get_10k_document_url(cik: str, accession_dashed: str):
     """
-    Fetch the filing index page and find the primary 10-K document URL.
-
-    EDGAR index URL pattern (NO subfolder in path):
-      https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_dashed}-index.html
-
-    Documents in the index are listed as bare filenames. The full document URL is:
-      https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_nodash}/{filename}
-
-    Returns (doc_url, index_url) or (None, index_url).
+    Returns (doc_url, index_url, debug_info).
+    Tries multiple index URL patterns and document resolution strategies.
     """
     cik_int          = str(int(cik))
     accession_nodash = accession_dashed.replace("-", "")
+    doc_base         = f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/"
+    debug            = []
 
-    # Index page — no subfolder, .html extension
-    index_url = (
-        f"{SEC_BASE}/Archives/edgar/data/{cik_int}/"
-        f"{accession_dashed}-index.html"
-    )
-    # Base path for resolving document filenames
-    doc_base = (
-        f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/"
-    )
+    # EDGAR has two possible index URL patterns — try both
+    candidate_index_urls = [
+        f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_dashed}-index.html",
+        f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_dashed}-index.htm",
+        f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/{accession_dashed}-index.html",
+        f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/{accession_dashed}-index.htm",
+    ]
 
-    try:
-        resp = requests.get(index_url, headers=HEADERS, timeout=10)
-        if resp.status_code != 200:
-            # Try .htm fallback
-            index_url = index_url.replace("-index.html", "-index.htm")
-            resp      = requests.get(index_url, headers=HEADERS, timeout=10)
-            if resp.status_code != 200:
-                return None, index_url
+    index_text    = None
+    index_url_hit = None
 
-        text = resp.text
+    for idx_url in candidate_index_urls:
+        resp = requests.get(idx_url, headers=HEADERS, timeout=10)
+        debug.append(f"Index URL tried: {idx_url} -> {resp.status_code}")
+        if resp.status_code == 200:
+            index_text    = resp.text
+            index_url_hit = idx_url
+            break
 
-        # Parse the document table — look for rows with type 10-K
-        # The table has columns: Seq | Description | Document | Type | Size
-        # We want the Document filename where Type = 10-K
-        rows = re.findall(
-            r'<tr[^>]*>(.*?)</tr>',
-            text, re.IGNORECASE | re.DOTALL
-        )
+    if not index_text:
+        return None, candidate_index_urls[0], " | ".join(debug)
 
-        for row in rows:
-            cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
-            if len(cells) >= 4:
-                # Strip tags from each cell
-                cell_text = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
-                # Type column (index 3) should be "10-K"
-                if cell_text[3] in ("10-K", "10-K/A"):
-                    # Document column (index 2) has the filename — extract from href or text
-                    doc_match = re.search(r'href="([^"]+\.htm[l]?)"', cells[2], re.IGNORECASE)
-                    if doc_match:
-                        fname = doc_match.group(1)
-                        # fname may be bare filename or partial path
-                        if fname.startswith("http"):
-                            return fname, index_url
-                        elif fname.startswith("/"):
-                            return SEC_BASE + fname, index_url
-                        else:
-                            return doc_base + fname, index_url
+    # Strategy 1: parse table rows, find Type=10-K, get document filename
+    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', index_text, re.IGNORECASE | re.DOTALL)
+    for row in rows:
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
+        if len(cells) >= 4:
+            cell_text = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+            if cell_text[3] in ("10-K", "10-K/A"):
+                doc_match = re.search(r'href="([^"]+\.htm[l]?)"', cells[2], re.IGNORECASE)
+                if doc_match:
+                    fname = doc_match.group(1)
+                    debug.append(f"Strategy 1 found filename: {fname}")
+                    if fname.startswith("http"):
+                        return fname, index_url_hit, " | ".join(debug)
+                    elif fname.startswith("/"):
+                        return SEC_BASE + fname, index_url_hit, " | ".join(debug)
+                    else:
+                        return doc_base + fname, index_url_hit, " | ".join(debug)
 
-        # Fallback: first .htm link that isn't an exhibit or data file
-        exclude = re.compile(
-            r'(xex|ex-|exhibit|_htm\.xml|\.xsd|_cal\.|_def\.|_lab\.|_pre\.)',
-            re.IGNORECASE
-        )
-        all_links = re.findall(r'href="([^"]+\.htm[l]?)"', text, re.IGNORECASE)
-        for link in all_links:
-            if not exclude.search(link):
-                if link.startswith("http"):
-                    return link, index_url
-                elif link.startswith("/"):
-                    return SEC_BASE + link, index_url
-                else:
-                    return doc_base + link, index_url
+    # Strategy 2: find all href links, filter out exhibits/data files
+    debug.append("Strategy 1 failed — trying strategy 2 (all links)")
+    all_links = re.findall(r'href="([^"]+\.htm[l]?)"', index_text, re.IGNORECASE)
+    debug.append(f"All .htm links found: {all_links[:10]}")
 
-        return None, index_url
+    exclude = re.compile(r'(xex|ex-|exhibit|_htm\.xml|\.xsd|_cal\.|_def\.|_lab\.|_pre\.)', re.IGNORECASE)
+    for link in all_links:
+        if not exclude.search(link):
+            debug.append(f"Strategy 2 selected: {link}")
+            if link.startswith("http"):
+                return link, index_url_hit, " | ".join(debug)
+            elif link.startswith("/"):
+                return SEC_BASE + link, index_url_hit, " | ".join(debug)
+            else:
+                return doc_base + link, index_url_hit, " | ".join(debug)
 
-    except Exception:
-        return None, index_url
+    debug.append(f"All strategies failed. Index HTML snippet: {index_text[:500]}")
+    return None, index_url_hit, " | ".join(debug)
 
 
 def extract_sections(doc_url: str) -> dict:
-    """
-    Fetch the 10-K document and extract key sections.
-    Uses second occurrence of each Item header (first = table of contents).
-    """
     try:
         resp = requests.get(doc_url, headers=HEADERS, timeout=30)
         if resp.status_code != 200:
@@ -186,7 +146,6 @@ def extract_sections(doc_url: str) -> dict:
         positions = {}
         for key, pattern in item_patterns.items():
             matches = list(re.finditer(pattern, clean, re.IGNORECASE))
-            # Second match skips table of contents
             if len(matches) >= 2:
                 positions[key] = matches[1].start()
             elif len(matches) == 1:
@@ -204,37 +163,28 @@ def extract_sections(doc_url: str) -> dict:
             sections[key] = clean[start:end].strip()
 
         return sections
-
     except Exception:
         return {}
 
 
 def fetch_10k_sections(ticker: str) -> dict:
-    """
-    Main entry point.
-    Returns dict: {sections, filing_url, doc_url, filing_date, error}
-    """
-    cik = get_cik(ticker)
+    cik, err = get_cik(ticker)
     if not cik:
-        return {"sections": {}, "filing_url": None,
-                "error": f"Could not find CIK for {ticker} on EDGAR."}
+        return {"sections": {}, "filing_url": None, "error": f"CIK lookup failed: {err}"}
 
-    accession, filing_date = get_latest_10k_accession(cik)
+    accession, filing_date, err = get_latest_10k_accession(cik)
     if not accession:
-        return {"sections": {}, "filing_url": None,
-                "error": f"No 10-K filing found for {ticker} in EDGAR submissions."}
+        return {"sections": {}, "filing_url": None, "error": f"10-K accession lookup failed: {err}"}
 
-    doc_url, index_url = get_10k_document_url(cik, accession)
+    doc_url, index_url, debug = get_10k_document_url(cik, accession)
     if not doc_url:
         return {"sections": {}, "filing_url": index_url,
-                "error": f"Found 10-K index but could not locate main document. "
-                         f"Accession: {accession}. Index: {index_url}"}
+                "error": f"Document URL resolution failed. Debug: {debug}"}
 
     sections = extract_sections(doc_url)
     if not sections:
         return {"sections": {}, "filing_url": index_url,
-                "error": "Fetched the 10-K document but could not extract Item sections. "
-                         "The filing may use an unusual format."}
+                "error": f"Fetched doc ({doc_url}) but could not extract sections."}
 
     return {
         "sections":    sections,
