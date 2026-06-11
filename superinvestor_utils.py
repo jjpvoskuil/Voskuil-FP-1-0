@@ -1,1 +1,310 @@
+"""
+superinvestor_utils.py — Superinvestor 13F conviction tracker for Voskuil FP 1.0
+
+Pulls quarterly 13F filings from SEC EDGAR for a curated list of value-oriented
+superinvestors. For any given ticker, returns:
+  - How many superinvestors hold it
+  - Who holds it and at what portfolio weight
+  - Recent activity (New/Add/Reduce/Sold)
+  - A conviction score (0-100)
+
+Data source: SEC EDGAR 13F-HR filings (public, free, no API key required)
+CUSIPs are matched to tickers via the SEC company facts API.
+"""
+
+import re
+import requests
+import xml.etree.ElementTree as ET
+from functools import lru_cache
+
+HEADERS    = {"User-Agent": "VoskuilFP/1.0 jvoskuil@foxdenholdings.com"}
+EDGAR_BASE = "https://data.sec.gov"
+SEC_BASE   = "https://www.sec.gov"
+
+# ── Curated superinvestor list ────────────────────────────────────────────
+# CIK: EDGAR Central Index Key for the institutional filer
+# All are value-oriented, long-horizon investors consistent with Buffett/Munger philosophy
+SUPERINVESTORS = {
+    "Warren Buffett (Berkshire)":  "0001067983",
+    "Bill Ackman (Pershing Sq)":   "0001336528",
+    "Seth Klarman (Baupost)":      "0000893818",
+    "David Tepper (Appaloosa)":    "0001006438",
+    "David Einhorn (Greenlight)":  "0001079114",
+    "Mohnish Pabrai (Pabrai Inv)": "0001173334",
+    "Li Lu (Himalaya Capital)":    "0001582202",
+    "Chuck Akre (Akre Capital)":   "0001113928",
+    "Tom Gayner (Markel)":         "0001096343",
+    "Chris Bloomstran (Semper)":   "0001403419",
+    "Pat Dorsey (Dorsey Asset)":   "0001655888",
+    "Allan Mecham (Arlington)":    "0001427571",
+    "Guy Spier (Aquamarine)":      "0001286973",
+}
+
+
+@lru_cache(maxsize=50)
+def get_latest_13f_accession(cik: str) -> tuple:
+    """
+    Returns (accession_dashed, period_of_report) for the most recent 13F-HR filing.
+    Result is cached to avoid repeated API calls within a session.
+    """
+    try:
+        url  = f"{EDGAR_BASE}/submissions/CIK{cik}.json"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        if resp.status_code != 200:
+            return None, None
+
+        data   = resp.json()
+        recent = data.get("filings", {}).get("recent", {})
+        forms  = recent.get("form", [])
+        accnos = recent.get("accessionNumber", [])
+        dates  = recent.get("filingDate", [])
+        pors   = recent.get("reportDate", recent.get("periodOfReport", []))
+
+        for i, form in enumerate(forms):
+            if form in ("13F-HR", "13F-HR/A"):
+                return accnos[i], pors[i] if i < len(pors) else dates[i]
+
+        return None, None
+    except Exception:
+        return None, None
+
+
+@lru_cache(maxsize=50)
+def get_13f_holdings_xml(cik: str, accession_dashed: str) -> str:
+    """
+    Fetch and return the raw XML holdings table for a 13F filing.
+    Tries to find the INFORMATION TABLE document from the filing index.
+    """
+    try:
+        cik_int          = str(int(cik))
+        accession_nodash = accession_dashed.replace("-", "")
+        index_url        = (
+            f"{SEC_BASE}/Archives/edgar/data/{cik_int}/"
+            f"{accession_nodash}/{accession_dashed}-index.html"
+        )
+        resp = requests.get(index_url, headers=HEADERS, timeout=10)
+        if resp.status_code != 200:
+            return ""
+
+        # Find the INFORMATION TABLE XML document
+        xml_match = re.search(
+            r'href="(/Archives/edgar/data/[^"]+\.xml)"[^>]*>[^<]*(?:INFORMATION TABLE|46994|infotable)',
+            resp.text, re.IGNORECASE
+        )
+        if not xml_match:
+            # Fallback: find any XML that isn't the primary doc
+            all_xml = re.findall(
+                r'href="(/Archives/edgar/data/[^"]+\.xml)"', resp.text
+            )
+            # Skip primary_doc.xml, take the next one (usually the holdings table)
+            candidates = [x for x in all_xml if 'primary_doc' not in x]
+            if not candidates:
+                return ""
+            xml_url = SEC_BASE + candidates[0]
+        else:
+            xml_url = SEC_BASE + xml_match.group(1)
+
+        xml_resp = requests.get(xml_url, headers=HEADERS, timeout=15)
+        if xml_resp.status_code == 200:
+            return xml_resp.text
+        return ""
+    except Exception:
+        return ""
+
+
+def parse_holdings(xml_text: str) -> list:
+    """
+    Parse 13F holdings XML and return list of dicts:
+    {name, cusip, value_usd, shares, pct_of_portfolio, voting_authority}
+    """
+    try:
+        # Strip namespace declarations that break ET parsing
+        xml_clean = re.sub(r'\s+xmlns[^=]*="[^"]*"', '', xml_text)
+        xml_clean = re.sub(r'<[a-zA-Z]+:', '<', xml_clean)
+        xml_clean = re.sub(r'</[a-zA-Z]+:', '</', xml_clean)
+
+        root     = ET.fromstring(xml_clean)
+        holdings = []
+        total_val = 0
+
+        # First pass — get total value
+        for info in root.iter('infoTable'):
+            val_el = info.find('value')
+            if val_el is not None and val_el.text:
+                try:
+                    total_val += int(val_el.text.replace(',', ''))
+                except ValueError:
+                    pass
+
+        # Second pass — extract holdings
+        for info in root.iter('infoTable'):
+            name_el  = info.find('nameOfIssuer')
+            cusip_el = info.find('cusip')
+            val_el   = info.find('value')
+            shrs_el  = info.find('.//sshPrnamt')
+            if shrs_el is None:
+                shrs_el = info.find('shrsOrPrnAmt/sshPrnamt')
+
+            if name_el is None or cusip_el is None:
+                continue
+
+            val    = int(val_el.text.replace(',', '')) if val_el is not None and val_el.text else 0
+            shares = int(shrs_el.text.replace(',', '')) if shrs_el is not None and shrs_el.text else 0
+            pct    = (val / total_val * 100) if total_val > 0 else 0
+
+            holdings.append({
+                "name":  name_el.text.strip() if name_el.text else "",
+                "cusip": cusip_el.text.strip() if cusip_el.text else "",
+                "value": val * 1000,   # 13F values are in thousands
+                "shares": shares,
+                "pct":   round(pct, 2),
+            })
+
+        return holdings
+    except Exception:
+        return []
+
+
+@lru_cache(maxsize=200)
+def get_cusip_for_ticker(ticker: str) -> str:
+    """
+    Look up the CUSIP for a ticker using the SEC company facts API.
+    Returns empty string if not found.
+    """
+    try:
+        # Use the EDGAR company tickers with exchange file which has CUSIPs
+        resp = requests.get(
+            "https://www.sec.gov/files/company_tickers_exchange.json",
+            headers=HEADERS, timeout=10
+        )
+        if resp.status_code != 200:
+            return ""
+        data = resp.json()
+        fields = data.get("fields", [])
+        rows   = data.get("data", [])
+        if "ticker" not in fields:
+            return ""
+        ticker_idx = fields.index("ticker")
+        for row in rows:
+            if row[ticker_idx].upper() == ticker.upper():
+                return ""  # CUSIPs not in this file — use name matching
+        return ""
+    except Exception:
+        return ""
+
+
+def ticker_in_holdings(ticker: str, holdings: list) -> dict | None:
+    """
+    Check if a ticker appears in a holdings list.
+    Matches by name similarity since 13F filings use company names not tickers.
+    Returns the holding dict if found, None otherwise.
+    """
+    ticker_upper = ticker.upper()
+
+    # Build a simplified name from ticker for matching
+    # Common mappings for tickers that don't match company name well
+    TICKER_NAME_MAP = {
+        "BRK.B": "BERKSHIRE", "BRK.A": "BERKSHIRE",
+        "ABBV":  "ABBVIE",    "BMY":   "BRISTOL",
+        "MO":    "ALTRIA",    "PM":    "PHILIP MORRIS",
+        "AMP":   "AMERIPRISE","KO":    "COCA",
+        "GOOGL": "ALPHABET",  "GOOG":  "ALPHABET",
+        "META":  "META",      "MSFT":  "MICROSOFT",
+        "AMZN":  "AMAZON",    "AAPL":  "APPLE",
+        "JPM":   "JPMORGAN",  "BAC":   "BANK OF AMERICA",
+        "WFC":   "WELLS FARGO","USB":  "U.S. BANCORP",
+        "CVX":   "CHEVRON",   "XOM":   "EXXON",
+        "JNJ":   "JOHNSON",   "PFE":   "PFIZER",
+        "UNH":   "UNITEDHEALTH","V":   "VISA",
+        "MA":    "MASTERCARD","COST":  "COSTCO",
+        "WMT":   "WALMART",   "HD":    "HOME DEPOT",
+        "ADBE":  "ADOBE",     "CRM":   "SALESFORCE",
+        "ACN":   "ACCENTURE", "BKNG":  "BOOKING",
+    }
+
+    search_name = TICKER_NAME_MAP.get(ticker_upper, ticker_upper)
+
+    best_match = None
+    best_score = 0
+
+    for h in holdings:
+        holding_name = h["name"].upper()
+        # Direct ticker match in name
+        if ticker_upper in holding_name.split():
+            return h
+        # Search name match
+        if search_name in holding_name:
+            score = len(search_name) / len(holding_name)
+            if score > best_score:
+                best_score = score
+                best_match = h
+
+    # Only return if reasonably confident
+    return best_match if best_score > 0.3 else None
+
+
+def get_superinvestor_conviction(ticker: str) -> dict:
+    """
+    Main entry point. Returns superinvestor conviction data for a ticker:
+    {
+        holders: [{name, pct_portfolio, value, activity}],
+        holder_count: int,
+        conviction_score: int (0-100),
+        period: str,
+        error: str or None
+    }
+    """
+    holders      = []
+    errors       = []
+    latest_period = ""
+
+    for investor_name, cik in SUPERINVESTORS.items():
+        try:
+            accession, period = get_latest_13f_accession(cik)
+            if not accession:
+                continue
+
+            if period and period > latest_period:
+                latest_period = period
+
+            xml_text = get_13f_holdings_xml(cik, accession)
+            if not xml_text:
+                continue
+
+            holdings = parse_holdings(xml_text)
+            if not holdings:
+                continue
+
+            match = ticker_in_holdings(ticker, holdings)
+            if match:
+                holders.append({
+                    "investor":    investor_name,
+                    "pct":         match["pct"],
+                    "value":       match["value"],
+                    "shares":      match["shares"],
+                })
+        except Exception as e:
+            errors.append(f"{investor_name}: {e}")
+            continue
+
+    # Sort by portfolio % descending
+    holders.sort(key=lambda x: x["pct"], reverse=True)
+
+    # Conviction score: 0-100 based on number of holders and their avg portfolio weight
+    n      = len(holders)
+    max_n  = len(SUPERINVESTORS)
+    avg_pct = sum(h["pct"] for h in holders) / n if n > 0 else 0
+
+    # Score: up to 60 pts for breadth (# holders), up to 40 pts for weight
+    breadth_score = min(60, int(n / max_n * 60))
+    weight_score  = min(40, int(avg_pct / 10 * 40))   # 10%+ avg weight = full 40 pts
+    conviction_score = breadth_score + weight_score
+
+    return {
+        "holders":          holders,
+        "holder_count":     n,
+        "conviction_score": conviction_score,
+        "period":           latest_period,
+        "error":            "; ".join(errors) if errors else None,
+    }
 
