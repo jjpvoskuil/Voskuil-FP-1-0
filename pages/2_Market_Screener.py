@@ -201,10 +201,18 @@ from sec_utils import fetch_10k_sections
 
 # ── Helper: build context string from results dataframe ──────────────
 def build_ms_context(df):
+    from claude_utils import get_user_profile as _gup
+    _prof = _gup()
+    _age  = _prof.get('age', 57)
+    _sage = _prof.get('spouse_age', '')
+    _wd   = _prof.get('monthly_withdrawal', 8000)
+    _pv   = _prof.get('portfolio_val', 3_790_000)
+    _inf  = _prof.get('inflation', 4.0)
+    _age_str = f"{_age}-year-old" + (f" and spouse age {_sage}" if _sage else "")
     lines = [
         "MARKET SCREEN RESULTS — Voskuil Owner's Framework\n",
-        "Investment context: Buffett + Munger concentrated value, macro-aware thesis.",
-        "Owner is 57, targeting $8K/month retirement income. Hold horizon 5-10 years.\n",
+        f"Investment context: Buffett + Munger concentrated value philosophy.",
+        f"Investor: {_age_str} | Portfolio: ${_pv/1e6:.1f}M | Monthly target: ${_wd:,.0f} | Inflation assumption: {_inf:.1f}%. Hold horizon 5-10 years.\n",
         f"Top {len(df)} results from S&P 500 screen:\n",
     ]
     for _, row in df.iterrows():
@@ -548,14 +556,16 @@ if 'ms_results_df' in st.session_state:
         _age = _p.get('age', 57)
         _wd  = _p.get('monthly_withdrawal', 8000)
         _pv  = _p.get('portfolio_val', 3_790_000)
+        _sage = _p.get('spouse_age', '')
+        _age_str = f"{_age}-year-old" + (f" and spouse age {_sage}" if _sage else "")
         st.session_state['ms_pending_claude_q'] = (
             f"I've now loaded the SEC 10-K filings for {', '.join(top3_tickers)}. "
             f"Please do a full qualitative comparison of these three companies using both "
             f"the quantitative scores and the actual filing text. Apply both Buffett and "
             f"Munger lenses — use Munger's inversion first (what could permanently destroy "
             f"value?), then assess moat durability, management quality, and pricing power. "
-            f"Rank them for a {_age}-year-old investor with a ${_pv/1e6:.1f}M portfolio "
-            f"targeting ${_wd:,.0f}/month retirement income in a financial repression / credit tightening environment. "
+            f"Rank them for a {_age_str} household with a ${_pv/1e6:.1f}M portfolio "
+            f"targeting ${_wd:,.0f}/month in retirement income. "
             f"Which one would you concentrate in and why?"
         )
         st.rerun()
@@ -588,7 +598,7 @@ if 'ms_results_df' in st.session_state:
         _sp  = get_user_profile()
         _wd2 = _sp.get('monthly_withdrawal', 8000)
         ms_starters = [
-            f"Which fits best for my ${_wd2:,.0f}/month income target given current macro risks?",
+            f"Which fits best for our ${_wd2:,.0f}/month retirement income target?",
             "Apply Munger's inversion — what could permanently destroy value in each?",
             "Compare the top 3 on moat durability using Buffett + Munger criteria.",
             "Which would Buffett most likely hold for 10 years and why?",
