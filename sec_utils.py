@@ -53,23 +53,17 @@ def get_latest_10k_accession(cik: str):
 def resolve_doc_url(raw_href: str, doc_base: str) -> str:
     """
     Convert a raw href from the EDGAR index into a fetchable URL.
-    
-    If the href starts with /ix?doc=, we have two choices:
-      a) Strip it -> raw iXBRL file (3MB+ of mixed XML/HTML, hard to parse)
-      b) Keep it -> EDGAR viewer renders clean readable HTML
-    
-    We keep the /ix?doc= prefix so the viewer does the rendering work for us.
-    The viewer returns standard HTML with the narrative text intact.
+    Strip /ix?doc= prefix — the EDGAR viewer requires JavaScript so we
+    fetch the raw iXBRL file directly and clean it ourselves.
     """
-    if raw_href.startswith("/ix?doc="):
-        # Use the EDGAR inline viewer — returns clean rendered HTML
-        return SEC_BASE + raw_href
-    elif raw_href.startswith("http"):
-        return raw_href
-    elif raw_href.startswith("/"):
-        return SEC_BASE + raw_href
+    # Strip inline XBRL viewer wrapper
+    href = re.sub(r'^/ix\?doc=', '', raw_href)
+    if href.startswith("http"):
+        return href
+    elif href.startswith("/"):
+        return SEC_BASE + href
     else:
-        return doc_base + raw_href
+        return doc_base + href
 
 
 def get_10k_document_url(cik: str, accession_dashed: str):
@@ -134,26 +128,33 @@ def extract_sections(doc_url: str) -> dict:
 
     raw = resp.text
 
-    # If we got the viewer HTML, it will be clean narrative text.
-    # If we accidentally got the raw iXBRL XML, detect and handle it.
-    if raw.startswith('<?xml') or ('<xbrl' in raw[:2000].lower()):
-        # We got the raw XBRL instance document — try the viewer instead
-        # by reconstructing the /ix?doc= URL from the doc_url
-        archive_path = doc_url.replace(SEC_BASE, '')
-        viewer_url   = f"{SEC_BASE}/ix?doc={archive_path}"
-        viewer_resp  = requests.get(viewer_url, headers=HEADERS, timeout=30)
-        if viewer_resp.status_code == 200 and len(viewer_resp.text) > len(raw):
-            raw = viewer_resp.text
+    # Detect pure XBRL instance documents (not iXBRL) — these are XML
+    # and contain no narrative text. Skip them entirely.
+    if raw.lstrip().startswith('<?xml') and '<html' not in raw[:5000].lower():
+        raise ValueError(f"Document is a pure XBRL XML instance — no narrative text available")
 
-    # Strip iXBRL/XBRL namespace tags first (ix:, xbrli:, etc.)
-    # These appear in inline XBRL documents as <ix:nonfraction ...>value</ix:nonfraction>
-    # We want to keep the text content but remove the tags
-    raw = re.sub(r'<(?:ix|xbrli|xbrldi|link|label|ref|xs):[^>]+>', ' ', raw, flags=re.IGNORECASE)
-    raw = re.sub(r'</(?:ix|xbrli|xbrldi|link|label|ref|xs):[^>]+>', ' ', raw, flags=re.IGNORECASE)
-
+    # iXBRL documents embed XBRL tags inside HTML. Strip them to get clean text.
+    # Order matters: strip namespace tags BEFORE generic HTML tag stripping.
+    
+    # 1. Remove hidden XBRL context/reference blocks entirely
+    raw = re.sub(r'<[^>]*:hidden[^>]*>.*?</[^>]*:hidden>', ' ', raw, flags=re.IGNORECASE | re.DOTALL)
+    raw = re.sub(r'<div[^>]+style="[^"]*display:\s*none[^"]*"[^>]*>.*?</div>', ' ', raw, flags=re.IGNORECASE | re.DOTALL)
+    
+    # 2. Strip iXBRL opening and closing namespace tags but keep their text content
+    raw = re.sub(r'</?(?:ix|xbrli|xbrldi|xlink|link|xs):[A-Za-z]+[^>]*>', ' ', raw, flags=re.IGNORECASE)
+    
+    # 3. Strip remaining HTML tags
     clean = re.sub(r'<[^>]+>', ' ', raw)
+    
+    # 4. Decode HTML entities
+    clean = re.sub(r'&nbsp;', ' ', clean)
+    clean = re.sub(r'&amp;', '&', clean)
+    clean = re.sub(r'&lt;', '<', clean)
+    clean = re.sub(r'&gt;', '>', clean)
     clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
-    clean = re.sub(r'\s+', ' ', clean).strip()
+    
+    # 5. Collapse whitespace
+    clean = re.sub(r'[ \t\n\r]+', ' ', clean).strip()
 
     if len(clean) < 5_000:
         raise ValueError(f"Document too short after cleaning ({len(clean)} chars) — likely a viewer stub")
