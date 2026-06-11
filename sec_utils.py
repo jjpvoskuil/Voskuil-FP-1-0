@@ -134,6 +134,12 @@ def extract_sections(doc_url: str) -> dict:
             if resp.status_code == 200:
                 raw = resp.text
 
+    # Strip iXBRL/XBRL namespace tags first (ix:, xbrli:, etc.)
+    # These appear in inline XBRL documents as <ix:nonfraction ...>value</ix:nonfraction>
+    # We want to keep the text content but remove the tags
+    raw = re.sub(r'<(?:ix|xbrli|xbrldi|link|label|ref|xs):[^>]+>', ' ', raw, flags=re.IGNORECASE)
+    raw = re.sub(r'</(?:ix|xbrli|xbrldi|link|label|ref|xs):[^>]+>', ' ', raw, flags=re.IGNORECASE)
+
     clean = re.sub(r'<[^>]+>', ' ', raw)
     clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
     clean = re.sub(r'\s+', ' ', clean).strip()
