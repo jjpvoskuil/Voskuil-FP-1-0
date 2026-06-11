@@ -249,6 +249,10 @@ def fetch_filings_parallel(tickers: list) -> dict:
 # ── Helper: build deep-dive context with filing sections ──────────────
 def build_deep_dive_context(df, filings: dict, question: str) -> str:
     lines = [build_ms_context(df), "\n\n=== SEC 10-K FILING EXCERPTS ===\n"]
+    # Scale section size down as company count increases to stay within token limits
+    n_companies  = len(filings)
+    # Minimum 2500 chars/section for 3-5 companies; more for 1-2
+    section_limit = max(2500, 7500 // max(n_companies, 1))
     for ticker, filing in filings.items():
         sections = filing.get("sections", {})
         err      = filing.get("error")
@@ -263,7 +267,7 @@ def build_deep_dive_context(df, filings: dict, question: str) -> str:
         ]:
             text = sections.get(key, "")
             if text:
-                lines.append(f"[{label}]: {text[:3000]}")
+                lines.append(f"[{label}]: {text[:section_limit]}")
     lines.append(f"\n\nQUESTION: {question}")
     return "\n".join(lines)
 
