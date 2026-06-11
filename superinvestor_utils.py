@@ -258,10 +258,15 @@ def get_superinvestor_conviction(ticker: str) -> dict:
     errors       = []
     latest_period = ""
 
+    _xml_empty_count  = 0
+    _no_holdings_count = 0
+    _sample_names      = []
+
     for investor_name, cik in SUPERINVESTORS.items():
         try:
             accession, period = get_latest_13f_accession(cik)
             if not accession:
+                errors.append(f"{investor_name}: no accession found")
                 continue
 
             if period and period > latest_period:
@@ -269,11 +274,19 @@ def get_superinvestor_conviction(ticker: str) -> dict:
 
             xml_text = get_13f_holdings_xml(cik, accession)
             if not xml_text:
+                _xml_empty_count += 1
+                errors.append(f"{investor_name}: empty XML")
                 continue
 
             holdings = parse_holdings(xml_text)
             if not holdings:
+                _no_holdings_count += 1
+                errors.append(f"{investor_name}: 0 holdings parsed from XML ({len(xml_text)} chars)")
                 continue
+
+            # Collect sample names for debugging
+            if not _sample_names and investor_name == "Warren Buffett (Berkshire)":
+                _sample_names = [h["name"] for h in holdings[:5]]
 
             match = ticker_in_holdings(ticker, holdings)
             if match:
@@ -283,6 +296,8 @@ def get_superinvestor_conviction(ticker: str) -> dict:
                     "value":       match["value"],
                     "shares":      match["shares"],
                 })
+            else:
+                errors.append(f"{investor_name}: ticker not found in {len(holdings)} holdings")
         except Exception as e:
             errors.append(f"{investor_name}: {e}")
             continue
@@ -306,5 +321,8 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         "conviction_score": conviction_score,
         "period":           latest_period,
         "error":            "; ".join(errors) if errors else None,
+        "debug_checked":    len(SUPERINVESTORS),
+        "debug_xml_empty":  _xml_empty_count,
+        "debug_no_holdings":_no_holdings_count,
+        "debug_sample_names": _sample_names[:5],
     }
-
