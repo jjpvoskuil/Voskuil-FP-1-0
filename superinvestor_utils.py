@@ -178,10 +178,18 @@ def parse_holdings(xml_text: str) -> list:
     cause ElementTree to silently return empty results.
     """
     try:
-        # Find all infoTable blocks regardless of namespace prefix
+        # First extract just the first informationTable section
+        # (txt files contain it twice — once per document block)
+        table_sections = re.findall(
+            r'<(?:[a-zA-Z0-9_]+:)?informationTable[^>]*>(.*?)</(?:[a-zA-Z0-9_]+:)?informationTable>',
+            xml_text, re.DOTALL | re.IGNORECASE
+        )
+        scope = table_sections[0] if table_sections else xml_text
+
+        # Find all infoTable blocks within the first section only
         blocks = re.findall(
             r'<(?:[a-zA-Z0-9_]+:)?infoTable[^>]*>(.*?)</(?:[a-zA-Z0-9_]+:)?infoTable>',
-            xml_text, re.DOTALL | re.IGNORECASE
+            scope, re.DOTALL | re.IGNORECASE
         )
         if not blocks:
             return []
@@ -268,11 +276,11 @@ def ticker_in_holdings(ticker: str, holdings: list) -> dict | None:
     # Common mappings for tickers that don't match company name well
     # Names are uppercase to match our parse_holdings output
     TICKER_NAME_MAP = {
-        "BRK.B": "BERKSHIRE", "BRK.A": "BERKSHIRE",
-        "ABBV":  "ABBVIE",    "BMY":   "BRISTOL",
-        "MO":    "ALTRIA",    "PM":    "PHILIP MORRIS",
-        "AMP":   "AMERIPRISE","KO":    "COCA",
-        "GOOGL": "ALPHABET",  "GOOG":  "ALPHABET",
+        "BRK.B": "BERKSHIRE",  "BRK.A": "BERKSHIRE",
+        "ABBV":  "ABBVIE",     "BMY":   "BRISTOL-MYERS",
+        "MO":    "ALTRIA",     "PM":    "PHILIP MORRIS",
+        "AMP":   "AMERIPRISE", "KO":    "COCA-COLA",
+        "GOOGL": "ALPHABET",   "GOOG":  "ALPHABET",
         "META":  "META",      "MSFT":  "MICROSOFT",
         "AMZN":  "AMAZON",    "AAPL":  "APPLE",
         "JPM":   "JPMORGAN",  "BAC":   "BANK OF AMERICA",
@@ -304,7 +312,9 @@ def ticker_in_holdings(ticker: str, holdings: list) -> dict | None:
                 best_match = h
 
     # Only return if reasonably confident
-    return best_match if best_score > 0.3 else None
+    # Lower threshold for longer search names, higher for short ones
+    min_score = 0.25 if len(search_name) > 5 else 0.4
+    return best_match if best_score >= min_score else None
 
 
 def get_superinvestor_conviction(ticker: str) -> dict:
