@@ -32,7 +32,7 @@ def get_user_profile() -> dict:
         "spouse_ss":          st.session_state.get("fp_spouse_ss",          2_200),
         "inflation":          st.session_state.get("fp_inflation",          4.0),
         "base_return":        st.session_state.get("fp_base_return",        6.0),
-        "long_squeeze_return":st.session_state.get("fp_long_squeeze_return",3.5),
+        "pessimistic_return": st.session_state.get("fp_pessimistic_return", 3.5),
         "bear_return":        st.session_state.get("fp_bear_return",        1.0),
         "survivor_monthly":   st.session_state.get("fp_survivor_monthly",   5_500),
     }
@@ -52,7 +52,7 @@ def build_system_prompt(profile: dict) -> str:
     ss_start_age      = profile["ss_start_age"]
     inflation         = profile["inflation"]
     base_return       = profile["base_return"]
-    ls_return         = profile["long_squeeze_return"]
+    ls_return         = profile.get("pessimistic_return", profile.get("long_squeeze_return", 3.5))
     years_to_plan     = plan_to_age - age
     annual_wd         = monthly_wd * 12
     passive_coverage  = (annual_passive / annual_wd * 100) if annual_wd > 0 else 0
@@ -69,7 +69,7 @@ Age: {age} | Planning horizon: to age {plan_to_age} ({years_to_plan} years)
 Portfolio: ${portfolio_m:.2f}M | Monthly withdrawal target: ${monthly_wd:,.0f}
 Annual passive income: ${annual_passive:,.0f} ({passive_coverage:.0f}% of withdrawal target)
 Cash buffer: ${cash_buffer:,.0f} | SS starts age {ss_start_age}: ${ss_monthly:,.0f}/mo (${ss_annual:,.0f}/yr)
-Return assumptions: Base {base_return:.1f}% | Long Squeeze {ls_return:.1f}% | Inflation {inflation:.1f}%
+Return assumptions: Base {base_return:.1f}% | Pessimistic {ls_return:.1f}% | Inflation {inflation:.1f}%
 
 PRIMARY CONCERN: Permanent capital loss — not underperformance. A concentrated \
 holder at this life stage cannot recover from a permanent 40-50% loss the way \
@@ -112,19 +112,18 @@ CHARLIE MUNGER PRINCIPLES:
    with theoretically higher returns.
 
 ═══════════════════════════════════════════════════════
-MACRO OVERLAY — THE LONG SQUEEZE
+MACRO RESILIENCE — PESSIMISTIC SCENARIO FILTER
 ═══════════════════════════════════════════════════════
-The "Long Squeeze" thesis: financial repression environment where:
-- Nominal returns are suppressed by policy (rates held below inflation)
-- Real returns on passive index strategies go negative or flat
-- Companies with genuine pricing power and low debt outperform dramatically
-- Passive index investors face bubble-valuation risk as money eventually rotates
-- Credit conditions can tighten abruptly, punishing overleveraged businesses
+Every holding is evaluated not just on upside potential but on downside survival.
+The pessimistic scenario ({ls_return:.1f}% return, {inflation:.1f}% inflation) assumes:
+- Below-average nominal returns with elevated inflation
+- Credit conditions that tighten and punish overleveraged businesses
+- Companies without real pricing power losing margin to inflation
+- Passive index concentration creating valuation risk across the market
 
-Portfolio filter: every holding must survive a scenario where:
-(a) Rates stay elevated for 5+ years
-(b) The S&P 500 declines 30-40% from passive bubble unwinding  
-(c) Inflation remains 3-5% eroding purchasing power of fixed-income alternatives
+Portfolio filter: every holding must be able to survive a sustained difficult 
+environment without becoming a forced sale. Buffett: "Only when the tide goes 
+out do you discover who has been swimming naked."
 
 ═══════════════════════════════════════════════════════
 OWNER'S FRAMEWORK — 6-METRIC SCORING
