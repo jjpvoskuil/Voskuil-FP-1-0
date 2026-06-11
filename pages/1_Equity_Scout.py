@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sec_utils import fetch_10k_sections
 from claude_utils import ask_claude_about_equity
-from superinvestor_utils import get_superinvestor_conviction
+from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
 
 st.set_page_config(page_title="Equity Scout", layout="wide")
 
@@ -539,6 +539,11 @@ if _cache_key and _cache_key in st.session_state:
     )
 
     si_key = f"si_conviction_{ticker_input}"
+    si_refresh = st.button("🔄 Refresh", key=f"si_refresh_{ticker_input}",
+                           help="Clear cache and re-fetch 13F data")
+    if si_refresh:
+        clear_superinvestor_cache()
+        st.session_state.pop(si_key, None)
     if si_key not in st.session_state:
         with st.spinner("Checking superinvestor 13F filings..."):
             st.session_state[si_key] = get_superinvestor_conviction(ticker_input)
