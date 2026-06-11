@@ -837,23 +837,28 @@ if df_holdings_raw is not None:
     st.markdown("### 🤖 Ask Claude — Portfolio Analysis")
     st.caption(
         "Claude reasons across your entire holdings using Buffett + Munger philosophy. "
-        "Ask about concentration risk, sector exposure, Long Squeeze resilience, or any specific holding."
+        "Ask about concentration risk, sector exposure, portfolio resilience, or any specific holding."
     )
 
     # Build portfolio context from scored holdings
     def build_portfolio_context() -> str:
         lines = ["CURRENT HOLDINGS PORTFOLIO\n"]
-        profile = get_user_profile()
+        profile  = get_user_profile()
+        _age     = profile.get('age', 57)
+        _sage    = profile.get('spouse_age', '')
+        _wd      = profile.get('monthly_withdrawal', 8000)
+        _pv      = profile.get('portfolio_val', 3_790_000)
+        _age_str = f"{_age}-year-old" + (f" and spouse age {_sage}" if _sage else "")
         lines.append(
-            f"Portfolio value: ${profile.get('portfolio_val', 0):,.0f} | "
-            f"Monthly target: ${profile.get('monthly_withdrawal', 0):,.0f} | "
-            f"Annual passive: ${profile.get('annual_passive', 0):,.0f}\n"
+            f"Household: {_age_str} | Portfolio: ${_pv/1e6:.1f}M | "
+            f"Monthly target: ${_wd:,.0f} | Annual passive: ${profile.get('annual_passive', 0):,.0f}\n"
         )
         lines.append("Holdings (scored via Owner's Framework):")
+        _df = df_display  # capture outer scope variable explicitly
         for sym in unique_symbols:
             score  = st.session_state.holding_scores.get(sym)
             cached = st.session_state.holding_raw_data.get(sym)
-            row    = df_display[df_display['Symbol'] == sym].iloc[0] if sym in df_display['Symbol'].values else None
+            row    = _df[_df['Symbol'] == sym].iloc[0] if sym in _df['Symbol'].values else None
             if row is not None:
                 val    = row.get('Total_Value', 0)
                 badge  = row.get('Badge', '—')
@@ -898,7 +903,7 @@ if df_holdings_raw is not None:
         st.markdown("**Suggested questions:**")
         dq_cols = st.columns(2)
         dash_starters = [
-            "Which holding is most vulnerable in a Long Squeeze environment?",
+            "Which holding is most vulnerable if rates stay elevated and growth slows?",
             "Apply Munger's inversion — what could permanently destroy value here?",
             "Where is my biggest concentration risk and what should I do about it?",
             "Which holding has the strongest Buffett/Munger moat and why?",
