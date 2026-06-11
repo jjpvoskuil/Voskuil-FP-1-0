@@ -458,9 +458,10 @@ if run_screen:
     st.session_state['ms_results_df']    = results_df
     st.session_state['ms_total_tickers'] = total_tickers
     st.session_state['ms_results_count'] = len(results)
-    # Clear previous Claude conversation when a new screen runs
+    # Clear previous Claude conversation and selections when a new screen runs
     st.session_state['ms_claude_convo']        = []
     st.session_state['ms_claude_context_sent'] = False
+    st.session_state['ms_selected_tickers']    = []
     st.session_state.pop('ms_filings', None)
 
 # ── Render results (fresh or cached) ─────────────────────────────────
@@ -481,16 +482,26 @@ if 'ms_results_df' in st.session_state:
         if fmt_type == "ratio": return f"{val:.1f}x"
         return str(val)
 
+    # ── Init checkbox selection state ───────────────────────────────
+    if 'ms_selected_tickers' not in st.session_state:
+        st.session_state['ms_selected_tickers'] = []
+
+    # Clear selections when a new screen runs
+    _selected = st.session_state.get('ms_selected_tickers', [])
+
     for rank, row in results_df.iterrows():
         score       = int(row['score'])
         label, icon = score_to_label(score)
+        ticker      = row['ticker']
+        is_checked  = ticker in _selected
+
         with st.container():
-            c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1, 3, 2, 2, 2, 2, 2, 2])
+            c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1, 3, 2, 2, 2, 2, 2, 2, 1])
             with c1:
                 st.markdown(f"### {icon}")
                 st.markdown(f"**#{rank+1}**")
             with c2:
-                st.markdown(f"**{row['ticker']}**")
+                st.markdown(f"**{ticker}**")
                 st.caption(row.get('name', ''))
                 st.caption(row.get('sector', ''))
             with c3: st.metric("Score",        f"{score}/100")
@@ -499,10 +510,28 @@ if 'ms_results_df' in st.session_state:
             with c6: st.metric("Gross Margin", fmt(row.get('gross_margin'),     "pct"))
             with c7: st.metric("Debt/FCF",     fmt(row.get('debt_to_fcf'),      "ratio"))
             with c8: st.metric("P/OE",         fmt(row.get('price_owner_earn'), "ratio"))
+            with c9:
+                # Checkbox — limit selection to 5
+                _at_limit = len(_selected) >= 5 and ticker not in _selected
+                checked = st.checkbox(
+                    "Select",
+                    value=is_checked,
+                    key=f"ms_chk_{ticker}_{rank}",
+                    disabled=_at_limit,
+                    help="Max 5 selected" if _at_limit else "Select for Deep Dive",
+                    label_visibility="collapsed",
+                )
+                if checked and ticker not in _selected:
+                    _selected.append(ticker)
+                    st.session_state['ms_selected_tickers'] = _selected
+                elif not checked and ticker in _selected:
+                    _selected.remove(ticker)
+                    st.session_state['ms_selected_tickers'] = _selected
+
             div = row.get('dividend_yield')
             if div: st.caption(f"💰 Dividend Yield: {div:.2%}")
             if row.get('is_net_creditor'): st.caption("✨ Net Creditor")
-            st.markdown(f"[🔍 Deep Dive in Equity Scout]({APP_URL}/equity_scout?ticker={row['ticker']}&auto=1)")
+            st.markdown(f"[🔍 Deep Dive in Equity Scout]({APP_URL}/equity_scout?ticker={ticker}&auto=1)")
             st.divider()
 
     st.markdown("### 📊 Screen Summary")
@@ -528,13 +557,34 @@ if 'ms_results_df' in st.session_state:
         "or flag risks. Use **Deep Dive Top 3** to pull the actual 10-K filings for the top scorers."
     )
 
-    # ── Deep Dive Top 3 button ────────────────────────────────────────
-    top3_tickers = results_df['ticker'].head(3).tolist()
-    dd_col1, dd_col2 = st.columns([2, 5])
+    # ── Deep Dive buttons ────────────────────────────────────────────
+    top3_tickers     = results_df['ticker'].head(3).tolist()
+    selected_tickers = st.session_state.get('ms_selected_tickers', [])
+
+    dd_col1, dd_col2, dd_col3 = st.columns([2, 2, 3])
     with dd_col1:
-        if st.button("🔬 Deep Dive Top 3 — Pull SEC Filings", type="primary", use_container_width=True):
+        if st.button("🔬 Deep Dive Top 3", type="primary", use_container_width=True,
+                     help="Fetch SEC 10-K filings for the top 3 scored tickers"):
             st.session_state['ms_pending_deep_dive'] = top3_tickers
+            st.session_state['ms_selected_tickers']  = []
             st.rerun()
+    with dd_col2:
+        n_sel = len(selected_tickers)
+        if st.button(
+            f"🔬 Deep Dive Selected ({n_sel})",
+            type="primary" if n_sel > 0 else "secondary",
+            use_container_width=True,
+            disabled=n_sel == 0,
+            help=f"Fetch SEC filings for: {', '.join(selected_tickers)}" if selected_tickers else "Check boxes next to results to select",
+        ):
+            st.session_state['ms_pending_deep_dive'] = selected_tickers.copy()
+            st.session_state['ms_selected_tickers']  = []
+            st.rerun()
+    with dd_col3:
+        if selected_tickers:
+            st.caption(f"✅ Selected: {', '.join(selected_tickers)}")
+        else:
+            st.caption("☑️ Check boxes next to any result to select for deep dive (max 5)")
 
     # Show which tickers are loaded
     loaded_filings = st.session_state.get('ms_filings', {})
