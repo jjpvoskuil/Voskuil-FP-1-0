@@ -5,6 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sec_utils import fetch_10k_sections
 from claude_utils import ask_claude_about_equity
+from superinvestor_utils import get_superinvestor_conviction
 
 st.set_page_config(page_title="Equity Scout", layout="wide")
 
@@ -527,6 +528,60 @@ if _cache_key and _cache_key in st.session_state:
             )
             st.progress(pct)
             st.caption(c['note'])
+
+    st.divider()
+
+    # ── Superinvestor Conviction ──────────────────────────────────────
+    st.markdown("### 🦁 Superinvestor Conviction")
+    st.caption(
+        "How many of 13 tracked value superinvestors (Buffett, Ackman, Klarman, etc.) "
+        "hold this stock — sourced directly from SEC EDGAR 13F filings."
+    )
+
+    si_key = f"si_conviction_{ticker_input}"
+    if si_key not in st.session_state:
+        with st.spinner("Checking superinvestor 13F filings..."):
+            st.session_state[si_key] = get_superinvestor_conviction(ticker_input)
+
+    si = st.session_state[si_key]
+    n_holders      = si.get("holder_count", 0)
+    si_score       = si.get("conviction_score", 0)
+    si_holders     = si.get("holders", [])
+    si_period      = si.get("period", "")
+
+    si_c1, si_c2, si_c3 = st.columns(3)
+    with si_c1:
+        color = "#2ecc71" if n_holders >= 3 else "#f39c12" if n_holders >= 1 else "#888"
+        st.markdown(
+            f"<div style='font-size:2em; font-weight:bold; color:{color}'>{n_holders}/13</div>",
+            unsafe_allow_html=True
+        )
+        st.caption("Superinvestors holding")
+    with si_c2:
+        st.markdown(
+            f"<div style='font-size:2em; font-weight:bold'>{si_score}/100</div>",
+            unsafe_allow_html=True
+        )
+        st.caption("Conviction score")
+    with si_c3:
+        if si_period:
+            st.caption(f"📅 Data as of {si_period}")
+        st.caption("Source: SEC EDGAR 13F filings")
+
+    if si_holders:
+        st.markdown("**Holders:**")
+        holder_cols = st.columns(min(len(si_holders), 3))
+        for i, h in enumerate(si_holders):
+            with holder_cols[i % 3]:
+                pct_str = f"{h['pct']:.1f}% of portfolio" if h['pct'] > 0 else "< 0.1%"
+                val_str = f"${h['value']/1e9:.2f}B" if h['value'] >= 1e9 else f"${h['value']/1e6:.0f}M"
+                st.markdown(f"**{h['investor'].split('(')[0].strip()}**")
+                st.caption(f"{pct_str} · {val_str}")
+    elif n_holders == 0:
+        st.info("No tracked superinvestors currently hold this stock — or it may be too small/foreign for 13F reporting.")
+
+    if si.get("error"):
+        st.caption(f"⚠️ Some investors could not be checked: {si['error'][:100]}")
 
     st.divider()
     st.markdown("### 📊 Key Metrics at a Glance")
