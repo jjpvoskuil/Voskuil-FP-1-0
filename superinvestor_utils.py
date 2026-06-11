@@ -112,52 +112,66 @@ def get_13f_holdings_xml(cik: str, accession_dashed: str) -> str:
         return ""
 
 
+def _get_xml_val(tag: str, block: str) -> str:
+    """Extract a tag value from an XML block, handling namespace prefixes."""
+    m = re.search(
+        rf'<(?:[a-zA-Z0-9_]+:)?{tag}[^>]*>(.*?)</(?:[a-zA-Z0-9_]+:)?{tag}>',
+        block, re.DOTALL | re.IGNORECASE
+    )
+    return m.group(1).strip() if m else ""
+
+
 def parse_holdings(xml_text: str) -> list:
     """
-    Parse 13F holdings XML and return list of dicts:
-    {name, cusip, value_usd, shares, pct_of_portfolio, voting_authority}
+    Parse 13F holdings XML using regex instead of ElementTree.
+    This bypasses all namespace issues (default ns, ns1:, etc.) that
+    cause ElementTree to silently return empty results.
     """
     try:
-        # Strip namespace declarations that break ET parsing
-        xml_clean = re.sub(r'\s+xmlns[^=]*="[^"]*"', '', xml_text)
-        xml_clean = re.sub(r'<[a-zA-Z]+:', '<', xml_clean)
-        xml_clean = re.sub(r'</[a-zA-Z]+:', '</', xml_clean)
+        # Find all infoTable blocks regardless of namespace prefix
+        blocks = re.findall(
+            r'<(?:[a-zA-Z0-9_]+:)?infoTable[^>]*>(.*?)</(?:[a-zA-Z0-9_]+:)?infoTable>',
+            xml_text, re.DOTALL | re.IGNORECASE
+        )
+        if not blocks:
+            return []
 
-        root     = ET.fromstring(xml_clean)
-        holdings = []
+        # First pass: get total value for pct calculation
         total_val = 0
+        for block in blocks:
+            v = _get_xml_val("value", block)
+            try:
+                total_val += int(v.replace(",", ""))
+            except (ValueError, AttributeError):
+                pass
 
-        # First pass — get total value
-        for info in root.iter('infoTable'):
-            val_el = info.find('value')
-            if val_el is not None and val_el.text:
-                try:
-                    total_val += int(val_el.text.replace(',', ''))
-                except ValueError:
-                    pass
+        holdings = []
+        for block in blocks:
+            name   = _get_xml_val("nameOfIssuer", block)
+            cusip  = _get_xml_val("cusip", block)
+            val_s  = _get_xml_val("value", block)
+            shrs_s = _get_xml_val("sshPrnamt", block)
 
-        # Second pass — extract holdings
-        for info in root.iter('infoTable'):
-            name_el  = info.find('nameOfIssuer')
-            cusip_el = info.find('cusip')
-            val_el   = info.find('value')
-            shrs_el  = info.find('.//sshPrnamt')
-            if shrs_el is None:
-                shrs_el = info.find('shrsOrPrnAmt/sshPrnamt')
-
-            if name_el is None or cusip_el is None:
+            if not name:
                 continue
 
-            val    = int(val_el.text.replace(',', '')) if val_el is not None and val_el.text else 0
-            shares = int(shrs_el.text.replace(',', '')) if shrs_el is not None and shrs_el.text else 0
-            pct    = (val / total_val * 100) if total_val > 0 else 0
+            try:
+                val = int(val_s.replace(",", ""))
+            except (ValueError, AttributeError):
+                val = 0
+            try:
+                shares = int(shrs_s.replace(",", ""))
+            except (ValueError, AttributeError):
+                shares = 0
+
+            pct = (val / total_val * 100) if total_val > 0 else 0
 
             holdings.append({
-                "name":  name_el.text.strip() if name_el.text else "",
-                "cusip": cusip_el.text.strip() if cusip_el.text else "",
-                "value": val * 1000,   # 13F values are in thousands
+                "name":   name.upper(),
+                "cusip":  cusip,
+                "value":  val * 1000,   # 13F values are in thousands
                 "shares": shares,
-                "pct":   round(pct, 2),
+                "pct":    round(pct, 2),
             })
 
         return holdings
@@ -201,8 +215,8 @@ def ticker_in_holdings(ticker: str, holdings: list) -> dict | None:
     """
     ticker_upper = ticker.upper()
 
-    # Build a simplified name from ticker for matching
     # Common mappings for tickers that don't match company name well
+    # Names are uppercase to match our parse_holdings output
     TICKER_NAME_MAP = {
         "BRK.B": "BERKSHIRE", "BRK.A": "BERKSHIRE",
         "ABBV":  "ABBVIE",    "BMY":   "BRISTOL",
