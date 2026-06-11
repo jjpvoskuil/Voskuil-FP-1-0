@@ -513,9 +513,9 @@ if 'ms_results_df' in st.session_state:
             with c9:
                 # Checkbox — limit selection to 5
                 _at_limit = len(_selected) >= 5 and ticker not in _selected
-                st.caption("Deep Dive")
+                st.caption("🔬 Dive")
                 checked = st.checkbox(
-                    "☑ Select",
+                    "Select",
                     value=is_checked,
                     key=f"ms_chk_{ticker}_{rank}",
                     disabled=_at_limit,
@@ -563,18 +563,21 @@ if 'ms_results_df' in st.session_state:
 
     dd_col1, dd_col2, dd_col3 = st.columns([2, 2, 3])
     with dd_col1:
+        _top3_disabled = 'ms_pending_deep_dive' in st.session_state
         if st.button("🔬 Deep Dive Top 3", type="primary", use_container_width=True,
+                     disabled=_top3_disabled,
                      help="Fetch SEC 10-K filings for the top 3 scored tickers"):
             st.session_state['ms_pending_deep_dive'] = top3_tickers
             st.session_state['ms_selected_tickers']  = []
             st.rerun()
     with dd_col2:
         n_sel = len(selected_tickers)
+        _sel_disabled = n_sel == 0 or 'ms_pending_deep_dive' in st.session_state
         if st.button(
             f"🔬 Deep Dive Selected ({n_sel})",
             type="primary" if n_sel > 0 else "secondary",
             use_container_width=True,
-            disabled=n_sel == 0,
+            disabled=_sel_disabled,
             help=f"Fetch SEC filings for: {', '.join(selected_tickers)}" if selected_tickers else "Check boxes next to results to select",
         ):
             st.session_state['ms_pending_deep_dive'] = selected_tickers.copy()
@@ -596,21 +599,23 @@ if 'ms_results_df' in st.session_state:
         with dd_col2:
             st.caption(f"Filings loaded: {loaded_str}")
 
-    # Handle deep dive trigger
-    if st.session_state.pop('ms_pending_deep_dive', None):
-        with st.spinner(f"📄 Fetching 10-K filings for {', '.join(top3_tickers)} in parallel..."):
-            st.session_state['ms_filings'] = fetch_filings_parallel(top3_tickers)
-        # Inject a question into the conversation
+    # Handle deep dive trigger — capture the tickers from session state
+    _dive_tickers = st.session_state.pop('ms_pending_deep_dive', None)
+    if _dive_tickers:
+        with st.spinner(f"📄 Fetching 10-K filings for {', '.join(_dive_tickers)} in parallel..."):
+            st.session_state['ms_filings'] = fetch_filings_parallel(_dive_tickers)
         from claude_utils import get_user_profile
-        _p  = get_user_profile()
-        _age = _p.get('age', 57)
-        _wd  = _p.get('monthly_withdrawal', 8000)
-        _pv  = _p.get('portfolio_val', 3_790_000)
-        _sage = _p.get('spouse_age', '')
+        _p       = get_user_profile()
+        _age     = _p.get('age', 57)
+        _wd      = _p.get('monthly_withdrawal', 8000)
+        _pv      = _p.get('portfolio_val', 3_790_000)
+        _sage    = _p.get('spouse_age', '')
         _age_str = f"{_age}-year-old" + (f" and spouse age {_sage}" if _sage else "")
+        n_co     = len(_dive_tickers)
+        _comparison = "three companies" if n_co == 3 else f"{n_co} companies"
         st.session_state['ms_pending_claude_q'] = (
-            f"I've now loaded the SEC 10-K filings for {', '.join(top3_tickers)}. "
-            f"Please do a full qualitative comparison of these three companies using both "
+            f"I've now loaded the SEC 10-K filings for {', '.join(_dive_tickers)}. "
+            f"Please do a full qualitative comparison of these {_comparison} using both "
             f"the quantitative scores and the actual filing text. Apply both Buffett and "
             f"Munger lenses — use Munger's inversion first (what could permanently destroy "
             f"value?), then assess moat durability, management quality, and pricing power. "
