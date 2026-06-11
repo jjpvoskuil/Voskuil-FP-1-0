@@ -3,6 +3,9 @@ import pandas as pd
 import plotly.express as px
 import requests
 import time
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from claude_utils import ask_claude_about_equity, get_user_profile, build_context
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
@@ -828,6 +831,122 @@ if df_holdings_raw is not None:
                 st.switch_page("pages/1_Equity_Scout.py")
 
     st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database)")
+    st.divider()
+
+    # ── Ask Claude — Portfolio Analysis ───────────────────────────────
+    st.markdown("### 🤖 Ask Claude — Portfolio Analysis")
+    st.caption(
+        "Claude reasons across your entire holdings using Buffett + Munger philosophy. "
+        "Ask about concentration risk, sector exposure, Long Squeeze resilience, or any specific holding."
+    )
+
+    # Build portfolio context from scored holdings
+    def build_portfolio_context() -> str:
+        lines = ["CURRENT HOLDINGS PORTFOLIO\n"]
+        profile = get_user_profile()
+        lines.append(
+            f"Portfolio value: ${profile.get('portfolio_val', 0):,.0f} | "
+            f"Monthly target: ${profile.get('monthly_withdrawal', 0):,.0f} | "
+            f"Annual passive: ${profile.get('annual_passive', 0):,.0f}\n"
+        )
+        lines.append("Holdings (scored via Owner's Framework):")
+        for sym in unique_symbols:
+            score  = st.session_state.holding_scores.get(sym)
+            cached = st.session_state.holding_raw_data.get(sym)
+            row    = df_display[df_display['Symbol'] == sym].iloc[0] if sym in df_display['Symbol'].values else None
+            if row is not None:
+                val    = row.get('Total_Value', 0)
+                badge  = row.get('Badge', '—')
+                pct    = val / profile.get('portfolio_val', 1) * 100 if profile.get('portfolio_val') else 0
+                verdict, _, _ = hold_verdict(cached, ht) if cached else ('—', '', '')
+                score_str = f"{score}/100" if score else "unscored"
+                lines.append(
+                    f"{sym} | Score: {score_str} | Value: ${val:,.0f} ({pct:.1f}%) | "
+                    f"Signal: {verdict} | Badge: {badge}"
+                )
+                if cached:
+                    def fv(v, t='pct'):
+                        if v is None: return 'N/A'
+                        return f"{v:.1%}" if t=='pct' else f"{v:.1f}x" if t=='ratio' else str(v)
+                    lines.append(
+                        f"  FCF Yield: {fv(cached.get('fcf_yield'))} | "
+                        f"ROIC: {fv(cached.get('roic'))} | "
+                        f"Debt/FCF: {fv(cached.get('debt_to_fcf'),'ratio')} | "
+                        f"Gross Margin: {fv(cached.get('gross_margin'))} | "
+                        f"P/OE: {fv(cached.get('price_owner_earn'),'ratio')} | "
+                        f"Sector: {cached.get('sector','N/A')}"
+                    )
+        return "\n".join(lines)
+
+    dash_convo_key   = "dash_claude_convo"
+    dash_context_key = "dash_claude_context_sent"
+    if dash_convo_key not in st.session_state:
+        st.session_state[dash_convo_key]   = []
+        st.session_state[dash_context_key] = False
+
+    # Display conversation history
+    for msg in st.session_state[dash_convo_key]:
+        role    = msg["role"]
+        display = msg["content"]
+        if role == "user" and "\n---\nQUESTION: " in display:
+            display = display.split("\n---\nQUESTION: ", 1)[-1]
+        with st.chat_message(role, avatar="🤖" if role == "assistant" else None):
+            st.markdown(display)
+
+    # Starter questions
+    if not st.session_state[dash_convo_key]:
+        st.markdown("**Suggested questions:**")
+        dq_cols = st.columns(2)
+        dash_starters = [
+            "Which holding is most vulnerable in a Long Squeeze environment?",
+            "Apply Munger's inversion — what could permanently destroy value here?",
+            "Where is my biggest concentration risk and what should I do about it?",
+            "Which holding has the strongest Buffett/Munger moat and why?",
+        ]
+        for i, q in enumerate(dash_starters):
+            with dq_cols[i % 2]:
+                if st.button(q, key=f"dash_starter_{i}", use_container_width=True):
+                    st.session_state["dash_pending_q"] = q
+                    st.rerun()
+
+    dash_pending_q = st.session_state.pop("dash_pending_q", None)
+    dash_user_q    = st.chat_input("Ask Claude about your portfolio...", key="dash_claude_input")
+    dash_active_q  = dash_pending_q or dash_user_q
+
+    if dash_active_q:
+        portfolio_ctx = build_portfolio_context()
+        full_q        = f"{portfolio_ctx}\n\n---\nQUESTION: {dash_active_q}"
+
+        with st.chat_message("user"):
+            st.markdown(dash_active_q)
+
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Analyzing your portfolio..."):
+                if not st.session_state[dash_context_key]:
+                    response = ask_claude_about_equity(
+                        ticker="PORTFOLIO", data={}, scores={}, sections={},
+                        user_question=full_q,
+                        conversation_history=None,
+                    )
+                    st.session_state[dash_convo_key].append({"role": "user",    "content": full_q})
+                    st.session_state[dash_context_key] = True
+                else:
+                    response = ask_claude_about_equity(
+                        ticker="PORTFOLIO", data={}, scores={}, sections={},
+                        user_question=dash_active_q,
+                        conversation_history=st.session_state[dash_convo_key],
+                    )
+                    st.session_state[dash_convo_key].append({"role": "user", "content": dash_active_q})
+
+                st.session_state[dash_convo_key].append({"role": "assistant", "content": response})
+                st.markdown(response)
+
+    if st.session_state[dash_convo_key]:
+        if st.button("🗑️ Clear conversation", key="dash_clear_convo"):
+            st.session_state[dash_convo_key]   = []
+            st.session_state[dash_context_key] = False
+            st.rerun()
+
     st.divider()
 
     # ── Account Breakdown ──────────────────────────────────────────────
