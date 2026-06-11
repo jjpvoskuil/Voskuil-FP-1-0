@@ -209,7 +209,7 @@ def score_stock(data, weights):
     criteria.append({"name": "Debt / Free Cash Flow",
                       "value": f"{debt_fcf:.1f}x" if debt_fcf is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Munger's inversion: 'What kills a great business?' Debt in a credit crunch. A fortress balance sheet means never being a forced seller. Under 3x Debt/FCF = structural survivor.",
+                      "note": "Munger's inversion: 'What kills a great business?' Excessive debt when capital becomes scarce. A fortress balance sheet means never being a forced seller. Under 3x Debt/FCF = structural survivor.",
                       "missing": debt_fcf is None})
 
     max_pts = weights["Gross Margin"]
@@ -242,7 +242,7 @@ def score_stock(data, weights):
     criteria.append({"name": "Interest Coverage Ratio",
                       "value": display_val,
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Munger's survival lens: can this business service its debt in a Long Squeeze — elevated rates, suppressed growth, tightening credit? Net Creditor status is the ultimate fortress signal.",
+                      "note": "Munger's survival lens: can this business service its debt through elevated rates, suppressed growth, and tightening credit? Net Creditor status is the ultimate fortress signal.",
                       "missing": (not is_nc and ic_val is None)})
 
     max_pts = weights["Price / Owner Earnings"]
@@ -550,12 +550,15 @@ if _cache_key and _cache_key in st.session_state:
     if div_yield and position_size > 0:
         annual_income  = position_size * div_yield
         monthly_income = annual_income / 12
-        target         = THRESHOLDS['monthly_income_target']
+        from claude_utils import get_user_profile as _gup2
+        _prof2         = _gup2()
+        monthly_withdrawal = _prof2.get('monthly_withdrawal', THRESHOLDS['monthly_income_target'])
+        target         = monthly_withdrawal
         pct_of_target  = monthly_income / target
         ic1, ic2, ic3  = st.columns(3)
         with ic1: st.metric("Dividend Yield",      f"{div_yield:.2%}")
         with ic2: st.metric("Est. Annual Income",  f"${annual_income:,.0f}")
-        with ic3: st.metric("Est. Monthly Income", f"${monthly_income:,.0f}", delta=f"{pct_of_target:.0%} of your $8K/mo target")
+        with ic3: st.metric("Est. Monthly Income", f"${monthly_income:,.0f}", delta=f"{pct_of_target:.0%} of your ${monthly_withdrawal:,.0f}/mo target")
         st.progress(min(pct_of_target, 1.0))
     else:
         st.info("No dividend yield data available. This may be a pure growth compounder.")
@@ -574,14 +577,24 @@ if _cache_key and _cache_key in st.session_state:
     elif rebalanced_score >= 45: verdict_text += "Real weaknesses in the fundamentals. Not a fortress business. Proceed only with a significant margin of safety."
     else:                        verdict_text += "Does not meet the criteria for a concentrated bet. Risk of permanent capital loss outweighs the upside."
     st.markdown(verdict_text)
-    st.info("⚠️ **Macro Overlay Reminder:** In a 'Long Squeeze' environment, prioritize companies with low debt, strong FCF, and pricing power. Your $8K/month withdrawal target requires this portfolio to be recession-resistant, not just return-maximizing.")
+    from claude_utils import get_user_profile as _gup
+    _prof = _gup()
+    _wd   = _prof.get('monthly_withdrawal', 8000)
+    _age  = _prof.get('age', 57)
+    _inf  = _prof.get('inflation', 4.0)
+    st.info(
+        f"⚠️ **Portfolio Reminder:** Prioritize companies with low debt, strong FCF, and "
+        f"pricing power. At age {_age} with a ${_wd:,.0f}/month withdrawal target, "
+        f"avoid permanent capital loss — recession-resilience matters more than maximum returns. "
+        f"Inflation assumption: {_inf:.1f}%."
+    )
 
     # ── Ask Claude Panel ──────────────────────────────────────────────
     st.divider()
     st.markdown("### 🤖 Ask Claude — SEC Filing Analysis")
     st.caption(
         "Claude reads the actual 10-K filing alongside the quantitative scores above — applying Buffett + Munger philosophy to your specific financial situation. "
-        "Ask anything: red flags, management tone, moat durability, Long Squeeze resilience. "
+        "Ask anything: red flags, management tone, moat durability, macro resilience. "
         "Conversation is multi-turn — follow up freely."
     )
 
@@ -628,7 +641,7 @@ if _cache_key and _cache_key in st.session_state:
         starters = [
             "What are the biggest qualitative red flags in this filing?",
             "Does management's tone in the MD&A match the numbers?",
-            "How resilient is this business in a Long Squeeze / credit crunch?",
+            "How resilient is this business in a credit crunch / financial repression environment?",
             "What does the filing say about competitive moat and pricing power?",
         ]
         for i, q in enumerate(starters):
@@ -694,9 +707,9 @@ else:
     |--------|---------------|-----------------|
     | Free Cash Flow Yield | 20 pts | Real owner earnings relative to price |
     | ROIC | 10 pts | How wisely management deploys your capital |
-    | Debt / FCF | 20 pts | Survival capacity in a credit crunch |
+    | Debt / FCF | 20 pts | Balance sheet strength — can it survive a downturn? |
     | Gross Margin | 15 pts | Pricing power and moat durability |
-    | Interest Coverage | 10 pts | Ability to service debt in a Long Squeeze |
+    | Interest Coverage | 10 pts | Ability to service debt in a tightening credit environment |
     | Price / Owner Earnings | 25 pts | What you're paying per dollar of real earnings |
 
     **Score guide:** 80-100 = Strong Buy · 65-79 = Watch · 45-64 = Caution · <45 = Avoid
