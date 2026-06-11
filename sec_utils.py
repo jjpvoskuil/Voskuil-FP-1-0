@@ -112,70 +112,84 @@ def get_10k_document_url(cik: str, accession_dashed: str):
 
 
 def extract_sections(doc_url: str) -> dict:
-    try:
-        resp = requests.get(doc_url, headers=HEADERS, timeout=30)
-        if resp.status_code != 200:
-            return {}
+    """
+    Fetch the 10-K document and extract key sections.
+    Returns dict with section text, or raises so caller can capture the error.
+    """
+    resp = requests.get(doc_url, headers=HEADERS, timeout=30)
+    if resp.status_code != 200:
+        raise ValueError(f"HTTP {resp.status_code} fetching {doc_url}")
 
-        clean = re.sub(r'<[^>]+>', ' ', resp.text)
-        clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
-        clean = re.sub(r'\s+', ' ', clean).strip()
+    raw = resp.text
 
-        # Broad patterns — match any capitalisation, with or without period,
-        # followed by the section title anywhere in the next 80 chars.
-        # Using re.IGNORECASE throughout so "Item 1. Business." and
-        # "ITEM 1. BUSINESS" and "Item 1 Business" all match.
-        item_patterns = {
-            "business":     r'Item\s+1(?:\.|\s)(?!A\b).{0,80}?Business\b',
-            "risk_factors": r'Item\s+1A(?:\.|\s).{0,80}?Risk\s+Factor',
-            "mda":          r'Item\s+7(?:\.|\s)(?!A\b).{0,100}?(?:Management|MD&A).{0,60}?(?:Discussion|Analysis)',
-            "quantitative": r'Item\s+7A(?:\.|\s).{0,80}?Quantitative',
+    # Some servers redirect to the /ix?doc= viewer even after we strip the prefix.
+    # Detect this: viewer pages are small (<50KB) and contain no Item headers.
+    # In that case, try fetching the bare filename directly from the archive folder.
+    if len(raw) < 50_000 and 'ix?doc=' in raw:
+        # Extract the real doc path from the viewer page
+        redir = re.search(r'ix\?doc=(/Archives/[^"&\s]+)', raw)
+        if redir:
+            doc_url = SEC_BASE + redir.group(1)
+            resp    = requests.get(doc_url, headers=HEADERS, timeout=30)
+            if resp.status_code == 200:
+                raw = resp.text
+
+    clean = re.sub(r'<[^>]+>', ' ', raw)
+    clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+
+    if len(clean) < 5_000:
+        raise ValueError(f"Document too short after cleaning ({len(clean)} chars) — likely a viewer stub")
+
+    # Primary patterns — mixed case, flexible spacing
+    item_patterns = {
+        "business":     r'Item\s+1(?:\.|\s)(?!A\b).{0,80}?Business\b',
+        "risk_factors": r'Item\s+1A(?:\.|\s).{0,80}?Risk\s+Factor',
+        "mda":          r'Item\s+7(?:\.|\s)(?!A\b).{0,100}?(?:Management|MD&A).{0,60}?(?:Discussion|Analysis)',
+        "quantitative": r'Item\s+7A(?:\.|\s).{0,80}?Quantitative',
+    }
+
+    positions = {}
+    for key, pattern in item_patterns.items():
+        matches = list(re.finditer(pattern, clean, re.IGNORECASE))
+        if len(matches) >= 2:
+            positions[key] = matches[1].start()
+        elif len(matches) == 1:
+            positions[key] = matches[0].start()
+
+    # Fallback numeric patterns
+    if len(positions) < 2:
+        fallback_patterns = {
+            "business":     r'(?:^|\s)1\.\s{0,5}Business\b',
+            "risk_factors": r'(?:^|\s)1A\.\s{0,5}Risk\s+Factor',
+            "mda":          r'(?:^|\s)7\.\s{0,5}(?:Management|MD&A)',
+            "quantitative": r'(?:^|\s)7A\.\s{0,5}Quantitative',
         }
+        for key, pattern in fallback_patterns.items():
+            if key not in positions:
+                matches = list(re.finditer(pattern, clean, re.IGNORECASE | re.MULTILINE))
+                if len(matches) >= 2:
+                    positions[key] = matches[1].start()
+                elif len(matches) == 1:
+                    positions[key] = matches[0].start()
 
-        positions = {}
-        for key, pattern in item_patterns.items():
-            matches = list(re.finditer(pattern, clean, re.IGNORECASE))
-            # Use second match to skip table of contents; fall back to first
-            if len(matches) >= 2:
-                positions[key] = matches[1].start()
-            elif len(matches) == 1:
-                positions[key] = matches[0].start()
+    # Last resort: return a large body chunk so Claude gets something
+    if not positions:
+        mid = clean[5_000:29_000]
+        if mid:
+            return {"business": mid}
+        raise ValueError("Document cleaned to empty string — unreadable format")
 
-        # Fallback: if we found fewer than 2 sections, try a simpler numeric
-        # anchor pattern — some filings use "1." on its own line
-        if len(positions) < 2:
-            fallback_patterns = {
-                "business":     r'(?:^|\s)1\.\s{0,5}Business\b',
-                "risk_factors": r'(?:^|\s)1A\.\s{0,5}Risk\s+Factor',
-                "mda":          r'(?:^|\s)7\.\s{0,5}(?:Management|MD&A)',
-                "quantitative": r'(?:^|\s)7A\.\s{0,5}Quantitative',
-            }
-            for key, pattern in fallback_patterns.items():
-                if key not in positions:
-                    matches = list(re.finditer(pattern, clean, re.IGNORECASE | re.MULTILINE))
-                    if len(matches) >= 2:
-                        positions[key] = matches[1].start()
-                    elif len(matches) == 1:
-                        positions[key] = matches[0].start()
+    sections    = {}
+    sorted_keys = sorted(positions.keys(), key=lambda k: positions[k])
+    for i, key in enumerate(sorted_keys):
+        start = positions[key]
+        end   = positions[sorted_keys[i + 1]] if i + 1 < len(sorted_keys) else start + SECTION_LIMIT
+        end   = min(end, start + SECTION_LIMIT)
+        sections[key] = clean[start:end].strip()
 
-        if not positions:
-            # Last resort: return a large chunk of the middle of the document
-            # (skip boilerplate cover page ~5000 chars, grab 24000 chars of body)
-            mid = clean[5000:29000]
-            return {"business": mid} if mid else {}
+    return sections
 
-        sections    = {}
-        sorted_keys = sorted(positions.keys(), key=lambda k: positions[k])
-        for i, key in enumerate(sorted_keys):
-            start = positions[key]
-            end   = positions[sorted_keys[i + 1]] if i + 1 < len(sorted_keys) else start + SECTION_LIMIT
-            end   = min(end, start + SECTION_LIMIT)
-            sections[key] = clean[start:end].strip()
-
-        return sections
-
-    except Exception:
-        return {}
 
 
 def fetch_10k_sections(ticker: str) -> dict:
@@ -192,10 +206,14 @@ def fetch_10k_sections(ticker: str) -> dict:
         return {"sections": {}, "filing_url": index_url,
                 "error": f"Document URL resolution failed. Debug: {debug}"}
 
-    sections = extract_sections(doc_url)
+    try:
+        sections = extract_sections(doc_url)
+    except Exception as e:
+        return {"sections": {}, "filing_url": index_url,
+                "error": f"Section extraction failed for {doc_url}: {e}"}
     if not sections:
         return {"sections": {}, "filing_url": index_url,
-                "error": f"Fetched doc ({doc_url}) but could not extract sections."}
+                "error": f"Fetched doc ({doc_url}) but no sections found after extraction."}
 
     return {
         "sections":    sections,
