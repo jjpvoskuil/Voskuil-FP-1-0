@@ -51,13 +51,7 @@ def get_latest_10k_accession(cik: str):
 
 
 def resolve_doc_url(raw_href: str, doc_base: str) -> str:
-    """
-    Convert a raw href from the EDGAR index page into a full document URL.
-    Key fix: strip the /ix?doc= inline XBRL viewer prefix that EDGAR wraps iXBRL docs in.
-    """
-    # Strip inline XBRL viewer wrapper: /ix?doc=/Archives/... -> /Archives/...
     href = re.sub(r'^/ix\?doc=', '', raw_href)
-
     if href.startswith("http"):
         return href
     elif href.startswith("/"):
@@ -67,9 +61,6 @@ def resolve_doc_url(raw_href: str, doc_base: str) -> str:
 
 
 def get_10k_document_url(cik: str, accession_dashed: str):
-    """
-    Returns (doc_url, index_url, debug_info).
-    """
     cik_int          = str(int(cik))
     accession_nodash = accession_dashed.replace("-", "")
     doc_base         = f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/"
@@ -96,7 +87,6 @@ def get_10k_document_url(cik: str, accession_dashed: str):
     if not index_text:
         return None, candidate_index_urls[0], " | ".join(debug)
 
-    # Strategy 1: find table row where Type column = 10-K, grab its document href
     rows = re.findall(r'<tr[^>]*>(.*?)</tr>', index_text, re.IGNORECASE | re.DOTALL)
     for row in rows:
         cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.IGNORECASE | re.DOTALL)
@@ -110,18 +100,14 @@ def get_10k_document_url(cik: str, accession_dashed: str):
                     debug.append(f"Strategy 1: raw={raw_href} resolved={doc_url}")
                     return doc_url, index_url_hit, " | ".join(debug)
 
-    # Strategy 2: any .htm link that isn't an exhibit or data file
     debug.append("Strategy 1 failed — trying strategy 2")
     all_links = re.findall(r'href="([^"]+\.htm[l]?)"', index_text, re.IGNORECASE)
-    debug.append(f"Links found: {all_links[:8]}")
     exclude = re.compile(r'(xex|ex-|exhibit|_htm\.xml|\.xsd|_cal\.|_def\.|_lab\.|_pre\.)', re.IGNORECASE)
     for link in all_links:
         if not exclude.search(link):
             doc_url = resolve_doc_url(link, doc_base)
-            debug.append(f"Strategy 2 selected: {link} -> {doc_url}")
             return doc_url, index_url_hit, " | ".join(debug)
 
-    debug.append(f"All strategies failed. HTML snippet: {index_text[:300]}")
     return None, index_url_hit, " | ".join(debug)
 
 
@@ -130,27 +116,53 @@ def extract_sections(doc_url: str) -> dict:
         resp = requests.get(doc_url, headers=HEADERS, timeout=30)
         if resp.status_code != 200:
             return {}
+
         clean = re.sub(r'<[^>]+>', ' ', resp.text)
         clean = re.sub(r'&[a-zA-Z#0-9]+;', ' ', clean)
         clean = re.sub(r'\s+', ' ', clean).strip()
 
+        # Broad patterns — match any capitalisation, with or without period,
+        # followed by the section title anywhere in the next 80 chars.
+        # Using re.IGNORECASE throughout so "Item 1. Business." and
+        # "ITEM 1. BUSINESS" and "Item 1 Business" all match.
         item_patterns = {
-            "business":     r'ITEM\s+1[\.\s](?!A\b).{0,60}?BUSINESS\b',
-            "risk_factors": r'ITEM\s+1A[\.\s].{0,60}?RISK\s+FACTOR',
-            "mda":          r'ITEM\s+7[\.\s](?!A\b).{0,80}?MANAGEMENT.{0,40}?DISCUSSION',
-            "quantitative": r'ITEM\s+7A[\.\s].{0,80}?QUANTITATIVE',
+            "business":     r'Item\s+1(?:\.|\s)(?!A\b).{0,80}?Business\b',
+            "risk_factors": r'Item\s+1A(?:\.|\s).{0,80}?Risk\s+Factor',
+            "mda":          r'Item\s+7(?:\.|\s)(?!A\b).{0,100}?(?:Management|MD&A).{0,60}?(?:Discussion|Analysis)',
+            "quantitative": r'Item\s+7A(?:\.|\s).{0,80}?Quantitative',
         }
 
         positions = {}
         for key, pattern in item_patterns.items():
             matches = list(re.finditer(pattern, clean, re.IGNORECASE))
+            # Use second match to skip table of contents; fall back to first
             if len(matches) >= 2:
                 positions[key] = matches[1].start()
             elif len(matches) == 1:
                 positions[key] = matches[0].start()
 
+        # Fallback: if we found fewer than 2 sections, try a simpler numeric
+        # anchor pattern — some filings use "1." on its own line
+        if len(positions) < 2:
+            fallback_patterns = {
+                "business":     r'(?:^|\s)1\.\s{0,5}Business\b',
+                "risk_factors": r'(?:^|\s)1A\.\s{0,5}Risk\s+Factor',
+                "mda":          r'(?:^|\s)7\.\s{0,5}(?:Management|MD&A)',
+                "quantitative": r'(?:^|\s)7A\.\s{0,5}Quantitative',
+            }
+            for key, pattern in fallback_patterns.items():
+                if key not in positions:
+                    matches = list(re.finditer(pattern, clean, re.IGNORECASE | re.MULTILINE))
+                    if len(matches) >= 2:
+                        positions[key] = matches[1].start()
+                    elif len(matches) == 1:
+                        positions[key] = matches[0].start()
+
         if not positions:
-            return {}
+            # Last resort: return a large chunk of the middle of the document
+            # (skip boilerplate cover page ~5000 chars, grab 24000 chars of body)
+            mid = clean[5000:29000]
+            return {"business": mid} if mid else {}
 
         sections    = {}
         sorted_keys = sorted(positions.keys(), key=lambda k: positions[k])
@@ -161,6 +173,7 @@ def extract_sections(doc_url: str) -> dict:
             sections[key] = clean[start:end].strip()
 
         return sections
+
     except Exception:
         return {}
 
