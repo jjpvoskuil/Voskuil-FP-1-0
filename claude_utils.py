@@ -279,7 +279,7 @@ def ask_claude_about_equity(
             "messages":   messages,
         }
 
-        resp = requests.post(ANTHROPIC_URL, headers=headers, json=payload, timeout=60)
+        resp = requests.post(ANTHROPIC_URL, headers=headers, json=payload, timeout=120)
 
         if resp.status_code == 200:
             return resp.json()["content"][0]["text"]
