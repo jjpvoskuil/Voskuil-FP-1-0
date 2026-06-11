@@ -185,6 +185,23 @@ with tab_events:
 
 st.divider()
 
+# ── Write profile to session state for Claude personalization ─────────────
+st.session_state["fp_age"]                 = current_age
+st.session_state["fp_plan_to_age"]         = plan_to_age
+st.session_state["fp_spouse_age"]          = spouse_age
+st.session_state["fp_portfolio_val"]       = portfolio_val
+st.session_state["fp_monthly_withdrawal"]  = monthly_withdrawal
+st.session_state["fp_annual_passive"]      = annual_passive
+st.session_state["fp_cash_buffer"]         = cash_buffer
+st.session_state["fp_ss_monthly"]          = ss_monthly
+st.session_state["fp_ss_start_age"]        = ss_start_age
+st.session_state["fp_spouse_ss"]           = spouse_ss
+st.session_state["fp_inflation"]           = inflation
+st.session_state["fp_base_return"]         = base_return
+st.session_state["fp_long_squeeze_return"] = long_squeeze_return
+st.session_state["fp_bear_return"]         = bear_return
+st.session_state["fp_survivor_monthly"]    = survivor_monthly_spouse
+
 # ─────────────────────────────────────────────
 # DERIVED CALCULATIONS — HOUSEHOLD MODEL
 # ─────────────────────────────────────────────
