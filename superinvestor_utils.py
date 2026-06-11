@@ -13,6 +13,7 @@ CUSIPs are matched to tickers via the SEC company facts API.
 """
 
 import re
+import json
 import requests
 import xml.etree.ElementTree as ET
 from functools import lru_cache
@@ -24,6 +25,13 @@ SEC_BASE   = "https://www.sec.gov"
 # ── Curated superinvestor list ────────────────────────────────────────────
 # CIK: EDGAR Central Index Key for the institutional filer
 # All are value-oriented, long-horizon investors consistent with Buffett/Munger philosophy
+def clear_superinvestor_cache():
+    """Call this to force fresh data fetch."""
+    get_latest_13f_accession.cache_clear()
+    get_13f_holdings_xml.cache_clear()
+    get_cusip_for_ticker.cache_clear()
+
+
 SUPERINVESTORS = {
     "Warren Buffett (Berkshire)":  "0001067983",
     "Bill Ackman (Pershing Sq)":   "0001336528",
@@ -72,41 +80,83 @@ def get_latest_13f_accession(cik: str) -> tuple:
 @lru_cache(maxsize=50)
 def get_13f_holdings_xml(cik: str, accession_dashed: str) -> str:
     """
-    Fetch and return the raw XML holdings table for a 13F filing.
-    Tries to find the INFORMATION TABLE document from the filing index.
+    Fetch the 13F holdings XML directly from EDGAR Archives.
+    
+    Uses the EDGAR filing index JSON (not HTML) to find the INFORMATION TABLE
+    document. Falls back to scanning the complete submission txt file.
     """
     try:
         cik_int          = str(int(cik))
         accession_nodash = accession_dashed.replace("-", "")
-        index_url        = (
-            f"{SEC_BASE}/Archives/edgar/data/{cik_int}/"
-            f"{accession_nodash}/{accession_dashed}-index.html"
-        )
-        resp = requests.get(index_url, headers=HEADERS, timeout=10)
-        if resp.status_code != 200:
-            return ""
+        base_url         = f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}"
 
-        # Find the INFORMATION TABLE XML document
-        xml_match = re.search(
-            r'href="(/Archives/edgar/data/[^"]+\.xml)"[^>]*>[^<]*(?:INFORMATION TABLE|46994|infotable)',
-            resp.text, re.IGNORECASE
-        )
-        if not xml_match:
-            # Fallback: find any XML that isn't the primary doc
-            all_xml = re.findall(
-                r'href="(/Archives/edgar/data/[^"]+\.xml)"', resp.text
+        # Strategy 1: Use the filing index JSON — reliable, no JS rendering needed
+        index_json_url = f"{EDGAR_BASE}/Archives/edgar/data/{cik_int}/{accession_nodash}/{accession_dashed}-index.json"
+        json_resp = requests.get(index_json_url, headers=HEADERS, timeout=10)
+        if json_resp.status_code == 200:
+            try:
+                index_data = json_resp.json()
+                for doc in index_data.get("documents", []):
+                    doc_type = doc.get("type", "").upper()
+                    doc_url  = doc.get("documentUrl", "")
+                    if "INFORMATION TABLE" in doc_type or doc_type == "13F-HR":
+                        if doc_url.endswith(".xml") and "primary_doc" not in doc_url:
+                            if not doc_url.startswith("http"):
+                                doc_url = SEC_BASE + doc_url
+                            r = requests.get(doc_url, headers=HEADERS, timeout=15)
+                            if r.status_code == 200 and len(r.text) > 1000:
+                                return r.text
+            except Exception:
+                pass
+
+        # Strategy 2: Scan the index HTML for XML links
+        index_html_url = f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{accession_dashed}-index.htm"
+        html_resp = requests.get(index_html_url, headers=HEADERS, timeout=10)
+        if html_resp.status_code == 200:
+            xml_links = re.findall(
+                r'href="(/Archives/edgar/data/[^"]+\.xml)"', html_resp.text
             )
-            # Skip primary_doc.xml, take the next one (usually the holdings table)
-            candidates = [x for x in all_xml if 'primary_doc' not in x]
-            if not candidates:
-                return ""
-            xml_url = SEC_BASE + candidates[0]
-        else:
-            xml_url = SEC_BASE + xml_match.group(1)
+            for link in xml_links:
+                if "primary_doc" not in link and "_htm" not in link:
+                    r = requests.get(SEC_BASE + link, headers=HEADERS, timeout=15)
+                    if r.status_code == 200 and len(r.text) > 1000:
+                        # Quick check it contains holdings data
+                        if "infoTable" in r.text or "nameOfIssuer" in r.text:
+                            return r.text
 
-        xml_resp = requests.get(xml_url, headers=HEADERS, timeout=15)
-        if xml_resp.status_code == 200:
-            return xml_resp.text
+        # Strategy 3: Try common filename patterns for 13F XML
+        # EDGAR typically names the holdings file with the sequence number
+        for filename in ["infotable.xml", "form13fInfoTable.xml", "46994.xml",
+                         "primary_doc.xml"]:
+            r = requests.get(f"{base_url}/{filename}", headers=HEADERS, timeout=10)
+            if r.status_code == 200 and "infoTable" in r.text:
+                return r.text
+
+        # Strategy 4: Parse the complete submission .txt file
+        # The .txt file contains all documents concatenated with EDGAR SGML headers
+        txt_url  = f"{base_url}/{accession_dashed}.txt"
+        txt_resp = requests.get(txt_url, headers=HEADERS, timeout=30, stream=True)
+        if txt_resp.status_code == 200:
+            # Stream until we find the INFORMATION TABLE section
+            chunks  = []
+            total   = 0
+            for chunk in txt_resp.iter_content(chunk_size=65536):
+                if chunk:
+                    chunks.append(chunk.decode("utf-8", errors="replace"))
+                    total += len(chunk)
+                    combined = "".join(chunks)
+                    # Check if we have the holdings table
+                    if "infoTable" in combined and "</informationTable>" in combined:
+                        # Extract just the XML portion
+                        start = combined.find("<?xml")
+                        if start == -1:
+                            start = combined.find("<informationTable")
+                        end = combined.find("</informationTable>")
+                        if start != -1 and end != -1:
+                            return combined[start:end + 20]
+                    if total > 10 * 1024 * 1024:  # 10MB cap
+                        break
+
         return ""
     except Exception:
         return ""
