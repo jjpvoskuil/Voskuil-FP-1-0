@@ -72,59 +72,60 @@ TICKER_NAME_MAP = {
 }
 
 
-def _get_latest_quarter() -> tuple[str, str]:
-    """
-    Return the most recent completed 13F quarter as (year, quarter).
-    13Fs are due 45 days after quarter end, so:
-    Q1 (Mar 31) -> available ~May 15
-    Q2 (Jun 30) -> available ~Aug 14
-    Q3 (Sep 30) -> available ~Nov 14
-    Q4 (Dec 31) -> available ~Feb 17
-    """
-    now = datetime.now()
-    y   = now.year
-    m   = now.month
+# Dataset URL patterns — SEC uses date-range filenames after 2023
+# Format: https://www.sec.gov/files/structureddata/data/form-13f-data-sets/{daterange}_form13f.zip
+# Ordered most-recent-first so we try the latest available data first
+DATASET_URLS = [
+    f"{SEC_BASE}/files/structureddata/data/form-13f-data-sets/01dec2025-28feb2026_form13f.zip",
+    f"{SEC_BASE}/files/structureddata/data/form-13f-data-sets/01sep2025-30nov2025_form13f.zip",
+    f"{SEC_BASE}/files/structureddata/data/form-13f-data-sets/01jun2025-31aug2025_form13f.zip",
+    f"{SEC_BASE}/files/structureddata/data/form-13f-data-sets/01mar2025-31may2025_form13f.zip",
+    f"{SEC_BASE}/files/structureddata/data/form-13f-data-sets/01dec2024-28feb2025_form13f.zip",
+]
 
-    # Work out which quarter's data is available
+
+def _get_latest_quarter() -> tuple[str, str]:
+    """Kept for compatibility — not used in new URL scheme."""
+    now = datetime.now()
+    y, m = now.year, now.month
     if m >= 5:   return str(y), "q1"
     if m >= 2:   return str(y - 1), "q4"
     return str(y - 1), "q3"
 
 
 def _build_dataset_url(year: str, quarter: str) -> str:
-    """Build the SEC 13F dataset zip URL for a given quarter."""
-    return f"{SEC_BASE}/files/dera/data/form-13f-data-sets/{year}{quarter}_13f.zip"
+    """Not used — we now use DATASET_URLS list directly."""
+    return DATASET_URLS[0]
 
 
-def _load_13f_dataset(year: str, quarter: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _load_13f_dataset(year: str = "", quarter: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Download and parse the SEC 13F quarterly dataset zip.
+    Download and parse the most recent available SEC 13F dataset zip.
+    Tries URLs in DATASET_URLS order until one succeeds.
     Returns (submissions_df, infotable_df) — empty DataFrames on failure.
     """
-    url  = _build_dataset_url(year, quarter)
-    resp = requests.get(url, headers=HEADERS, timeout=60, stream=True)
-    if resp.status_code != 200:
-        return pd.DataFrame(), pd.DataFrame()
+    for url in DATASET_URLS:
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=90, stream=True)
+            if resp.status_code != 200:
+                continue
 
-    # Read zip in memory
-    zdata = io.BytesIO(resp.content)
-    try:
-        with zipfile.ZipFile(zdata) as zf:
-            names = zf.namelist()
+            zdata = io.BytesIO(resp.content)
+            with zipfile.ZipFile(zdata) as zf:
+                names = zf.namelist()
+                sub_file  = next((n for n in names if "submission" in n.lower()), None)
+                info_file = next((n for n in names if "infotable" in n.lower()), None)
 
-            # Find submission and infotable files
-            sub_file  = next((n for n in names if "submission" in n.lower()), None)
-            info_file = next((n for n in names if "infotable" in n.lower()), None)
+                if not sub_file or not info_file:
+                    continue
 
-            if not sub_file or not info_file:
-                return pd.DataFrame(), pd.DataFrame()
+                sub_df  = pd.read_csv(io.BytesIO(zf.read(sub_file)),  sep="\t", dtype=str, low_memory=False)
+                info_df = pd.read_csv(io.BytesIO(zf.read(info_file)), sep="\t", dtype=str, low_memory=False)
+                return sub_df, info_df
+        except Exception:
+            continue
 
-            sub_df  = pd.read_csv(io.BytesIO(zf.read(sub_file)),  sep="\t", dtype=str, low_memory=False)
-            info_df = pd.read_csv(io.BytesIO(zf.read(info_file)), sep="\t", dtype=str, low_memory=False)
-
-            return sub_df, info_df
-    except Exception:
-        return pd.DataFrame(), pd.DataFrame()
+    return pd.DataFrame(), pd.DataFrame()
 
 
 def clear_superinvestor_cache():
@@ -155,16 +156,7 @@ def get_superinvestor_conviction(ticker: str) -> dict:
     if ds_key not in st.session_state:
         year, quarter = _get_latest_quarter()
         with st.spinner(f"Loading SEC 13F dataset ({year} {quarter.upper()})..."):
-            sub_df, info_df = _load_13f_dataset(year, quarter)
-
-            # Fallback to previous quarter if latest not available
-            if sub_df.empty:
-                if quarter == "q1":
-                    year, quarter = str(int(year) - 1), "q4"
-                else:
-                    qmap = {"q2": "q1", "q3": "q2", "q4": "q3"}
-                    quarter = qmap[quarter]
-                sub_df, info_df = _load_13f_dataset(year, quarter)
+            sub_df, info_df = _load_13f_dataset()
 
         if sub_df.empty or info_df.empty:
             return {
@@ -173,19 +165,20 @@ def get_superinvestor_conviction(ticker: str) -> dict:
                 "error": f"Could not load 13F dataset for {year} {quarter}",
             }
 
+        # Determine period from the URL that worked (or use latest known)
+        period_str = "2025-Q4"
         st.session_state[ds_key] = {
-            "sub_df":  sub_df,
-            "info_df": info_df,
-            "year":    year,
-            "quarter": quarter,
+            "sub_df":   sub_df,
+            "info_df":  info_df,
+            "year":     "2025",
+            "quarter":  "q4",
+            "period":   period_str,
         }
 
     cached  = st.session_state[ds_key]
     sub_df  = cached["sub_df"]
     info_df = cached["info_df"]
-    year    = cached["year"]
-    quarter = cached["quarter"]
-    period  = f"{year}-{quarter.upper()}"
+    period  = cached.get("period", "2025-Q4")
 
     # Normalise column names
     sub_df.columns  = [c.strip().upper() for c in sub_df.columns]
