@@ -7,7 +7,7 @@ import pandas as pd
 
 
 st.title("🏔️ Financial Modeler")
-st.caption("Purpose-built for a two-person household, concentrated value portfolio, Long Squeeze macro overlay.")
+st.caption("Purpose-built for a two-person household, concentrated value portfolio, macro-aware retirement modeling.")
 st.markdown("> *\"The goal is not to maximize returns. The goal is to never be a forced seller.\"*")
 st.divider()
 
@@ -106,18 +106,18 @@ with tab_assumptions:
         st.subheader("Return Scenarios")
         base_return = st.slider("Base Case — Annual Return (%)",
             0.0, 12.0, 6.0, step=0.5,
-            help="Concentrated value portfolio — conservative 6% base.")
-        long_squeeze_return = st.slider("Long Squeeze — Annual Return (%)",
+            help="Your expected long-run portfolio return. Concentrated value portfolios typically 5-8%.")
+        pessimistic_return = st.slider("Pessimistic — Annual Return (%)",
             -2.0, 8.0, 3.5, step=0.5,
-            help="Financial repression: low nominal returns, elevated inflation.")
-        bear_return = st.slider("Bear Case — Annual Return (%)",
+            help="Below-average return environment — subdued growth, elevated inflation.")
+        bear_return = st.slider("Stress Test — Annual Return (%)",
             -5.0, 4.0, 1.0, step=0.5,
-            help="Stagflation / passive bubble pop.")
+            help="Severe scenario: prolonged low returns or bear market.")
     with ac2:
         st.subheader("Inflation & Volatility")
         inflation = st.slider("Inflation Assumption (%)",
             1.0, 8.0, 4.0, step=0.5,
-            help="Long Squeeze default: 4%. Standard planning uses 2-3%.")
+            help="Your inflation assumption. Standard planning uses 2-3%; higher if you expect elevated inflation.")
         return_volatility = st.slider("Return Volatility (std dev %)",
             2.0, 20.0, 10.0, step=1.0,
             help="Year-to-year variation. Concentrated portfolio ~10-14%.")
@@ -198,7 +198,7 @@ st.session_state["fp_ss_start_age"]        = ss_start_age
 st.session_state["fp_spouse_ss"]           = spouse_ss
 st.session_state["fp_inflation"]           = inflation
 st.session_state["fp_base_return"]         = base_return
-st.session_state["fp_long_squeeze_return"] = long_squeeze_return
+st.session_state["fp_pessimistic_return"] = pessimistic_return
 st.session_state["fp_bear_return"]         = bear_return
 st.session_state["fp_survivor_monthly"]    = survivor_monthly_spouse
 
@@ -327,7 +327,7 @@ st.divider()
 # SECTION 3: MONTE CARLO
 # ─────────────────────────────────────────────
 st.header("🎲 Monte Carlo Simulation")
-st.caption(f"1,000 simulations × {years} years. Each run draws annual returns from a normal distribution around the scenario mean.")
+st.caption(f"1,000 simulations × {years} years across three return scenarios. Each run draws annual returns from a normal distribution around the scenario mean.")
 
 n_sims    = 1_000
 ages      = np.arange(current_age, current_age + n_years)
@@ -357,10 +357,10 @@ def run_simulation(mean_return_pct, vol_pct, n_sims, n_periods,
 
     return results
 
-with st.spinner("Running 3,000 simulations..."):
+with st.spinner("Running Monte Carlo simulations..."):
     sims_base    = run_simulation(base_return,         return_volatility, n_sims, n_periods,
                                    investable_portfolio, net_cf_total, inflation)
-    sims_squeeze = run_simulation(long_squeeze_return, return_volatility, n_sims, n_periods,
+    sims_squeeze = run_simulation(pessimistic_return, return_volatility, n_sims, n_periods,
                                    investable_portfolio, net_cf_total, inflation)
     sims_bear    = run_simulation(bear_return,         return_volatility, n_sims, n_periods,
                                    investable_portfolio, net_cf_total, inflation)
@@ -383,9 +383,9 @@ surv_bear    = survival_rate(sims_bear)
 fig_surv = go.Figure()
 fig_surv.add_trace(go.Scatter(x=ages, y=surv_base,    name=f"Base ({base_return:.1f}%)",
                                line=dict(color="#2ecc71", width=3)))
-fig_surv.add_trace(go.Scatter(x=ages, y=surv_squeeze, name=f"Long Squeeze ({long_squeeze_return:.1f}%)",
+fig_surv.add_trace(go.Scatter(x=ages, y=surv_squeeze, name=f"Pessimistic ({pessimistic_return:.1f}%)",
                                line=dict(color="#f39c12", width=3)))
-fig_surv.add_trace(go.Scatter(x=ages, y=surv_bear,    name=f"Bear ({bear_return:.1f}%)",
+fig_surv.add_trace(go.Scatter(x=ages, y=surv_bear,    name=f"Stress Test ({bear_return:.1f}%)",
                                line=dict(color="#e74c3c", width=3)))
 fig_surv.add_hline(y=90, line_dash="dot", line_color="#888",
                     annotation_text="90% survival threshold", annotation_position="right")
@@ -420,14 +420,14 @@ fig_fan.add_trace(go.Scatter(x=ages, y=p50_b / 1e6, name=f"Base median/p50 ({bas
                               line=dict(color="#2ecc71", width=2)))
 fig_fan.add_trace(go.Scatter(x=ages, y=mean_b / 1e6, name=f"Base mean (avg of all runs)",
                               line=dict(color="#2ecc71", width=2, dash="dot")))
-# Long Squeeze fan
+# Pessimistic scenario fan
 fig_fan.add_trace(go.Scatter(x=np.concatenate([ages, ages[::-1]]),
                               y=np.concatenate([p90_s, p10_s[::-1]]) / 1e6,
                               fill='toself', fillcolor='rgba(243,156,18,0.15)',
-                              line=dict(color='rgba(0,0,0,0)'), name='Long Squeeze 10th–90th %ile', showlegend=True))
-fig_fan.add_trace(go.Scatter(x=ages, y=p50_s / 1e6, name=f"Long Squeeze median/p50 ({long_squeeze_return:.1f}%)",
+                              line=dict(color='rgba(0,0,0,0)'), name='Pessimistic 10th–90th %ile', showlegend=True))
+fig_fan.add_trace(go.Scatter(x=ages, y=p50_s / 1e6, name=f"Pessimistic median/p50 ({pessimistic_return:.1f}%)",
                               line=dict(color="#f39c12", width=2)))
-fig_fan.add_trace(go.Scatter(x=ages, y=mean_s / 1e6, name=f"Long Squeeze mean (avg of all runs)",
+fig_fan.add_trace(go.Scatter(x=ages, y=mean_s / 1e6, name=f"Pessimistic mean (avg of all runs)",
                               line=dict(color="#f39c12", width=2, dash="dot")))
 fig_fan.add_hline(y=0, line_color="#e74c3c", line_width=2, annotation_text="Ruin")
 fig_fan.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db")
@@ -458,9 +458,9 @@ pval_br = np.percentile(sims_bear,   ptile, axis=0)
 fig_ptile = go.Figure()
 fig_ptile.add_trace(go.Scatter(x=ages, y=pval_b  / 1e6, name=f"Base ({base_return:.1f}%) — {ptile}th %ile",
                                 line=dict(color="#2ecc71", width=3)))
-fig_ptile.add_trace(go.Scatter(x=ages, y=pval_s  / 1e6, name=f"Long Squeeze ({long_squeeze_return:.1f}%) — {ptile}th %ile",
+fig_ptile.add_trace(go.Scatter(x=ages, y=pval_s  / 1e6, name=f"Pessimistic ({pessimistic_return:.1f}%) — {ptile}th %ile",
                                 line=dict(color="#f39c12", width=3)))
-fig_ptile.add_trace(go.Scatter(x=ages, y=pval_br / 1e6, name=f"Bear ({bear_return:.1f}%) — {ptile}th %ile",
+fig_ptile.add_trace(go.Scatter(x=ages, y=pval_br / 1e6, name=f"Stress Test ({bear_return:.1f}%) — {ptile}th %ile",
                                 line=dict(color="#e74c3c", width=3)))
 fig_ptile.add_hline(y=0, line_color="#e74c3c", line_width=1, line_dash="dot")
 fig_ptile.add_vline(x=ss_start_age, line_dash="dash", line_color="#3498db",
@@ -494,10 +494,10 @@ with pv1:
     st.metric(f"Base at {plan_to_age} ({ptile}th %ile)", f"${pval_b[-1]/1e6:.2f}M",
               delta="✅ Solvent" if pval_b[-1] > 0 else "❌ Depleted", delta_color="normal" if pval_b[-1] > 0 else "inverse")
 with pv2:
-    st.metric(f"Long Squeeze at {plan_to_age} ({ptile}th %ile)", f"${pval_s[-1]/1e6:.2f}M",
+    st.metric(f"Pessimistic at {plan_to_age} ({ptile}th %ile)", f"${pval_s[-1]/1e6:.2f}M",
               delta="✅ Solvent" if pval_s[-1] > 0 else "❌ Depleted", delta_color="normal" if pval_s[-1] > 0 else "inverse")
 with pv3:
-    st.metric(f"Bear at {plan_to_age} ({ptile}th %ile)", f"${pval_br[-1]/1e6:.2f}M",
+    st.metric(f"Stress Test at {plan_to_age} ({ptile}th %ile)", f"${pval_br[-1]/1e6:.2f}M",
               delta="✅ Solvent" if pval_br[-1] > 0 else "❌ Depleted", delta_color="normal" if pval_br[-1] > 0 else "inverse")
 
 st.divider()
@@ -508,13 +508,13 @@ st.caption("Every line is one simulation. Green lines survive to your plan age. 
 
 spag_scenario = st.selectbox(
     "Scenario to display",
-    options=["Base", "Long Squeeze", "Bear"],
+    options=["Base", "Pessimistic", "Stress Test"],
     index=0,
     help="Showing all 1,000 lines at once — select which scenario to examine."
 )
 
-sims_map    = {"Base": sims_base, "Long Squeeze": sims_squeeze, "Bear": sims_bear}
-color_map   = {"Base": "#2ecc71",  "Long Squeeze": "#f39c12",    "Bear": "#e74c3c"}
+sims_map    = {"Base": sims_base, "Pessimistic": sims_squeeze, "Stress Test": sims_bear}
+color_map   = {"Base": "#2ecc71",  "Pessimistic": "#f39c12",    "Stress Test": "#e74c3c"}
 chosen_sims  = sims_map[spag_scenario]
 chosen_color = color_map[spag_scenario]
 
@@ -542,7 +542,7 @@ depleted_ranks = pct_ranks[~survived_mask]
 
 surv_color_rgba = (
     "rgba(46,204,113,0.20)"  if spag_scenario == "Base" else
-    "rgba(243,156,18,0.20)"  if spag_scenario == "Long Squeeze" else
+    "rgba(243,156,18,0.20)"  if spag_scenario == "Pessimistic" else
     "rgba(231,76,60,0.20)"
 )
 
@@ -638,12 +638,12 @@ mc1, mc2, mc3 = st.columns(3)
 with mc1:
     s80b = pct_at_age(surv_base, 80)
     s80s = pct_at_age(surv_squeeze, 80)
-    st.metric("Survival to Age 80", f"{s80b:.0f}% base / {s80s:.0f}% squeeze",
+    st.metric("Survival to Age 80", f"{s80b:.0f}% base / {s80s:.0f}% pessimistic",
               delta=f"{s80b - s80s:.0f}pp spread", delta_color="normal")
 with mc2:
     s90b = pct_at_age(surv_base, 90)
     s90s = pct_at_age(surv_squeeze, 90)
-    st.metric("Survival to Age 90", f"{s90b:.0f}% base / {s90s:.0f}% squeeze",
+    st.metric("Survival to Age 90", f"{s90b:.0f}% base / {s90s:.0f}% pessimistic",
               delta=f"{s90b - s90s:.0f}pp spread", delta_color="normal")
 with mc3:
     final_p50_base    = p50_b[-1] / 1e6
@@ -752,21 +752,21 @@ portfolio in retirement.
 st.divider()
 
 # ─────────────────────────────────────────────
-# SECTION 5: LONG SQUEEZE OVERLAY
+# SECTION 5: INFLATION IMPACT
 # ─────────────────────────────────────────────
-st.header("🔧 Long Squeeze Overlay")
-st.caption("Your macro thesis applied to retirement math. Financial repression erodes purchasing power even when nominal portfolio values look fine.")
+st.header("📉 Inflation Impact")
+st.caption("Inflation erodes purchasing power even when nominal portfolio values look fine. The real return — after inflation — is what actually funds your retirement.")
 
 ls1, ls2 = st.columns(2)
 
 with ls1:
-    st.subheader("Real vs Nominal Portfolio Value")
+    st.subheader("Real vs. Nominal Portfolio Value")
     # Show how inflation erodes the purchasing power of a growing portfolio
     nominal_vals = [investable_portfolio]
     real_vals    = [investable_portfolio]
     for t in range(1, years + 1):
         draw      = net_cf_total[min(t, n_years-1)] * ((1 + inf_r) ** t)
-        nom_new   = nominal_vals[-1] * (1 + long_squeeze_return / 100) - draw
+        nom_new   = nominal_vals[-1] * (1 + pessimistic_return / 100) - draw
         nominal_vals.append(max(nom_new, 0))
         real_vals.append(nominal_vals[-1] / ((1 + inf_r) ** t))
 
@@ -777,7 +777,7 @@ with ls1:
                                    name=f"Real value (today's $)", line=dict(color="#e74c3c", width=2, dash="dot")))
     fig_real.add_hline(y=0, line_color="#e74c3c")
     fig_real.update_layout(
-        title=f"Long Squeeze: Nominal vs Real ({inflation:.1f}% inflation)",
+        title=f"Nominal vs. Real Portfolio Value ({inflation:.1f}% inflation assumption)",
         xaxis_title="Age", yaxis_title="Value ($M)",
         height=380, margin=dict(t=40, b=110),
         legend=dict(orientation="h", yanchor="top", y=-0.18, x=0.5, xanchor="center"),
@@ -785,18 +785,18 @@ with ls1:
     st.plotly_chart(fig_real, use_container_width=True)
 
 with ls2:
-    st.subheader("What $8K/Month Actually Buys")
+    st.subheader(f"What ${monthly_withdrawal:,.0f}/Month Actually Buys")
     # Purchasing power of the monthly withdrawal over time
     future_years    = np.arange(0, years + 1)
     pwr_base        = monthly_withdrawal / ((1 + 0.02) ** future_years)   # standard 2%
-    pwr_long_squeeze = monthly_withdrawal / ((1 + inf_r)  ** future_years)  # your thesis
+    pwr_pessimistic  = monthly_withdrawal / ((1 + inf_r)  ** future_years)
 
     fig_pwr = go.Figure()
     fig_pwr.add_trace(go.Scatter(x=current_age + future_years, y=pwr_base,
                                   name="2% inflation (standard)",
                                   line=dict(color="#2ecc71", width=2)))
-    fig_pwr.add_trace(go.Scatter(x=current_age + future_years, y=pwr_long_squeeze,
-                                  name=f"{inflation:.1f}% inflation (Long Squeeze)",
+    fig_pwr.add_trace(go.Scatter(x=current_age + future_years, y=pwr_pessimistic,
+                                  name=f"{inflation:.1f}% inflation (Pessimistic)",
                                   line=dict(color="#e74c3c", width=2)))
     fig_pwr.add_hline(y=monthly_withdrawal * 0.5, line_dash="dot", line_color="#888",
                        annotation_text="50% purchasing power lost")
@@ -816,7 +816,7 @@ adj_std   = [monthly_withdrawal * ((1 + 0.02)  ** t) * 12 for t in range(len(adj
 
 fig_adj = go.Figure()
 fig_adj.add_trace(go.Scatter(x=adj_ages, y=adj_needs,
-                              name=f"Long Squeeze ({inflation:.1f}%)", fill='toself',
+                              name=f"Pessimistic ({inflation:.1f}%)", fill='toself',
                               line=dict(color="#e74c3c"), fillcolor="rgba(231,76,60,0.1)"))
 fig_adj.add_trace(go.Scatter(x=adj_ages, y=adj_std,
                               name="Standard (2%)", line=dict(color="#2ecc71", width=2)))
@@ -834,11 +834,10 @@ at_90_ls  = adj_needs[min(90 - current_age, len(adj_needs) - 1)]
 at_90_std = adj_std[min(90 - current_age, len(adj_std) - 1)]
 st.markdown(f"""
 At age 90 your **${monthly_withdrawal:,.0f}/month** target requires:
-- **${at_90_ls/12:,.0f}/month** in Long Squeeze ({inflation:.1f}% inflation) — ${at_90_ls:,.0f}/yr
+- **${at_90_ls/12:,.0f}/month** in Pessimistic scenario ({inflation:.1f}% inflation) — ${at_90_ls:,.0f}/yr
 - **${at_90_std/12:,.0f}/month** in standard scenario (2%) — ${at_90_std:,.0f}/yr
 
-The difference: **${(at_90_ls - at_90_std):,.0f}/year** — an additional portfolio burden that 
-standard financial planning ignores.
+The difference: **${(at_90_ls - at_90_std):,.0f}/year** — the higher your inflation assumption, the larger the gap between what you need and what standard planning projects.
 """)
 
 st.divider()
