@@ -176,7 +176,7 @@ def score_stock(data, weights):
     criteria.append({"name": "Free Cash Flow Yield",
                       "value": f"{fcf_yield:.1%}" if fcf_yield is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "What you earn as an owner relative to price. Buffett wants real cash, not accounting earnings.",
+                      "note": "Buffett: 'The most important thing for me is figuring out how big a moat there is around the business and the cash it generates.' FCF yield is what you actually earn as an owner — not accounting profits.",
                       "missing": fcf_yield is None})
 
     max_pts = weights["ROIC"]
@@ -191,7 +191,7 @@ def score_stock(data, weights):
     criteria.append({"name": "Return on Invested Capital (ROIC)",
                       "value": f"{roic:.1%}" if roic is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Munger: 'Show me the incentives and I'll show you the outcome.' ROIC shows if management deploys capital wisely.",
+                      "note": "Munger's capital allocation test: management that consistently earns 20%+ ROIC is compounding your wealth. Below 12% means they're destroying value with every reinvestment dollar.",
                       "missing": roic is None})
 
     max_pts  = weights["Debt / FCF"]
@@ -209,7 +209,7 @@ def score_stock(data, weights):
     criteria.append({"name": "Debt / Free Cash Flow",
                       "value": f"{debt_fcf:.1f}x" if debt_fcf is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Years of FCF needed to pay off long-term debt. In a credit crunch, this is the survival metric.",
+                      "note": "Munger's inversion: 'What kills a great business?' Debt in a credit crunch. A fortress balance sheet means never being a forced seller. Under 3x Debt/FCF = structural survivor.",
                       "missing": debt_fcf is None})
 
     max_pts = weights["Gross Margin"]
@@ -223,7 +223,7 @@ def score_stock(data, weights):
     criteria.append({"name": "Gross Margin (Pricing Power)",
                       "value": f"{gm:.1%}" if gm is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Buffett's favorite moat signal. Can the company raise prices without losing customers?",
+                      "note": "Buffett: 'The single most important decision in evaluating a business is pricing power.' Gross margin above 60% signals a structural moat — brand, switching costs, or network effects at work.",
                       "missing": gm is None})
 
     max_pts = weights["Interest Coverage"]
@@ -242,7 +242,7 @@ def score_stock(data, weights):
     criteria.append({"name": "Interest Coverage Ratio",
                       "value": display_val,
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "How many times can earnings cover interest payments? 'Net Creditor' means the company earns more interest than it pays.",
+                      "note": "Munger's survival lens: can this business service its debt in a Long Squeeze — elevated rates, suppressed growth, tightening credit? Net Creditor status is the ultimate fortress signal.",
                       "missing": (not is_nc and ic_val is None)})
 
     max_pts = weights["Price / Owner Earnings"]
@@ -257,7 +257,7 @@ def score_stock(data, weights):
     criteria.append({"name": "Price / Owner Earnings",
                       "value": f"{poe:.1f}x" if poe is not None else "N/A",
                       "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                      "note": "Buffett's valuation test. What are you paying per dollar of real owner earnings? Under 15x is a bargain.",
+                      "note": "Buffett: 'Price is what you pay. Value is what you get.' Owner Earnings = net income + D&A − maintenance capex. Under 15x is a bargain; over 35x you're paying for perfection.",
                       "missing": poe is None})
 
     raw_score      = sum(c['points_earned'] for c in criteria)
@@ -652,19 +652,21 @@ if _cache_key and _cache_key in st.session_state:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Reading the 10-K and thinking..."):
                 if not st.session_state[context_key]:
+                    # First turn: build full context and pass it WITH the question
+                    from claude_utils import build_context, get_user_profile
+                    profile     = get_user_profile()
+                    context_str = build_context(ticker_input, data, scores_dict, sections, profile)
+                    full_q      = f"{context_str}\n\n---\nQUESTION: {active_q}"
                     response = ask_claude_about_equity(
                         ticker=ticker_input, data=data, scores=scores_dict,
-                        sections=sections, user_question=active_q,
+                        sections=sections, user_question=full_q,
                         conversation_history=None,
+                        profile=profile,
                     )
-                    from claude_utils import build_context
-                    context_str = build_context(ticker_input, data, scores_dict, sections)
-                    st.session_state[convo_key].append({
-                        "role": "user",
-                        "content": f"{context_str}\n\n---\nQUESTION: {active_q}"
-                    })
+                    st.session_state[convo_key].append({"role": "user", "content": full_q})
                     st.session_state[context_key] = True
                 else:
+                    # Subsequent turns: context already in history
                     response = ask_claude_about_equity(
                         ticker=ticker_input, data=data, scores=scores_dict,
                         sections=sections, user_question=active_q,
