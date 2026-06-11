@@ -496,7 +496,7 @@ if 'ms_results_df' in st.session_state:
         is_checked  = ticker in _selected
 
         with st.container():
-            c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1, 3, 2, 2, 2, 2, 2, 2, 1])
+            c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1, 3, 2, 2, 2, 2, 2, 2, 1.5])
             with c1:
                 st.markdown(f"### {icon}")
                 st.markdown(f"**#{rank+1}**")
@@ -513,13 +513,13 @@ if 'ms_results_df' in st.session_state:
             with c9:
                 # Checkbox — limit selection to 5
                 _at_limit = len(_selected) >= 5 and ticker not in _selected
+                st.caption("Deep Dive")
                 checked = st.checkbox(
-                    "Select",
+                    "☑ Select",
                     value=is_checked,
                     key=f"ms_chk_{ticker}_{rank}",
                     disabled=_at_limit,
-                    help="Max 5 selected" if _at_limit else "Select for Deep Dive",
-                    label_visibility="collapsed",
+                    help="Max 5 selected" if _at_limit else f"Add {ticker} to deep dive",
                 )
                 if checked and ticker not in _selected:
                     _selected.append(ticker)
