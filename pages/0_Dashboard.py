@@ -854,14 +854,14 @@ if df_holdings_raw is not None:
             f"Monthly target: ${_wd:,.0f} | Annual passive: ${profile.get('annual_passive', 0):,.0f}\n"
         )
         lines.append("Holdings (scored via Owner's Framework):")
-        _df = df_display  # capture outer scope variable explicitly
+        _df = display_df  # consolidated holdings dataframe
         for sym in unique_symbols:
             score  = st.session_state.holding_scores.get(sym)
             cached = st.session_state.holding_raw_data.get(sym)
             row    = _df[_df['Symbol'] == sym].iloc[0] if sym in _df['Symbol'].values else None
             if row is not None:
-                val    = row.get('Total_Value', 0)
-                badge  = row.get('Badge', '—')
+                val    = row['Total_Value'] if 'Total_Value' in row.index else 0
+                badge  = row['Badge'] if 'Badge' in row.index else '—'
                 pct    = val / profile.get('portfolio_val', 1) * 100 if profile.get('portfolio_val') else 0
                 verdict, _, _ = hold_verdict(cached, ht) if cached else ('—', '', '')
                 score_str = f"{score}/100" if score else "unscored"
