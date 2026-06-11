@@ -580,7 +580,7 @@ if _cache_key and _cache_key in st.session_state:
     st.divider()
     st.markdown("### 🤖 Ask Claude — SEC Filing Analysis")
     st.caption(
-        "Claude Opus reads the actual 10-K filing alongside the quantitative scores above. "
+        "Claude reads the actual 10-K filing alongside the quantitative scores above — applying Buffett + Munger philosophy to your specific financial situation. "
         "Ask anything: red flags, management tone, moat durability, Long Squeeze resilience. "
         "Conversation is multi-turn — follow up freely."
     )
