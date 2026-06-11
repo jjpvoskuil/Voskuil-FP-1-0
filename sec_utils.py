@@ -51,13 +51,25 @@ def get_latest_10k_accession(cik: str):
 
 
 def resolve_doc_url(raw_href: str, doc_base: str) -> str:
-    href = re.sub(r'^/ix\?doc=', '', raw_href)
-    if href.startswith("http"):
-        return href
-    elif href.startswith("/"):
-        return SEC_BASE + href
+    """
+    Convert a raw href from the EDGAR index into a fetchable URL.
+    
+    If the href starts with /ix?doc=, we have two choices:
+      a) Strip it -> raw iXBRL file (3MB+ of mixed XML/HTML, hard to parse)
+      b) Keep it -> EDGAR viewer renders clean readable HTML
+    
+    We keep the /ix?doc= prefix so the viewer does the rendering work for us.
+    The viewer returns standard HTML with the narrative text intact.
+    """
+    if raw_href.startswith("/ix?doc="):
+        # Use the EDGAR inline viewer — returns clean rendered HTML
+        return SEC_BASE + raw_href
+    elif raw_href.startswith("http"):
+        return raw_href
+    elif raw_href.startswith("/"):
+        return SEC_BASE + raw_href
     else:
-        return doc_base + href
+        return doc_base + raw_href
 
 
 def get_10k_document_url(cik: str, accession_dashed: str):
@@ -122,17 +134,16 @@ def extract_sections(doc_url: str) -> dict:
 
     raw = resp.text
 
-    # Some servers redirect to the /ix?doc= viewer even after we strip the prefix.
-    # Detect this: viewer pages are small (<50KB) and contain no Item headers.
-    # In that case, try fetching the bare filename directly from the archive folder.
-    if len(raw) < 50_000 and 'ix?doc=' in raw:
-        # Extract the real doc path from the viewer page
-        redir = re.search(r'ix\?doc=(/Archives/[^"&\s]+)', raw)
-        if redir:
-            doc_url = SEC_BASE + redir.group(1)
-            resp    = requests.get(doc_url, headers=HEADERS, timeout=30)
-            if resp.status_code == 200:
-                raw = resp.text
+    # If we got the viewer HTML, it will be clean narrative text.
+    # If we accidentally got the raw iXBRL XML, detect and handle it.
+    if raw.startswith('<?xml') or ('<xbrl' in raw[:2000].lower()):
+        # We got the raw XBRL instance document — try the viewer instead
+        # by reconstructing the /ix?doc= URL from the doc_url
+        archive_path = doc_url.replace(SEC_BASE, '')
+        viewer_url   = f"{SEC_BASE}/ix?doc={archive_path}"
+        viewer_resp  = requests.get(viewer_url, headers=HEADERS, timeout=30)
+        if viewer_resp.status_code == 200 and len(viewer_resp.text) > len(raw):
+            raw = viewer_resp.text
 
     # Strip iXBRL/XBRL namespace tags first (ix:, xbrli:, etc.)
     # These appear in inline XBRL documents as <ix:nonfraction ...>value</ix:nonfraction>
