@@ -586,11 +586,8 @@ if _cache_key and _cache_key in st.session_state:
         st.info("No tracked superinvestors currently hold this stock — or it may be too small/foreign for 13F reporting.")
 
     if si.get("error"):
-        with st.expander("🔍 Debug info (click to expand)"):
-            st.caption(f"Checked: {si.get('debug_checked',0)} investors")
-            st.caption(f"Empty XML: {si.get('debug_xml_empty',0)} | No holdings parsed: {si.get('debug_no_holdings',0)}")
-            st.caption(f"Sample Berkshire names: {si.get('debug_sample_names', [])}")
-            st.text(si['error'][:500])
+        with st.expander("🔍 Debug info"):
+            st.text(si['error'][:600])
 
     st.divider()
     st.markdown("### 📊 Key Metrics at a Glance")
