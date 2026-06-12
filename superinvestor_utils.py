@@ -197,7 +197,8 @@ def get_superinvestor_conviction(ticker: str) -> dict:
 
     if si_subs.empty:
         return {"holders": [], "holder_count": 0, "conviction_score": 0,
-                "period": period, "error": "No superinvestor filings found in dataset"}
+                "period": period,
+                "error": f"No superinvestor filings found. CIK col={cik_col}. Sub cols={list(sub_df.columns)[:8]}. Sample CIKs={sub_df[cik_col].head(5).tolist() if cik_col else []}"}
 
     # Get accession numbers for our investors
     acc_col = next((c for c in sub_df.columns if "ACCESSION" in c), None)
@@ -230,9 +231,13 @@ def get_superinvestor_conviction(ticker: str) -> dict:
     our_accs  = set(acc_to_investor.keys())
     si_info   = info_df[info_df[acc_col_i].str.strip().isin(our_accs)].copy()
 
+    # Debug: show accession format mismatch
+    _sub_accs  = set(si_subs[acc_col].str.strip().tolist()[:5])
+    _info_accs = set(info_df[acc_col_i].str.strip().tolist()[:5]) if acc_col_i else set()
     if si_info.empty:
         return {"holders": [], "holder_count": 0, "conviction_score": 0,
-                "period": period, "error": "No holdings found for superinvestors in dataset"}
+                "period": period,
+                "error": f"No holdings matched. Sub accessions (sample): {_sub_accs}. Info accessions (sample): {_info_accs}. Info cols: {list(info_df.columns)[:8]}"}
 
     # Match ticker in name column
     ticker_upper = ticker.upper()
