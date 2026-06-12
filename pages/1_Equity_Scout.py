@@ -587,7 +587,8 @@ if _cache_key and _cache_key in st.session_state:
 
     with st.expander("🔍 Debug info"):
         st.caption(f"Columns: {si.get('_debug_cols', [])}")
-        st.caption(f"Investors matched in dataset: {si.get('_debug_acc_count', 0)}")
+        st.caption(f"Matched ({si.get('_debug_acc_count', 0)}): {si.get('_debug_acc_investors', [])}")
+        st.caption(f"Missing: {si.get('_debug_missing', [])}")
         st.caption(f"Berkshire KO-related names: {si.get('_debug_brk_ko', [])}")
         st.caption(f"Berkshire sample names: {si.get('_debug_brk_sample', [])}")
         if si.get("error"):
