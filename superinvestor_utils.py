@@ -45,9 +45,9 @@ CIK_TO_NAME = {str(int(v)): k for k, v in SUPERINVESTORS.items()}
 # Ticker -> partial company name for matching (uppercase)
 TICKER_NAME_MAP = {
     "BRK.B": "BERKSHIRE",   "BRK.A": "BERKSHIRE",
-    "ABBV":  "ABBVIE",      "BMY":   "BRISTOL-MYERS",
+    "ABBV":  "ABBVIE",      "BMY":   "BRISTOL MYERS",
     "MO":    "ALTRIA",      "PM":    "PHILIP MORRIS",
-    "AMP":   "AMERIPRISE",  "KO":    "COCA-COLA",
+    "AMP":   "AMERIPRISE",  "KO":    "COCA COLA",
     "GOOGL": "ALPHABET",    "GOOG":  "ALPHABET",
     "META":  "META PLATF",  "MSFT":  "MICROSOFT",
     "AMZN":  "AMAZON",      "AAPL":  "APPLE",
@@ -231,8 +231,13 @@ def get_superinvestor_conviction(ticker: str) -> dict:
     our_accs  = set(acc_to_investor.keys())
     si_info   = info_df[info_df[acc_col_i].str.strip().isin(our_accs)].copy()
 
+    # Deduplicate: keep one row per (accession, issuer) — dataset may have
+    # multiple filings per quarter or duplicate rows
+    if not si_info.empty:
+        si_info = si_info.drop_duplicates(subset=[acc_col_i, name_col])
+
     # Debug: show accession format mismatch
-    _sub_accs  = set(si_subs[acc_col].str.strip().tolist()[:5])
+    _sub_accs  = set(si_subs[acc_col].str.strip().tolist()[:5]) if acc_col else set()
     _info_accs = set(info_df[acc_col_i].str.strip().tolist()[:5]) if acc_col_i else set()
     if si_info.empty:
         return {"holders": [], "holder_count": 0, "conviction_score": 0,
