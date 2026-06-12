@@ -290,10 +290,23 @@ def get_superinvestor_conviction(ticker: str) -> dict:
     weight    = min(40, int(avg_pct / 10 * 40))
     score     = breadth + weight
 
+    # Debug: sample Berkshire names and column info
+    brk_acc   = [a for a, nm in acc_to_investor.items() if "Buffett" in nm]
+    brk_sample = []
+    brk_ko     = []
+    if brk_acc:
+        brk_rows   = si_info[si_info[acc_col_i].str.strip().isin(brk_acc)]
+        brk_sample = brk_rows["_name_upper"].head(15).tolist()
+        brk_ko     = brk_rows[brk_rows["_name_upper"].str.contains("COCA|\bKO\b", na=False, regex=True)]["_name_upper"].tolist()
+
     return {
         "holders":          holders,
         "holder_count":     n,
         "conviction_score": score,
         "period":           period,
         "error":            None,
+        "_debug_cols":      [name_col, val_col, acc_col_i],
+        "_debug_brk_sample": brk_sample,
+        "_debug_brk_ko":     brk_ko,
+        "_debug_acc_count":  len(acc_to_investor),
     }
