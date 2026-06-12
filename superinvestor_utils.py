@@ -214,14 +214,17 @@ def get_superinvestor_conviction(ticker: str) -> dict:
             acc_to_investor[row[acc_col].strip()] = name
 
     # Find ticker matches in infotable
-    name_col  = next((c for c in info_df.columns if "NAMEOFISSUER" in c or "NAME_OF" in c), None)
-    val_col   = next((c for c in info_df.columns if c in ("VALUE", "MARKETVAL")), None)
+    name_col  = next((c for c in info_df.columns if "NAMEOFISSUER" in c or "NAME_OF" in c or c == "NAMEOFISSUER"), None)
+    val_col   = next((c for c in info_df.columns if c in ("VALUE", "MARKETVAL", "VALUE_x", "MARKET_VALUE")), None)
     acc_col_i = next((c for c in info_df.columns if "ACCESSION" in c), None)
+
+    # Log available columns for debugging
+    _all_cols = list(info_df.columns)
 
     if not all([name_col, val_col, acc_col_i]):
         return {"holders": [], "holder_count": 0, "conviction_score": 0,
                 "period": period,
-                "error": f"Required columns not found. Available: {list(info_df.columns)[:10]}"}
+                "error": f"Columns not found. name={name_col} val={val_col} acc={acc_col_i}. Available: {_all_cols}"}
 
     # Filter to our investors' accessions
     our_accs  = set(acc_to_investor.keys())
@@ -240,12 +243,15 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         # Debug: show sample names from Berkshire
         brk_acc = [a for a, n in acc_to_investor.items() if "Buffett" in n]
         sample  = []
+        all_coks = []
         if brk_acc:
             brk_rows = si_info[si_info[acc_col_i].str.strip().isin(brk_acc)]
-            sample   = brk_rows["_name_upper"].head(10).tolist()
+            sample   = brk_rows["_name_upper"].head(20).tolist()
+            # Find anything with COCA or KO in name
+            all_coks = brk_rows[brk_rows["_name_upper"].str.contains("COCA|\bKO\b", regex=True)]["_name_upper"].tolist()
         return {"holders": [], "holder_count": 0, "conviction_score": 0,
                 "period": period,
-                "error": f"Ticker {ticker} not found. Sample Berkshire names: {sample}"}
+                "error": f"Ticker {ticker} not found. KO-related: {all_coks}. Sample names: {sample[:10]}"}
 
     # Compute per-investor totals and positions
     holders = []
