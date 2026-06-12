@@ -318,5 +318,7 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         "_debug_cols":      [name_col, val_col, acc_col_i],
         "_debug_brk_sample": brk_sample,
         "_debug_brk_ko":     brk_ko,
-        "_debug_acc_count":  len(acc_to_investor),
+        "_debug_acc_count":    len(acc_to_investor),
+        "_debug_acc_investors": list(acc_to_investor.values()),
+        "_debug_missing":       [name for name in SUPERINVESTORS if name not in acc_to_investor.values()],
     }
