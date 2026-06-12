@@ -585,9 +585,13 @@ if _cache_key and _cache_key in st.session_state:
     elif n_holders == 0:
         st.info("No tracked superinvestors currently hold this stock — or it may be too small/foreign for 13F reporting.")
 
-    if si.get("error"):
-        with st.expander("🔍 Debug info"):
-            st.text(si['error'][:600])
+    with st.expander("🔍 Debug info"):
+        st.caption(f"Columns: {si.get('_debug_cols', [])}")
+        st.caption(f"Investors matched in dataset: {si.get('_debug_acc_count', 0)}")
+        st.caption(f"Berkshire KO-related names: {si.get('_debug_brk_ko', [])}")
+        st.caption(f"Berkshire sample names: {si.get('_debug_brk_sample', [])}")
+        if si.get("error"):
+            st.text(si["error"][:600])
 
     st.divider()
     st.markdown("### 📊 Key Metrics at a Glance")
