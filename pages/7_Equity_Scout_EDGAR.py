@@ -7,6 +7,98 @@ from sec_utils import fetch_10k_sections, fetch_company_facts
 from claude_utils import ask_claude_about_equity
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
 
+POLY_URL = "https://api.polygon.io"
+
+def poly_get(endpoint, params={}):
+    try:
+        key = st.secrets["POLYGON_KEY"]
+        r   = requests.get(f"{POLY_URL}{endpoint}", params={**params, "apiKey": key}, timeout=10)
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+def fval(obj, key):
+    try:    return float(obj[key]["value"])
+    except: return None
+
+@st.cache_data(ttl=3600)
+def fetch_fundamentals_polygon(ticker):
+    """Slim Polygon fetch — same logic as 1_Equity_Scout.py fetch_fundamentals."""
+    try:
+        det   = (poly_get(f"/v3/reference/tickers/{ticker}") or {}).get("results", {})
+        market_cap = safe_float(det.get("market_cap"))
+        shares     = safe_float(det.get("weighted_shares_outstanding"))
+        name       = det.get("name", ticker)
+        sector     = det.get("sic_description", "N/A")
+
+        price_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev")
+        price = None
+        try:    price = float(price_data["results"][0]["c"])
+        except: pass
+
+        fin = poly_get("/vX/reference/financials", {
+            "ticker": ticker, "timeframe": "annual", "limit": 2,
+            "order": "desc", "sort": "period_of_report_date",
+        })
+        if not fin or not fin.get("results"):
+            return {"error": "No Polygon financials returned"}
+
+        results = fin["results"]
+        f  = results[0]["financials"]
+        f2 = results[1]["financials"] if len(results) > 1 else {}
+
+        inc  = f.get("income_statement",    {})
+        cf   = f.get("cash_flow_statement", {})
+        bs   = f.get("balance_sheet",       {})
+        cf2  = (f2 or {}).get("cash_flow_statement", {})
+
+        op_cf  = fval(cf,  "net_cash_flow_from_operating_activities")
+        inv_cf = fval(cf,  "net_cash_flow_from_investing_activities")
+        fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
+
+        op_cf2  = fval(cf2, "net_cash_flow_from_operating_activities")
+        inv_cf2 = fval(cf2, "net_cash_flow_from_investing_activities")
+        fcf2    = (op_cf2 + inv_cf2) if (op_cf2 and inv_cf2) else None
+        fcf_growth = ((fcf / fcf2) - 1) if (fcf and fcf2 and fcf2 != 0) else None
+
+        fcf_yield    = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
+        gross_profit = fval(inc, "gross_profit")
+        revenues     = fval(inc, "revenues")
+        gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
+        net_income   = fval(inc, "net_income_loss")
+        total_assets = fval(bs,  "assets")
+        current_liab = fval(bs,  "current_liabilities")
+        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
+        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
+
+        long_term_debt = fval(bs, "long_term_debt") or fval(bs, "noncurrent_liabilities")
+        debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf and fcf > 0) else None
+
+        op_income    = fval(inc, "operating_income_loss")
+        interest_exp = fval(inc, "interest_expense_operating")
+        int_cov      = (op_income / interest_exp) if (interest_exp and interest_exp > 0 and op_income is not None) else None
+        is_nc        = (int_cov is None and interest_exp is None)
+
+        dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
+        capex_abs  = abs(inv_cf) if inv_cf else 0
+        owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
+        poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
+
+        return {
+            "name": name, "sector": sector, "market_cap": market_cap,
+            "price": price, "shares": shares,
+            "fcf": fcf, "fcf_yield": fcf_yield, "fcf_growth": fcf_growth,
+            "gross_margin": gross_margin, "gross_profit": gross_profit, "revenues": revenues,
+            "roic": roic, "net_income": net_income,
+            "long_term_debt": long_term_debt, "debt_to_fcf": debt_to_fcf,
+            "interest_coverage": int_cov, "is_net_creditor": is_nc,
+            "owner_earnings": owner_earn, "price_owner_earn": poe,
+            "op_cf": op_cf, "inv_cf": inv_cf,
+            "data_source": "Polygon",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 st.set_page_config(page_title="Equity Scout — EDGAR", layout="wide")
 
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
@@ -338,10 +430,9 @@ st.title("🔍 Equity Scout — EDGAR")
 st.caption("Concentrated, Buffett-style fundamental analysis. Primary data: SEC EDGAR Company Facts API.")
 
 st.info(
-    "🧪 **Validation page** — This is the EDGAR-powered version of Equity Scout, "
-    "running alongside the original (Polygon) version for side-by-side comparison. "
-    "Once validated against your core holdings, this will replace the Polygon version. "
-    "See punch list #57.",
+    "🧪 **Validation page** — One input runs both EDGAR and Polygon simultaneously. "
+    "Results appear side-by-side in the comparison panel below the score. "
+    "Once validated against your core holdings, EDGAR replaces Polygon. See punch list #57.",
     icon="🔬"
 )
 
@@ -480,19 +571,42 @@ if auto_analyze and url_ticker and not analyze:
 
 _cache_key = f"es_edgar_results_{ticker_input}" if ticker_input else None
 
-# ── Run analysis ─────────────────────────────────────────────────────────────
+# ── Run analysis — both sources fire on single button click ───────────────────
 if analyze and ticker_input:
     total_weight = sum(st.session_state.get("committed_weights", DEFAULT_WEIGHTS).values())
     if total_weight != 100:
         st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
 
-    # Flag check before fetching
-    with st.spinner(f"Fetching fundamentals for **{ticker_input}** from SEC EDGAR..."):
-        data = fetch_fundamentals_edgar(ticker_input)
+    col_p, col_e = st.columns(2)
 
+    # Fetch both sources in parallel columns so spinners show simultaneously
+    with col_e:
+        with st.spinner(f"🏛️ Fetching **{ticker_input}** from SEC EDGAR..."):
+            data = fetch_fundamentals_edgar(ticker_input)
+
+    with col_p:
+        with st.spinner(f"📡 Fetching **{ticker_input}** from Polygon..."):
+            poly_data = fetch_fundamentals_polygon(ticker_input)
+
+    # EDGAR errors are blocking — can't show the page without it
     if data.get("error"):
-        st.error(f"Could not fetch EDGAR data for {ticker_input}: {data['error']}")
+        st.error(f"EDGAR fetch failed for {ticker_input}: {data['error']}")
         st.stop()
+
+    # Polygon errors are non-blocking — show warning, comparison panel will degrade gracefully
+    poly_cache_key = f"es_results_{ticker_input}"
+    if poly_data.get("error"):
+        st.warning(f"⚠️ Polygon fetch failed: {poly_data['error']} — comparison will be unavailable.")
+    else:
+        # Store in same cache key format as 1_Equity_Scout.py so comparison panel works
+        poly_raw, poly_rebalanced, poly_missing, poly_criteria = score_stock(poly_data, weights)
+        poly_verdict_label, poly_verdict_color = score_to_verdict(poly_rebalanced)
+        st.session_state[poly_cache_key] = {
+            "data": poly_data, "raw_score": poly_raw,
+            "rebalanced_score": poly_rebalanced, "missing_names": poly_missing,
+            "criteria": poly_criteria, "verdict_label": poly_verdict_label,
+            "verdict_color": poly_verdict_color,
+        }
 
     # Financial/cyclical firm warnings
     if data.get("is_financial"):
@@ -791,6 +905,89 @@ if _cache_key and _cache_key in st.session_state:
 
     st.divider()
 
+    # ── Polygon vs EDGAR Comparison ───────────────────────────────────────────
+    st.markdown("### 🔬 Source Comparison — EDGAR vs Polygon")
+    st.caption("Side-by-side view of how SEC EDGAR and Polygon report the same metrics. Differences may reflect normalization choices, concept tag selection, or filing period alignment.")
+
+    poly_cache_key = f"es_results_{ticker_input}"
+    poly_cached    = st.session_state.get(poly_cache_key)
+
+    if poly_cached:
+        poly_data  = poly_cached.get("data", {})
+        poly_score = poly_cached.get("rebalanced_score")
+        poly_verdict = poly_cached.get("verdict_label", "")
+
+        # Build comparison rows
+        compare_rows = [
+            ("Conviction Score",    f"{rebalanced_score}/100  ({verdict_label})",
+                                    f"{poly_score}/100  ({poly_verdict})"
+                                    if poly_score is not None else "N/A"),
+            ("Free Cash Flow",      fmt_val(data.get("fcf")),
+                                    fmt_val(poly_data.get("fcf"))),
+            ("Operating CF",        fmt_val(data.get("op_cf")),
+                                    fmt_val(poly_data.get("fcf"))),  # Polygon doesn't expose op_cf directly
+            ("FCF Yield",           fmt_val(data.get("fcf_yield"), "pct"),
+                                    fmt_val(poly_data.get("fcf_yield"), "pct")),
+            ("ROIC",                fmt_val(data.get("roic"), "pct"),
+                                    fmt_val(poly_data.get("roic"), "pct")),
+            ("Gross Margin",        fmt_val(data.get("gross_margin"), "pct"),
+                                    fmt_val(poly_data.get("gross_margin"), "pct")),
+            ("Debt / FCF",          fmt_val(data.get("debt_to_fcf"), "ratio"),
+                                    fmt_val(poly_data.get("debt_to_fcf"), "ratio")),
+            ("Interest Coverage",   fmt_val(data.get("interest_coverage"), "ratio"),
+                                    fmt_val(poly_data.get("interest_coverage"), "ratio")),
+            ("Owner Earnings",      fmt_val(data.get("owner_earnings")),
+                                    fmt_val(poly_data.get("owner_earnings"))),
+            ("Price / Owner Earn",  fmt_val(data.get("price_owner_earn"), "ratio"),
+                                    fmt_val(poly_data.get("price_owner_earn"), "ratio")),
+            ("Net Income",          fmt_val(data.get("net_income")),
+                                    fmt_val(poly_data.get("net_income"))),
+            ("Revenue",             fmt_val(data.get("revenues")),
+                                    fmt_val(poly_data.get("revenues"))),
+            ("Long-Term Debt",      fmt_val(data.get("long_term_debt")),
+                                    fmt_val(poly_data.get("long_term_debt"))),
+            ("Market Cap",          fmt_val(data.get("market_cap")),
+                                    fmt_val(poly_data.get("market_cap"))),
+            ("Price",               f"${data.get('price'):,.2f}" if data.get("price") else "N/A",
+                                    f"${poly_data.get('price'):,.2f}" if poly_data.get("price") else "N/A"),
+        ]
+
+        # Header row
+        hc1, hc2, hc3 = st.columns([2, 1.5, 1.5])
+        hc1.markdown("**Metric**")
+        hc2.markdown("**🏛️ EDGAR** *(primary)*")
+        hc3.markdown("**📡 Polygon** *(reference)*")
+        st.markdown("---")
+
+        for label, edgar_val, poly_val in compare_rows:
+            c1, c2, c3 = st.columns([2, 1.5, 1.5])
+            c1.markdown(f"{label}")
+
+            # Highlight differences
+            match = edgar_val == poly_val or edgar_val == "N/A" or poly_val == "N/A"
+            if match:
+                c2.markdown(f"`{edgar_val}`")
+                c3.markdown(f"`{poly_val}`")
+            else:
+                c2.markdown(f"**`{edgar_val}`**")
+                c3.markdown(f"<span style='color:#f39c12'>**`{poly_val}`**</span>",
+                            unsafe_allow_html=True)
+
+        st.caption(
+            "🟡 Orange values differ between sources. "
+            "Differences in scoring metrics usually trace to: debt definition (total vs long-term only), "
+            "interest expense (cash paid vs accrual), or fiscal year alignment."
+        )
+
+    else:
+        st.info(
+            f"📋 Enter a ticker above and click **Analyze** — both EDGAR and Polygon will run "
+            f"simultaneously and the comparison will appear here.",
+            icon="💡"
+        )
+
+    st.divider()
+
     # ── Income Potential ──────────────────────────────────────────────────────
     st.markdown("### 💰 Income Potential at Your Position Size")
     div_yield = data.get("dividend_yield")
@@ -969,4 +1166,3 @@ else:
 
     *Run the same ticker on Equity Scout (Polygon) to compare scores — see punch list #57.*
     """)
-
