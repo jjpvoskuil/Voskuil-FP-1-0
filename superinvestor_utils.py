@@ -24,15 +24,17 @@ SEC_BASE   = "https://www.sec.gov"
 # ── Curated superinvestor list ────────────────────────────────────────────
 # CIK: EDGAR Central Index Key — used to filter the 13F flat files
 SUPERINVESTORS = {
+    # Large institutional filers — reliably in SEC flat-file datasets
     "Warren Buffett (Berkshire)":  "0001067983",
     "Bill Ackman (Pershing Sq)":   "0001336528",
-    "Seth Klarman (Baupost)":      "0000893818",
-    "David Tepper (Appaloosa)":    "0001006438",
+    "David Tepper (Appaloosa)":    "0001656456",  # Updated: now files as Appaloosa LP
     "David Einhorn (Greenlight)":  "0001079114",
-    "Mohnish Pabrai (Pabrai Inv)": "0001173334",
-    "Li Lu (Himalaya Capital)":    "0001582202",
-    "Chuck Akre (Akre Capital)":   "0001113928",
+    "Seth Klarman (Baupost)":      "0001061768",  # Corrected CIK
+    "Chuck Akre (Akre Capital)":   "0001112520",  # Corrected CIK
     "Tom Gayner (Markel)":         "0001096343",
+    "Li Lu (Himalaya Capital)":    "0001582202",
+    "Mohnish Pabrai (Pabrai Inv)": "0001173334",
+    # Smaller/boutique filers — may not appear in every dataset
     "Chris Bloomstran (Semper)":   "0001403419",
     "Pat Dorsey (Dorsey Asset)":   "0001655888",
     "Allan Mecham (Arlington)":    "0001427571",
@@ -270,12 +272,22 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         if inv_rows.empty:
             continue
 
-        # Total portfolio value (in thousands)
+        # Total portfolio value — use TABLEVALUETOTAL from submission if available
         def safe_int(x):
             try: return int(str(x).replace(",", "").strip())
             except: return 0
 
-        total_val = inv_rows[val_col].apply(safe_int).sum()
+        # Try to get total from submission table first (more reliable)
+        total_val = 0
+        tvt_col = next((c for c in si_subs.columns if "TABLEVALUE" in c or "TABLE_VALUE" in c), None)
+        if tvt_col:
+            sub_row = si_subs[si_subs[acc_col].str.strip() == acc]
+            if not sub_row.empty:
+                total_val = safe_int(sub_row[tvt_col].iloc[0])
+
+        # Fallback: sum holdings (may be slightly off due to duplicates)
+        if total_val == 0:
+            total_val = inv_rows[val_col].apply(safe_int).sum()
 
         # Matched rows
         match_rows = matches[matches[acc_col_i].str.strip() == acc]
