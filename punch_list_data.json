@@ -503,6 +503,15 @@
       "priority": "Low",
       "done": false,
       "created": "2026-06-23"
+    },
+    {
+      "id": 57,
+      "title": "EDGAR \u2014 Validate EDGAR pages against Polygon for core holdings",
+      "note": "Run 5 core holdings through both Equity Scout (Polygon) and Equity Scout EDGAR side by side. Confirm scores are consistent or improvements are explainable. Check: ROIC, Debt/FCF, Interest Coverage, Owner Earnings, Gross Margin. Document any discrepancies in concept mapping. Only retire Polygon pages after all 5 holdings validate cleanly. Market Screener EDGAR requires same validation before retiring 2_Market_Screener.py.",
+      "phase": "Data Quality",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-23"
     }
   ],
   "phases": [
