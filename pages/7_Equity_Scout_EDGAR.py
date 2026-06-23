@@ -1,1 +1,972 @@
+import streamlit as st
+import requests
+import plotly.graph_objects as go
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from sec_utils import fetch_10k_sections, fetch_company_facts
+from claude_utils import ask_claude_about_equity
+from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
+
+st.set_page_config(page_title="Equity Scout — EDGAR", layout="wide")
+
+APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
+
+DEFAULT_WEIGHTS = {
+    "FCF Yield":              20,
+    "ROIC":                   10,
+    "Debt / FCF":             20,
+    "Gross Margin":           15,
+    "Interest Coverage":      10,
+    "Price / Owner Earnings": 25,
+}
+
+THRESHOLDS = {
+    "fcf_yield_good":           0.04,
+    "fcf_yield_great":          0.06,
+    "roic_good":                0.12,
+    "roic_great":               0.20,
+    "debt_fcf_safe":            3.0,
+    "debt_fcf_warning":         5.0,
+    "interest_coverage_safe":   5.0,
+    "gross_margin_good":        0.40,
+    "gross_margin_great":       0.60,
+    "poe_bargain":              15.0,
+    "poe_fair":                 25.0,
+    "poe_stretched":            35.0,
+    "monthly_income_target":    8000,
+}
+
+def safe_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+def fmt_val(val, fmt="money"):
+    if val is None: return "N/A"
+    if fmt == "money":  return f"${val/1e9:.2f}B" if abs(val) >= 1e9 else f"${val/1e6:.1f}M"
+    if fmt == "pct":    return f"{val:.1%}"
+    if fmt == "ratio":  return f"{val:.1f}x"
+    return str(val)
+
+# ── Price fetch via yfinance (EDGAR has no live pricing) ─────────────────────
+@st.cache_data(ttl=900)
+def fetch_price_and_market_cap(ticker):
+    """
+    Fetch current price and market cap from yfinance.
+    EDGAR provides shares outstanding; we use yfinance for live price only.
+    Returns dict with price, market_cap, shares, dividend_yield.
+    """
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+        price      = info.get("currentPrice") or info.get("regularMarketPrice")
+        market_cap = info.get("marketCap")
+        shares     = info.get("sharesOutstanding")
+        div_yield  = info.get("dividendYield")
+        name       = info.get("longName") or info.get("shortName") or ticker
+        sector     = info.get("sector", "N/A")
+        description = (info.get("longBusinessSummary", "")[:400] + "...") if info.get("longBusinessSummary") else ""
+        return {
+            "price":         safe_float(price),
+            "market_cap":    safe_float(market_cap),
+            "shares":        safe_float(shares),
+            "dividend_yield": safe_float(div_yield),
+            "name":          name,
+            "sector":        sector,
+            "description":   description,
+        }
+    except Exception as e:
+        return {"price": None, "market_cap": None, "shares": None,
+                "dividend_yield": None, "name": ticker, "sector": "N/A",
+                "description": "", "error": str(e)}
+
+@st.cache_data(ttl=3600)
+def fetch_fundamentals_edgar(ticker):
+    """
+    Primary data fetch using SEC EDGAR Company Facts API.
+    Falls back gracefully when concepts are missing.
+    Returns a data dict compatible with the existing score_stock() function.
+    """
+    # 1. Fetch EDGAR company facts (fundamentals + history)
+    facts = fetch_company_facts(ticker)
+    if facts.get("error"):
+        return {"error": facts["error"]}
+
+    latest = facts["latest"]
+    meta   = facts["meta"]
+    missing = facts.get("missing", [])
+
+    # 2. Fetch live price + market cap from yfinance
+    price_data = fetch_price_and_market_cap(ticker)
+    price      = price_data.get("price")
+    market_cap = price_data.get("market_cap")
+    shares     = price_data.get("shares") or latest.get("diluted_shares")
+    div_yield  = price_data.get("dividend_yield")
+
+    # Use yfinance name/sector/description as primary (richer than EDGAR entity name)
+    name        = price_data.get("name") or meta.get("company_name", ticker)
+    sector      = price_data.get("sector") or meta.get("sic", "N/A")
+    description = price_data.get("description", "")
+
+    # 3. Pull pre-computed scoring fields from EDGAR latest
+    op_cf        = latest.get("op_cf")
+    inv_cf       = latest.get("inv_cf")
+    fcf          = latest.get("fcf")
+    net_income   = latest.get("net_income")
+    revenues     = latest.get("revenue")
+    gross_profit = latest.get("gross_profit")
+    gross_margin = latest.get("gross_margin")
+    roic         = latest.get("roic")
+    long_term_debt = latest.get("long_term_debt", 0) or 0
+    short_term_debt = latest.get("short_term_debt", 0) or 0
+    total_debt   = long_term_debt + short_term_debt
+    debt_to_fcf  = latest.get("debt_to_fcf")
+    int_coverage = latest.get("int_coverage")
+    owner_earn   = latest.get("owner_earnings")
+    dna          = latest.get("dna")
+
+    # 4. Valuation metrics (need price)
+    fcf_yield   = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
+    poe         = None
+    if owner_earn and owner_earn > 0 and shares and price:
+        poe = price / (owner_earn / shares)
+
+    # 5. FCF growth (compare latest vs prior year from history)
+    fcf_growth = None
+    history = facts.get("history", {})
+    op_cf_hist = history.get("op_cf", [])
+    inv_cf_hist = history.get("inv_cf", [])
+    if len(op_cf_hist) >= 2 and len(inv_cf_hist) >= 2:
+        try:
+            fcf_prior = op_cf_hist[-2]["value"] + inv_cf_hist[-2]["value"]
+            if fcf_prior and fcf_prior != 0 and fcf:
+                fcf_growth = (fcf / fcf_prior) - 1
+        except Exception:
+            pass
+
+    # 6. Interest coverage — prefer cash-basis interest paid
+    is_net_creditor = False
+    int_exp = latest.get("interest_paid") or latest.get("interest_expense")
+    op_inc  = latest.get("op_income")
+    if int_exp and int_exp > 0 and op_inc is not None:
+        int_coverage = op_inc / int_exp
+    elif int_exp is None or int_exp == 0:
+        # No interest expense — likely net creditor
+        cash     = latest.get("cash", 0) or 0
+        if cash > total_debt:
+            is_net_creditor = True
+
+    return {
+        # Identity
+        "name":             name,
+        "sector":           sector,
+        "description":      description,
+        "ticker":           ticker.upper(),
+        "cik":              meta.get("cik"),
+        "is_financial":     meta.get("is_financial", False),
+        "is_cyclical":      meta.get("is_cyclical", False),
+        "fiscal_year":      meta.get("last_annual_period"),
+        "sic":              meta.get("sic"),
+        "data_source":      "SEC EDGAR Company Facts",
+        "missing_concepts": missing,
+
+        # Pricing (yfinance)
+        "price":            price,
+        "market_cap":       market_cap,
+        "shares":           shares,
+
+        # Cash flow
+        "op_cf":            op_cf,
+        "inv_cf":           inv_cf,
+        "fcf":              fcf,
+        "fcf_yield":        fcf_yield,
+        "fcf_growth":       fcf_growth,
+
+        # Income
+        "revenues":         revenues,
+        "gross_profit":     gross_profit,
+        "gross_margin":     gross_margin,
+        "net_income":       net_income,
+
+        # Quality metrics
+        "roic":             roic,
+        "long_term_debt":   long_term_debt,
+        "short_term_debt":  short_term_debt,
+        "total_debt":       total_debt,
+        "debt_to_fcf":      debt_to_fcf,
+        "interest_coverage": int_coverage,
+        "is_net_creditor":  is_net_creditor,
+
+        # Owner earnings
+        "owner_earnings":   owner_earn,
+        "price_owner_earn": poe,
+        "dna":              dna,
+
+        # Income
+        "dividend_yield":   div_yield,
+
+        # Raw EDGAR history (for ROIC trending etc.)
+        "_history":         history,
+        "_latest":          latest,
+    }
+
+
+def score_stock(data, weights):
+    criteria = []
+
+    max_pts   = weights["FCF Yield"]
+    fcf_yield = data.get("fcf_yield")
+    if fcf_yield is not None:
+        if fcf_yield >= THRESHOLDS["fcf_yield_great"]:  pts, verdict = max_pts, "Excellent"
+        elif fcf_yield >= THRESHOLDS["fcf_yield_good"]: pts, verdict = round(max_pts * 0.60), "Good"
+        elif fcf_yield > 0:                             pts, verdict = round(max_pts * 0.15), "Weak"
+        else:                                           pts, verdict = 0, "Negative FCF"
+    else:
+        pts, verdict = 0, "No Data"
+    criteria.append({"name": "Free Cash Flow Yield",
+                     "value": f"{fcf_yield:.1%}" if fcf_yield is not None else "N/A",
+                     "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+                     "note": "Buffett: 'The most important thing for me is figuring out how big a moat there is around the business and the cash it generates.' FCF yield is what you actually earn as an owner — not accounting profits.",
+                     "missing": fcf_yield is None})
+
+    max_pts = weights["ROIC"]
+    roic    = data.get("roic")
+    if roic is not None:
+        if roic >= THRESHOLDS["roic_great"]:   pts, verdict = max_pts, "Exceptional"
+        elif roic >= THRESHOLDS["roic_good"]:  pts, verdict = round(max_pts * 0.60), "Strong"
+        elif roic > 0:                         pts, verdict = round(max_pts * 0.20), "Below Average"
+        else:                                  pts, verdict = 0, "Destroying Capital"
+    else:
+        pts, verdict = 0, "No Data"
+    criteria.append({"name": "Return on Invested Capital (ROIC)",
+                     "value": f"{roic:.1%}" if roic is not None else "N/A",
+                     "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+                     "note": "Munger's capital allocation test: management that consistently earns 20%+ ROIC is compounding your wealth. Below 12% means they're destroying value with every reinvestment dollar.",
+                     "missing": roic is None})
+
+    max_pts  = weights["Debt / FCF"]
+    debt_fcf = data.get("debt_to_fcf")
+    ic       = data.get("interest_coverage") or 0
+    is_nc    = data.get("is_net_creditor", False)
+    if debt_fcf is not None:
+        if debt_fcf < THRESHOLDS["debt_fcf_safe"]:      pts, verdict = max_pts, "Fortress"
+        elif debt_fcf < THRESHOLDS["debt_fcf_warning"]: pts, verdict = round(max_pts * 0.50), "Manageable"
+        elif ic >= THRESHOLDS["interest_coverage_safe"] or is_nc:
+                                                         pts, verdict = round(max_pts * 0.50), "High Debt, Well Covered"
+        else:                                            pts, verdict = 0, "Overleveraged"
+    else:
+        pts, verdict = 0, "No Data"
+    criteria.append({"name": "Debt / Free Cash Flow",
+                     "value": f"{debt_fcf:.1f}x" if debt_fcf is not None else "N/A",
+                     "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+                     "note": "Munger's inversion: 'What kills a great business?' Excessive debt when capital becomes scarce. A fortress balance sheet means never being a forced seller. Under 3x Debt/FCF = structural survivor.",
+                     "missing": debt_fcf is None})
+
+    max_pts = weights["Gross Margin"]
+    gm      = data.get("gross_margin")
+    if gm is not None:
+        if gm >= THRESHOLDS["gross_margin_great"]:  pts, verdict = max_pts, "Wide Moat"
+        elif gm >= THRESHOLDS["gross_margin_good"]: pts, verdict = round(max_pts * 0.67), "Solid Moat"
+        else:                                       pts, verdict = round(max_pts * 0.20), "Commodity Risk"
+    else:
+        pts, verdict = 0, "No Data"
+    criteria.append({"name": "Gross Margin (Pricing Power)",
+                     "value": f"{gm:.1%}" if gm is not None else "N/A",
+                     "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+                     "note": "Buffett: 'The single most important decision in evaluating a business is pricing power.' Gross margin above 60% signals a structural moat — brand, switching costs, or network effects at work.",
+                     "missing": gm is None})
+
+    max_pts = weights["Interest Coverage"]
+    ic_val  = data.get("interest_coverage")
+    is_nc   = data.get("is_net_creditor", False)
+    if is_nc:
+        pts, verdict = max_pts, "Net Creditor ✨"
+    elif ic_val is not None:
+        if ic_val >= THRESHOLDS["interest_coverage_safe"]: pts, verdict = max_pts, "Safe"
+        elif ic_val >= 2.5:                                pts, verdict = round(max_pts * 0.50), "Adequate"
+        elif ic_val > 0:                                   pts, verdict = round(max_pts * 0.15), "Tight"
+        else:                                              pts, verdict = 0, "Danger"
+    else:
+        pts, verdict = 0, "No Data"
+    display_val = "Net Creditor" if is_nc else (f"{ic_val:.1f}x" if ic_val is not None else "N/A")
+    criteria.append({"name": "Interest Coverage Ratio",
+                     "value": display_val,
+                     "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+                     "note": "Munger's survival lens: can this business service its debt through elevated rates, suppressed growth, and tightening credit? Net Creditor status is the ultimate fortress signal.",
+                     "missing": (not is_nc and ic_val is None)})
+
+    max_pts = weights["Price / Owner Earnings"]
+    poe     = data.get("price_owner_earn")
+    if poe is not None:
+        if poe <= THRESHOLDS["poe_bargain"]:     pts, verdict = max_pts, "Bargain"
+        elif poe <= THRESHOLDS["poe_fair"]:      pts, verdict = round(max_pts * 0.67), "Fair Value"
+        elif poe <= THRESHOLDS["poe_stretched"]: pts, verdict = round(max_pts * 0.25), "Stretched"
+        else:                                    pts, verdict = 0, "Expensive"
+    else:
+        pts, verdict = 0, "No Data"
+    criteria.append({"name": "Price / Owner Earnings",
+                     "value": f"{poe:.1f}x" if poe is not None else "N/A",
+                     "points_earned": pts, "points_max": max_pts, "verdict": verdict,
+                     "note": "Buffett: 'Price is what you pay. Value is what you get.' Owner Earnings = net income + D&A − maintenance capex. Under 15x is a bargain; over 35x you're paying for perfection.",
+                     "missing": poe is None})
+
+    raw_score     = sum(c["points_earned"] for c in criteria)
+    missing_pts   = sum(c["points_max"] for c in criteria if c.get("missing"))
+    missing_names = [c["name"] for c in criteria if c.get("missing")]
+    available_pts = 100 - missing_pts
+    rebalanced    = round(raw_score / available_pts * 100) if available_pts > 0 else raw_score
+
+    return raw_score, rebalanced, missing_names, criteria
+
+
+def score_to_verdict(score):
+    if score >= 80:   return "Strong Buy", "#2ecc71"
+    elif score >= 65: return "Watch Closely", "#f39c12"
+    elif score >= 45: return "Proceed with Caution", "#e67e22"
+    else:             return "Avoid", "#e74c3c"
+
+
+# ── Query params ─────────────────────────────────────────────────────────────
+params       = st.query_params
+url_ticker   = params.get("ticker", "").upper().strip()
+if not url_ticker and "dive_ticker" in st.session_state:
+    url_ticker = st.session_state.pop("dive_ticker", "").upper().strip()
+auto_analyze = bool(url_ticker)
+
+st.title("🔍 Equity Scout — EDGAR")
+st.caption("Concentrated, Buffett-style fundamental analysis. Primary data: SEC EDGAR Company Facts API.")
+
+st.info(
+    "🧪 **Validation page** — This is the EDGAR-powered version of Equity Scout, "
+    "running alongside the original (Polygon) version for side-by-side comparison. "
+    "Once validated against your core holdings, this will replace the Polygon version. "
+    "See punch list #57.",
+    icon="🔬"
+)
+
+st.markdown("> *\"Price is what you pay. Value is what you get.\"* — Warren Buffett")
+
+if url_ticker:
+    col_back, _ = st.columns([1, 4])
+    with col_back:
+        if st.button("← Back to Dashboard"):
+            st.switch_page("pages/0_Dashboard.py")
+    st.info(f"📌 Analyzing **{url_ticker}** — arrived from Holdings Explorer.")
+
+st.divider()
+
+# ── Weight reset handler ─────────────────────────────────────────────────────
+_weight_map = [
+    ("w_fcf_e",  "FCF Yield"),
+    ("w_roic_e", "ROIC"),
+    ("w_debt_e", "Debt / FCF"),
+    ("w_gm_e",   "Gross Margin"),
+    ("w_ic_e",   "Interest Coverage"),
+    ("w_poe_e",  "Price / Owner Earnings"),
+]
+for _wkey, _mkey in _weight_map:
+    if st.session_state.pop(f"pending_reset_{_wkey}", False):
+        st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
+        st.session_state.scoring_weights[_mkey] = DEFAULT_WEIGHTS[_mkey]
+
+with st.expander("⚙️ Customize Scoring Weights", expanded=False):
+    st.caption("Weights shared across all pages. Set them here and they carry through.")
+    if "scoring_weights"   not in st.session_state:
+        st.session_state.scoring_weights   = DEFAULT_WEIGHTS.copy()
+    if "committed_weights" not in st.session_state:
+        st.session_state.committed_weights = DEFAULT_WEIGHTS.copy()
+    sw = st.session_state.scoring_weights
+    rc1, rc2, rc3 = st.columns([1.2, 1.2, 4])
+    if rc1.button("↺ Reset to Defaults", key="es_e_reset_weights"):
+        st.session_state.scoring_weights   = DEFAULT_WEIGHTS.copy()
+        st.session_state.committed_weights = DEFAULT_WEIGHTS.copy()
+        for _wkey, _mkey in _weight_map:
+            st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
+        st.rerun()
+    draft_weights = {
+        "FCF Yield":              st.session_state.get("w_fcf_e",  sw["FCF Yield"]),
+        "ROIC":                   st.session_state.get("w_roic_e", sw["ROIC"]),
+        "Debt / FCF":             st.session_state.get("w_debt_e", sw["Debt / FCF"]),
+        "Gross Margin":           st.session_state.get("w_gm_e",   sw["Gross Margin"]),
+        "Interest Coverage":      st.session_state.get("w_ic_e",   sw["Interest Coverage"]),
+        "Price / Owner Earnings": st.session_state.get("w_poe_e",  sw["Price / Owner Earnings"]),
+    }
+    draft_total = sum(draft_weights.values())
+    apply_ok    = draft_total == 100
+    if rc2.button("✅ Apply Weights", key="es_e_apply_weights", type="primary", disabled=not apply_ok,
+                  help="Activates weights for scoring." if apply_ok else f"Total must equal 100 (currently {draft_total})."):
+        st.session_state.committed_weights = draft_weights.copy()
+        st.session_state.scoring_weights   = draft_weights.copy()
+        st.rerun()
+    cw = st.session_state.committed_weights
+    rc3.caption(
+        f"**Active:** FCF {cw['FCF Yield']} · ROIC {cw['ROIC']} · Debt {cw['Debt / FCF']} · "
+        f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']} · P/OE {cw['Price / Owner Earnings']}"
+    )
+    w_col1, w_col2 = st.columns(2)
+    with w_col1:
+        _sc, _sb = st.columns([4, 1])
+        with _sc: w_fcf = st.slider("FCF Yield", 0, 60, sw["FCF Yield"], step=5, key="w_fcf_e")
+        with _sb:
+            st.write("")
+            if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf_e", use_container_width=True):
+                st.session_state["pending_reset_w_fcf_e"] = True; st.rerun()
+        _sc, _sb = st.columns([4, 1])
+        with _sc: w_roic = st.slider("ROIC", 0, 40, sw["ROIC"], step=5, key="w_roic_e")
+        with _sb:
+            st.write("")
+            if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic_e", use_container_width=True):
+                st.session_state["pending_reset_w_roic_e"] = True; st.rerun()
+        _sc, _sb = st.columns([4, 1])
+        with _sc: w_debt = st.slider("Debt / FCF", 0, 40, sw["Debt / FCF"], step=5, key="w_debt_e")
+        with _sb:
+            st.write("")
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Debt / FCF']}", key="reset_w_debt_e", use_container_width=True):
+                st.session_state["pending_reset_w_debt_e"] = True; st.rerun()
+    with w_col2:
+        _sc, _sb = st.columns([4, 1])
+        with _sc: w_gm = st.slider("Gross Margin", 0, 40, sw["Gross Margin"], step=5, key="w_gm_e")
+        with _sb:
+            st.write("")
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Gross Margin']}", key="reset_w_gm_e", use_container_width=True):
+                st.session_state["pending_reset_w_gm_e"] = True; st.rerun()
+        _sc, _sb = st.columns([4, 1])
+        with _sc: w_ic = st.slider("Interest Coverage", 0, 40, sw["Interest Coverage"], step=5, key="w_ic_e")
+        with _sb:
+            st.write("")
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic_e", use_container_width=True):
+                st.session_state["pending_reset_w_ic_e"] = True; st.rerun()
+        _sc, _sb = st.columns([4, 1])
+        with _sc: w_poe = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, key="w_poe_e")
+        with _sb:
+            st.write("")
+            if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe_e", use_container_width=True):
+                st.session_state["pending_reset_w_poe_e"] = True; st.rerun()
+    active_weights = {
+        "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
+        "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
+    }
+    st.session_state.scoring_weights = active_weights
+    total_weight = sum(active_weights.values())
+    if total_weight == 100:
+        st.success(f"✅ Total: {total_weight} / 100 — click Apply Weights to activate")
+    elif total_weight < 100:
+        st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
+    else:
+        st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts")
+
+weights = st.session_state.get("committed_weights", DEFAULT_WEIGHTS.copy())
+
+col_input, col_btn = st.columns([3, 1])
+with col_input:
+    ticker_input = st.text_input(
+        "Enter a stock ticker", value=url_ticker,
+        placeholder="e.g. COST, MSFT, KO, V",
+        label_visibility="collapsed"
+    ).strip().upper()
+with col_btn:
+    analyze = st.button("🔎 Analyze", use_container_width=True, type="primary")
+
+with st.expander("💼 Position Sizing Context (optional)"):
+    position_size = st.number_input(
+        "How much are you considering investing? ($)",
+        min_value=0, value=100000, step=10000, format="%d"
+    )
+
+if auto_analyze and url_ticker and not analyze:
+    analyze      = True
+    ticker_input = url_ticker
+
+_cache_key = f"es_edgar_results_{ticker_input}" if ticker_input else None
+
+# ── Run analysis ─────────────────────────────────────────────────────────────
+if analyze and ticker_input:
+    total_weight = sum(st.session_state.get("committed_weights", DEFAULT_WEIGHTS).values())
+    if total_weight != 100:
+        st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
+
+    # Flag check before fetching
+    with st.spinner(f"Fetching fundamentals for **{ticker_input}** from SEC EDGAR..."):
+        data = fetch_fundamentals_edgar(ticker_input)
+
+    if data.get("error"):
+        st.error(f"Could not fetch EDGAR data for {ticker_input}: {data['error']}")
+        st.stop()
+
+    # Financial/cyclical firm warnings
+    if data.get("is_financial"):
+        st.warning(
+            f"⚠️ **Financial firm detected** (SIC {data.get('sic')}) — "
+            "Standard FCF/debt/margin scoring is unreliable for banks, insurers, and asset managers. "
+            "Score shown for reference only. See punch list #36."
+        )
+    if data.get("is_cyclical"):
+        st.warning(
+            f"⚠️ **Cyclical firm detected** (SIC {data.get('sic')}) — "
+            "Single-period scoring reflects where this company is in the cycle, not intrinsic value. "
+            "Full-cycle analysis recommended. See punch list #37."
+        )
+
+    raw_score, rebalanced_score, missing_names, criteria = score_stock(data, weights)
+    verdict_label, verdict_color = score_to_verdict(rebalanced_score)
+
+    st.session_state[_cache_key] = {
+        "data": data, "raw_score": raw_score, "rebalanced_score": rebalanced_score,
+        "missing_names": missing_names, "criteria": criteria,
+        "verdict_label": verdict_label, "verdict_color": verdict_color,
+    }
+
+elif _cache_key and _cache_key in st.session_state:
+    _c               = st.session_state[_cache_key]
+    data             = _c["data"]
+    raw_score        = _c["raw_score"]
+    rebalanced_score = _c["rebalanced_score"]
+    missing_names    = _c["missing_names"]
+    criteria         = _c["criteria"]
+    verdict_label    = _c["verdict_label"]
+    verdict_color    = _c["verdict_color"]
+
+# ── Render results ────────────────────────────────────────────────────────────
+if _cache_key and _cache_key in st.session_state:
+
+    st.markdown(f"## {data.get('name', ticker_input)}")
+    price_str  = f"${data.get('price', 0) or 0:,.2f} per share" if data.get("price") else "Price unavailable"
+    mktcap_str = f"Market Cap: ${(data.get('market_cap') or 0)/1e9:.1f}B" if data.get("market_cap") else ""
+    fy_str     = f"FY{data.get('fiscal_year', '')}" if data.get("fiscal_year") else ""
+    st.caption(f"{data.get('sector', '')}  ·  {price_str}  ·  {mktcap_str}  ·  {fy_str}")
+    if data.get("description"):
+        st.markdown(f"*{data['description']}*")
+
+    # Source banner
+    cik = data.get("cik", "")
+    sec_link   = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={ticker_input}&type=10-K&dateb=&owner=include&count=10"
+    yahoo_link = f"https://finance.yahoo.com/quote/{ticker_input}"
+    edgar_link = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json" if cik else None
+
+    rl1, rl2, rl3, rl4 = st.columns([1, 1, 1, 5])
+    with rl1: st.link_button("📋 SEC Filings", sec_link)
+    with rl2: st.link_button("📈 Yahoo Finance", yahoo_link)
+    if edgar_link:
+        with rl3: st.link_button("🏛️ EDGAR Facts", edgar_link)
+
+    # Data source badge
+    missing_concepts = data.get("missing_concepts", [])
+    if missing_concepts:
+        st.caption(f"📡 Data: SEC EDGAR Company Facts  ·  Pricing: yfinance  ·  Missing XBRL concepts: {len(missing_concepts)}")
+    else:
+        st.caption("📡 Data: SEC EDGAR Company Facts (primary)  ·  Pricing: yfinance")
+
+    st.divider()
+
+    left, right = st.columns([1, 2])
+    with left:
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number", value=rebalanced_score,
+            domain={"x": [0, 1], "y": [0, 1]},
+            title={"text": "Conviction Score", "font": {"size": 16}},
+            gauge={
+                "axis": {"range": [0, 100], "tickwidth": 1},
+                "bar":  {"color": verdict_color},
+                "steps": [
+                    {"range": [0, 45],   "color": "#fadbd8"},
+                    {"range": [45, 65],  "color": "#fdebd0"},
+                    {"range": [65, 80],  "color": "#fef9e7"},
+                    {"range": [80, 100], "color": "#eafaf1"},
+                ],
+                "threshold": {"line": {"color": verdict_color, "width": 4},
+                              "thickness": 0.75, "value": rebalanced_score}
+            }
+        ))
+        fig.update_layout(height=260, margin=dict(t=30, b=0, l=20, r=20))
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown(
+            f"<div style='text-align:center; font-size:1.4em; font-weight:bold; color:{verdict_color}'>"
+            f"{verdict_label}</div>", unsafe_allow_html=True
+        )
+        if missing_names:
+            st.markdown(f"**Rebalanced Score:** {rebalanced_score}/100")
+            st.markdown(f"**Raw Score:** {raw_score}/100")
+            st.warning(f"⚠️ Missing data: {', '.join(missing_names)}. Score rebalanced across available metrics.")
+        else:
+            st.markdown(f"**Score:** {rebalanced_score}/100")
+        st.markdown("**Active Weights**")
+        for k, v in weights.items():
+            st.caption(f"{k}: {v} pts")
+
+    with right:
+        st.markdown("### Owner's Scorecard")
+        for c in criteria:
+            earned  = c["points_earned"]
+            maximum = c["points_max"]
+            pct     = earned / maximum if maximum > 0 else 0
+            if c.get("missing"):
+                bar_color, icon = "#888888", "⬜"
+            elif pct >= 0.8:   bar_color, icon = "#2ecc71", "✅"
+            elif pct >= 0.5:   bar_color, icon = "#f39c12", "⚠️"
+            else:              bar_color, icon = "#e74c3c", "❌"
+            st.markdown(
+                f"{icon} **{c['name']}** — `{c['value']}` &nbsp;&nbsp;"
+                f"<span style='color:{bar_color}'>{c['verdict']}</span> &nbsp;·&nbsp; {earned}/{maximum} pts",
+                unsafe_allow_html=True
+            )
+            st.progress(pct)
+            st.caption(c["note"])
+
+    st.divider()
+
+    # ── EDGAR Data Transparency Panel (new — not in Polygon version) ──────────
+    with st.expander("🏛️ EDGAR Raw Data — What's Driving This Score", expanded=False):
+        st.caption(
+            "Full transparency on the underlying SEC-filed numbers feeding each metric. "
+            "This is the primary source data — no Polygon normalization layer between you and the filing."
+        )
+        latest = data.get("_latest", {})
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            st.markdown("**Cash Flow**")
+            st.metric("Operating CF",  fmt_val(data.get("op_cf")))
+            st.metric("Investing CF",  fmt_val(data.get("inv_cf")))
+            st.metric("Free CF",       fmt_val(data.get("fcf")))
+            st.metric("D&A",           fmt_val(data.get("dna")))
+        with d2:
+            st.markdown("**Income Statement**")
+            st.metric("Revenue",       fmt_val(data.get("revenues")))
+            st.metric("Gross Profit",  fmt_val(data.get("gross_profit")))
+            st.metric("Net Income",    fmt_val(data.get("net_income")))
+            st.metric("Owner Earnings",fmt_val(data.get("owner_earnings")))
+        with d3:
+            st.markdown("**Balance Sheet**")
+            st.metric("Long-Term Debt", fmt_val(data.get("long_term_debt")))
+            st.metric("Short-Term Debt",fmt_val(data.get("short_term_debt")))
+            st.metric("Total Debt",     fmt_val(data.get("total_debt")))
+            st.metric("Shares Out.",    f"{(data.get('shares') or 0)/1e6:.1f}M" if data.get("shares") else "N/A")
+
+        if missing_concepts:
+            st.warning(f"XBRL concepts not found in this company's filings: {', '.join(missing_concepts[:10])}")
+
+    # ── Historical ROIC Chart (new — foundation for punch list #34/#40) ───────
+    history = data.get("_history", {})
+    op_cf_hist  = history.get("op_cf", [])
+    inv_cf_hist = history.get("inv_cf", [])
+    ni_hist     = history.get("net_income", [])
+    eq_hist     = history.get("total_equity", [])
+    ltd_hist    = history.get("long_term_debt", [])
+
+    if len(ni_hist) >= 3 and len(eq_hist) >= 3:
+        with st.expander("📈 Historical ROIC Trend (from EDGAR)", expanded=False):
+            st.caption("10+ years of ROIC derived directly from SEC filings. Consistency = durable competitive advantage.")
+
+            # Build aligned year → ROIC series
+            ni_by_year  = {h["period"]: h["value"] for h in ni_hist if h.get("value") is not None}
+            eq_by_year  = {h["period"]: h["value"] for h in eq_hist if h.get("value") is not None}
+            ltd_by_year = {h["period"]: h["value"] for h in ltd_hist if h.get("value") is not None}
+
+            years = sorted(set(ni_by_year) & set(eq_by_year))
+            roic_series = []
+            for yr in years:
+                ni  = ni_by_year.get(yr, 0)
+                eq  = eq_by_year.get(yr, 0)
+                ltd = ltd_by_year.get(yr, 0)
+                inv_cap = eq + ltd
+                if inv_cap and inv_cap > 0:
+                    roic_series.append({"year": yr, "roic": ni / inv_cap})
+
+            if roic_series:
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(
+                    x=[r["year"] for r in roic_series],
+                    y=[r["roic"] * 100 for r in roic_series],
+                    mode="lines+markers",
+                    name="ROIC %",
+                    line=dict(color="#2ecc71", width=2),
+                    marker=dict(size=6),
+                ))
+                fig2.add_hline(y=12, line_dash="dash", line_color="#f39c12",
+                               annotation_text="12% threshold", annotation_position="right")
+                fig2.add_hline(y=20, line_dash="dash", line_color="#2ecc71",
+                               annotation_text="20% exceptional", annotation_position="right")
+                fig2.update_layout(
+                    title=f"{ticker_input} — Historical ROIC ({years[0]}–{years[-1]})",
+                    yaxis_title="ROIC %",
+                    height=300,
+                    margin=dict(t=40, b=20, l=20, r=80),
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+
+    # ── FCF History Chart ─────────────────────────────────────────────────────
+    if len(op_cf_hist) >= 3 and len(inv_cf_hist) >= 3:
+        with st.expander("💰 Historical Free Cash Flow (from EDGAR)", expanded=False):
+            op_by_yr  = {h["period"]: h["value"] for h in op_cf_hist if h.get("value") is not None}
+            inv_by_yr = {h["period"]: h["value"] for h in inv_cf_hist if h.get("value") is not None}
+            years_fcf = sorted(set(op_by_yr) & set(inv_by_yr))
+            fcf_series = [
+                {"year": yr, "fcf": op_by_yr[yr] + inv_by_yr[yr]}
+                for yr in years_fcf
+            ]
+            if fcf_series:
+                fig3 = go.Figure()
+                fig3.add_trace(go.Bar(
+                    x=[r["year"] for r in fcf_series],
+                    y=[r["fcf"] / 1e9 for r in fcf_series],
+                    name="FCF ($B)",
+                    marker_color=["#2ecc71" if r["fcf"] > 0 else "#e74c3c" for r in fcf_series],
+                ))
+                fig3.update_layout(
+                    title=f"{ticker_input} — Historical Free Cash Flow",
+                    yaxis_title="FCF ($B)",
+                    height=280,
+                    margin=dict(t=40, b=20, l=20, r=20),
+                )
+                st.plotly_chart(fig3, use_container_width=True)
+
+    st.divider()
+
+    # ── Superinvestor Conviction ──────────────────────────────────────────────
+    st.markdown("### 🦁 Superinvestor Conviction")
+    st.caption(
+        "How many of 13 tracked value superinvestors (Buffett, Ackman, Klarman, etc.) "
+        "hold this stock — sourced directly from SEC EDGAR 13F filings."
+    )
+    si_key     = f"si_edgar_conviction_{ticker_input}"
+    si_refresh = st.button("🔄 Refresh", key=f"si_edgar_refresh_{ticker_input}",
+                           help="Clear cache and re-fetch 13F data")
+    if si_refresh:
+        clear_superinvestor_cache()
+        st.session_state.pop(si_key, None)
+    if si_key not in st.session_state:
+        with st.spinner("Checking superinvestor 13F filings..."):
+            st.session_state[si_key] = get_superinvestor_conviction(ticker_input)
+
+    si         = st.session_state[si_key]
+    n_holders  = si.get("holder_count", 0)
+    si_score   = si.get("conviction_score", 0)
+    si_holders = si.get("holders", [])
+    si_period  = si.get("period", "")
+
+    si_c1, si_c2, si_c3 = st.columns(3)
+    with si_c1:
+        color = "#2ecc71" if n_holders >= 3 else "#f39c12" if n_holders >= 1 else "#888"
+        st.markdown(f"<div style='font-size:2em; font-weight:bold; color:{color}'>{n_holders}/13</div>",
+                    unsafe_allow_html=True)
+        st.caption("Superinvestors holding")
+    with si_c2:
+        st.markdown(f"<div style='font-size:2em; font-weight:bold'>{si_score}/100</div>",
+                    unsafe_allow_html=True)
+        st.caption("Conviction score")
+    with si_c3:
+        if si_period:
+            st.caption(f"📅 Data as of {si_period}")
+        st.caption("Source: SEC EDGAR 13F filings")
+
+    if si_holders:
+        st.markdown("**Holders:**")
+        holder_cols = st.columns(min(len(si_holders), 3))
+        for i, h in enumerate(si_holders):
+            with holder_cols[i % 3]:
+                pct_str = f"{h['pct']:.1f}% of portfolio" if h["pct"] > 0 else "< 0.1%"
+                val_str = f"${h['value']/1e9:.2f}B" if h["value"] >= 1e9 else f"${h['value']/1e6:.0f}M"
+                st.markdown(f"**{h['investor'].split('(')[0].strip()}**")
+                st.caption(f"{pct_str} · {val_str}")
+    elif n_holders == 0:
+        st.info("No tracked superinvestors currently hold this stock.")
+
+    st.divider()
+
+    # ── Key Metrics ───────────────────────────────────────────────────────────
+    st.markdown("### 📊 Key Metrics at a Glance")
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("Free Cash Flow",   fmt_val(data.get("fcf")))
+        st.metric("Owner Earnings",   fmt_val(data.get("owner_earnings")))
+    with m2:
+        st.metric("FCF Yield",        fmt_val(data.get("fcf_yield"), "pct"))
+        st.metric("FCF Growth (1yr)", fmt_val(data.get("fcf_growth"), "pct"))
+    with m3:
+        st.metric("ROIC",             fmt_val(data.get("roic"), "pct"))
+        st.metric("Gross Margin",     fmt_val(data.get("gross_margin"), "pct"))
+    with m4:
+        st.metric("Total Debt/FCF",       fmt_val(data.get("debt_to_fcf"), "ratio"))
+        st.metric("Price/Owner Earnings", fmt_val(data.get("price_owner_earn"), "ratio"))
+
+    st.divider()
+
+    # ── Income Potential ──────────────────────────────────────────────────────
+    st.markdown("### 💰 Income Potential at Your Position Size")
+    div_yield = data.get("dividend_yield")
+    if div_yield and position_size > 0:
+        annual_income  = position_size * div_yield
+        monthly_income = annual_income / 12
+        from claude_utils import get_user_profile as _gup2
+        _prof2 = _gup2()
+        target = _prof2.get("monthly_withdrawal", THRESHOLDS["monthly_income_target"])
+        pct_of_target = monthly_income / target
+        ic1, ic2, ic3 = st.columns(3)
+        with ic1: st.metric("Dividend Yield",      f"{div_yield:.2%}")
+        with ic2: st.metric("Est. Annual Income",  f"${annual_income:,.0f}")
+        with ic3: st.metric("Est. Monthly Income", f"${monthly_income:,.0f}",
+                            delta=f"{pct_of_target:.0%} of your ${target:,.0f}/mo target")
+        st.progress(min(pct_of_target, 1.0))
+    else:
+        st.info("No dividend yield data available. This may be a pure growth compounder.")
+
+    st.divider()
+
+    # ── Verdict ───────────────────────────────────────────────────────────────
+    st.markdown("### 📝 The Verdict")
+    strengths  = [c["name"] for c in criteria if not c.get("missing") and c["points_max"] > 0
+                  and c["points_earned"] / c["points_max"] >= 0.8]
+    weaknesses = [c["name"] for c in criteria if not c.get("missing") and c["points_max"] > 0
+                  and c["points_earned"] / c["points_max"] < 0.5 and c["value"] != "N/A"]
+    verdict_text = f"**{data.get('name', ticker_input)}** scores **{rebalanced_score}/100** on the Voskuil Owner's Framework. "
+    if missing_names:
+        verdict_text += f"Note: {', '.join(missing_names)} had no data and were excluded from scoring. "
+    if strengths:  verdict_text += f"Its strongest qualities are {', '.join(strengths)}. "
+    if weaknesses: verdict_text += f"Areas of concern: {', '.join(weaknesses)}. "
+    if rebalanced_score >= 80:   verdict_text += "This business passes the 'Would Buffett hold it for 10 years?' test. Consider a concentrated position."
+    elif rebalanced_score >= 65: verdict_text += "Worth watching closely. Strong in some areas but not a slam dunk. Look for a better entry price."
+    elif rebalanced_score >= 45: verdict_text += "Real weaknesses in the fundamentals. Not a fortress business. Proceed only with a significant margin of safety."
+    else:                        verdict_text += "Does not meet the criteria for a concentrated bet. Risk of permanent capital loss outweighs the upside."
+    st.markdown(verdict_text)
+
+    from claude_utils import get_user_profile as _gup
+    _prof = _gup()
+    _wd   = _prof.get("monthly_withdrawal", 8000)
+    _age  = _prof.get("age", 57)
+    _inf  = _prof.get("inflation", 4.0)
+    st.info(
+        f"⚠️ **Portfolio Reminder:** Prioritize companies with low debt, strong FCF, and "
+        f"pricing power. At age {_age} with a ${_wd:,.0f}/month withdrawal target, "
+        f"avoid permanent capital loss — recession-resilience matters more than maximum returns. "
+        f"Inflation assumption: {_inf:.1f}%."
+    )
+
+    # ── Ask Claude Panel ──────────────────────────────────────────────────────
+    st.divider()
+    st.markdown("### 🤖 Ask Claude — SEC Filing Analysis")
+    st.caption(
+        "Claude reads the actual 10-K filing alongside the quantitative scores above — applying Buffett + Munger philosophy. "
+        "Ask anything: red flags, management tone, moat durability, macro resilience."
+    )
+
+    filing_key = f"sec_filing_edgar_{ticker_input}"
+    if filing_key not in st.session_state:
+        with st.spinner(f"📄 Fetching {ticker_input} 10-K from SEC EDGAR..."):
+            st.session_state[filing_key] = fetch_10k_sections(ticker_input)
+
+    filing_result = st.session_state[filing_key]
+    sections      = filing_result.get("sections", {})
+    filing_error  = filing_result.get("error")
+    filing_url    = filing_result.get("filing_url")
+
+    if filing_error:
+        st.warning(f"⚠️ SEC filing issue: {filing_error}")
+        if filing_url:
+            st.markdown(f"[📋 View filings manually on EDGAR]({filing_url})")
+    else:
+        found_sections = [k for k, v in sections.items() if v]
+        st.success(f"✅ 10-K loaded — sections: {', '.join(found_sections) if found_sections else 'none'}.")
+        if filing_url:
+            st.markdown(f"[📋 View full 10-K on EDGAR]({filing_url})")
+
+    convo_key   = f"claude_edgar_convo_{ticker_input}"
+    context_key = f"claude_edgar_context_sent_{ticker_input}"
+    if convo_key not in st.session_state:
+        st.session_state[convo_key]   = []
+        st.session_state[context_key] = False
+
+    for msg in st.session_state[convo_key]:
+        if msg["role"] == "user":
+            display_content = msg["content"]
+            if "\n---\nQUESTION: " in display_content:
+                display_content = display_content.split("\n---\nQUESTION: ", 1)[-1]
+            with st.chat_message("user"):
+                st.markdown(display_content)
+        else:
+            with st.chat_message("assistant", avatar="🤖"):
+                st.markdown(msg["content"])
+
+    if not st.session_state[convo_key]:
+        st.markdown("**Suggested questions:**")
+        sq_cols = st.columns(2)
+        starters = [
+            "What are the biggest qualitative red flags in this filing?",
+            "Does management's tone in the MD&A match the numbers?",
+            "How resilient is this business in a credit crunch / financial repression environment?",
+            "What does the filing say about competitive moat and pricing power?",
+        ]
+        for i, q in enumerate(starters):
+            with sq_cols[i % 2]:
+                if st.button(q, key=f"edgar_starter_{i}_{ticker_input}", use_container_width=True):
+                    st.session_state[f"pending_edgar_claude_q_{ticker_input}"] = q
+                    st.rerun()
+
+    pending_q = st.session_state.pop(f"pending_edgar_claude_q_{ticker_input}", None)
+    user_q    = st.chat_input(f"Ask Claude about {ticker_input}'s 10-K filing...",
+                              key=f"edgar_claude_input_{ticker_input}")
+    active_q  = pending_q or user_q
+
+    if active_q:
+        scores_dict = {"rebalanced": rebalanced_score, "raw": raw_score, "verdict": verdict_label}
+        with st.chat_message("user"):
+            st.markdown(active_q)
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Reading the 10-K and thinking..."):
+                if not st.session_state[context_key]:
+                    from claude_utils import build_context, get_user_profile
+                    profile     = get_user_profile()
+                    context_str = build_context(ticker_input, data, scores_dict, sections, profile)
+                    full_q      = f"{context_str}\n\n---\nQUESTION: {active_q}"
+                    response = ask_claude_about_equity(
+                        ticker=ticker_input, data=data, scores=scores_dict,
+                        sections=sections, user_question=full_q,
+                        conversation_history=None, profile=profile,
+                    )
+                    st.session_state[convo_key].append({"role": "user", "content": full_q})
+                    st.session_state[context_key] = True
+                else:
+                    response = ask_claude_about_equity(
+                        ticker=ticker_input, data=data, scores=scores_dict,
+                        sections=sections, user_question=active_q,
+                        conversation_history=st.session_state[convo_key],
+                    )
+                    st.session_state[convo_key].append({"role": "user", "content": active_q})
+                st.session_state[convo_key].append({"role": "assistant", "content": response})
+                st.markdown(response)
+
+    if st.session_state[convo_key]:
+        if st.button("🗑️ Clear conversation", key=f"edgar_clear_convo_{ticker_input}"):
+            st.session_state[convo_key]   = []
+            st.session_state[context_key] = False
+            st.rerun()
+
+elif analyze and not ticker_input:
+    st.warning("Please enter a ticker symbol to analyze.")
+else:
+    st.markdown("""
+    ### How this works
+    Same scoring framework as Equity Scout — but data flows directly from **SEC EDGAR Company Facts API**,
+    the primary source that Polygon itself pulls from. No normalization layer between you and the filing.
+
+    **What's new vs. the Polygon version:**
+    - 🏛️ Primary source: SEC EDGAR (undisputed truth from the filing itself)
+    - 📈 Historical ROIC chart — 10+ years directly from SEC filings
+    - 💰 Historical FCF chart — full history available
+    - 🔍 Raw data transparency panel — see exactly what numbers feed each metric
+    - ⚠️ Financial firm + cyclical firm detection flags
+    - 💲 Live pricing only via yfinance (EDGAR has no price data)
+
+    | Metric | Default Weight | What it measures |
+    |--------|---------------|-----------------|
+    | Free Cash Flow Yield | 20 pts | Real owner earnings relative to price |
+    | ROIC | 10 pts | How wisely management deploys your capital |
+    | Debt / FCF | 20 pts | Balance sheet strength |
+    | Gross Margin | 15 pts | Pricing power and moat durability |
+    | Interest Coverage | 10 pts | Ability to service debt |
+    | Price / Owner Earnings | 25 pts | What you're paying per dollar of real earnings |
+
+    **Score guide:** 80-100 = Strong Buy · 65-79 = Watch · 45-64 = Caution · <45 = Avoid
+
+    *Run the same ticker on Equity Scout (Polygon) to compare scores — see punch list #57.*
+    """)
 
