@@ -413,6 +413,96 @@
       "priority": "Urgent",
       "done": true,
       "created": "2026-06-04"
+    },
+    {
+      "id": 47,
+      "title": "EDGAR \u2014 Build Company Facts API function in sec_utils.py",
+      "note": "Add fetch_company_facts(ticker) to sec_utils.py using data.sec.gov/api/xbrl/companyfacts/. Returns structured dict of all XBRL concepts for a company. Must filter to most recent annual period per concept. Design data model to support full historical series (all years available), not just latest \u2014 this is the foundation for historical score trending (#9) and normalization. CIK lookup already exists in sec_utils.py.",
+      "phase": "API / Infrastructure",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 48,
+      "title": "EDGAR \u2014 Map Company Facts concepts to scoring engine fields",
+      "note": "Define canonical field map: EDGAR US-GAAP concept \u2192 internal scoring field (e.g. NetCashProvidedByUsedInOperatingActivities \u2192 op_cf). Handle concept aliases (companies use different XBRL tags for same economic item). Store map in edgar_concept_map.py. Must be designed so historical pulls use same map \u2014 no one-off patches per company.",
+      "phase": "API / Infrastructure",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 49,
+      "title": "EDGAR \u2014 Replace Polygon fundamentals in Equity Scout with EDGAR Company Facts",
+      "note": "Wire fetch_company_facts() into fetch_fundamentals() in Equity Scout as primary source. Polygon becomes fallback only. Validate scoring output matches or improves on Polygon for 5 core holdings. Retain two-year history for YoY metrics. Verify interest expense, debt, and capex are sourced from correct XBRL concepts \u2014 these are the most likely to have multi-tag ambiguity.",
+      "phase": "API / Infrastructure",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 50,
+      "title": "EDGAR \u2014 Replace Polygon fundamentals in Dashboard with EDGAR Company Facts",
+      "note": "Same swap as #49 but for Dashboard holdings fetch. ~15-20 tickers. Confirm performance is acceptable (sequential or light parallel). Remove Polygon dependency for fundamentals on this page entirely.",
+      "phase": "API / Infrastructure",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 51,
+      "title": "EDGAR \u2014 Build two-stage Market Screener (quality first, price second)",
+      "note": "Stage 1: Pull fundamentals for ~500 tickers via EDGAR bulk company_facts.zip. Score on 65 quality points (ROIC, Debt/FCF, Gross Margin, Interest Coverage) \u2014 no price data needed. Filter to 42+ pt survivors (~40-80 tickers). Stage 2: Fetch price/market cap for survivors only via yfinance. Complete full 100-pt score. Design bulk ZIP download to cache within session. Rate limit: 10 req/sec for per-ticker fallback.",
+      "phase": "API / Infrastructure",
+      "priority": "High",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 52,
+      "title": "EDGAR \u2014 Historical full ingestion and normalization layer",
+      "note": "Ingest complete SEC XBRL history for core holdings (all 10-K/10-Q filings available). Normalize to standard schema across all years \u2014 same concept map as #48. Store as per-company JSON in GitHub (e.g. historical/COST.json). This unlocks: 10-year ROIC trending (#34, #40), full-cycle analysis for cyclicals (#37), Debt/FCF trajectory, and Owner Earnings history. Key design constraint: normalization must be replayable \u2014 if concept map changes, re-run produces consistent output across all years. Build after #47-#50 are stable.",
+      "phase": "API / Infrastructure",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 53,
+      "title": "Smart ingestion \u2014 Phase 1: Manual entry form with template saving",
+      "note": "Add manual entry mode to Equity Scout \u2014 toggle between API and Manual input. Structured form with labeled fields matching scoring engine inputs. On Calculate, saves values to company_templates.json in GitHub. Persists across sessions. Designed for companies where XBRL tagging is unreliable or missing (small caps, foreign filers). Template schema must include filing period and source label for future fuzzy matching in Phase 2.",
+      "phase": "Data Quality",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 54,
+      "title": "Smart ingestion \u2014 Phase 2: Fuzzy match auto-suggestion from SEC text",
+      "note": "Use rapidfuzz to match raw 10-K statement labels against saved templates from #53. Pre-populate manual entry form with best matches and confidence scores. User reviews, corrects, confirms \u2014 corrections update templates. Add rapidfuzz to requirements.txt. Requires sec_utils.py raw text fetch (already built). Design confidence score: exact match=1.0, fuzzy ratio 0.6-0.95, position bonus +0.10, value sanity check (within 3x prior year) +0.05.",
+      "phase": "Data Quality",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 55,
+      "title": "Smart ingestion \u2014 Phase 3: Confidence threshold UI and auto-accept",
+      "note": "Add slider: Auto-accept matches above [95%]. Fields above threshold auto-fill green, below threshold highlighted yellow for review. User corrections increment filing count in template, compounding accuracy over time. After 3-4 filings per company, most fields should reach auto-accept threshold with no manual review needed.",
+      "phase": "Data Quality",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-06-23"
+    },
+    {
+      "id": 56,
+      "title": "Smart ingestion \u2014 Phase 4: Cross-company industry pattern library",
+      "note": "After 10-20 companies mapped, extract common label patterns by SIC code. New company auto-starts from industry template rather than blank form. Pairs with #36 (financial firm detection) and #37 (cyclical detection) \u2014 those SIC codes get flagged to skip auto-ingestion and route to manual review. Store industry patterns in industry_patterns.json in GitHub.",
+      "phase": "Data Quality",
+      "priority": "Low",
+      "done": false,
+      "created": "2026-06-23"
     }
   ],
   "phases": [
