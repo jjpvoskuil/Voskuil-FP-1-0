@@ -32,5 +32,6 @@ pg = st.navigation([
     st.Page("pages/4_MS_Financial_Modeler.py",title="MS Financial Modeler", icon="🏦"),
     st.Page("pages/5_Downloads.py",           title="Downloads",            icon="⬇️"),
     st.Page("pages/6_Punch_List.py",          title="Punch List",           icon="✅"),
+    st.Page("pages/7_Equity_Scout_EDGAR.py",  title="Equity Scout — EDGAR", icon="🏛️"),
 ])
 pg.run()
