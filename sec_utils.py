@@ -145,10 +145,28 @@ def fetch_company_facts(ticker: str) -> dict:
 
             # Filter to annual (10-K) filings only
             # EDGAR uses "form" field: "10-K", "10-K/A", "20-F" (foreign filers)
+            # Also validate period duration — annual periods span ~340-370 days.
+            # Some concepts include quarterly sub-period values even inside 10-K filings
+            # (segment data, interim comparatives). Filter those out by duration.
+            def is_annual_duration(obs):
+                start = obs.get("start")
+                end   = obs.get("end")
+                if not start or not end:
+                    return True  # no dates to check — allow through
+                try:
+                    from datetime import date
+                    d0 = date.fromisoformat(start)
+                    d1 = date.fromisoformat(end)
+                    days = (d1 - d0).days
+                    return 340 <= days <= 400  # full fiscal year window
+                except Exception:
+                    return True
+
             annual_obs = [
                 o for o in observations
                 if o.get("form") in ("10-K", "10-K/A", "20-F", "20-F/A")
-                and o.get("end")   # must have period end date
+                and o.get("end")
+                and is_annual_duration(o)
             ]
 
             if not annual_obs:
@@ -231,11 +249,34 @@ def fetch_company_facts(ticker: str) -> dict:
     if fcf and fcf > 0 and (ltd + std) > 0:
         latest["debt_to_fcf"] = (ltd + std) / fcf
 
-    # Gross margin
+    # Gross margin — with sanity check and COGS fallback
+    # Some companies (e.g. NVDA) don't tag GrossProfit cleanly in XBRL,
+    # causing multi-period rollup values that make GM appear > 100%.
+    # Fix: validate GM is in (0, 1], fall back to Revenue - COGS if not.
     rev = latest.get("revenue")
     gp  = latest.get("gross_profit")
+    cor = latest.get("cost_of_revenue")
+
+    if gp is not None and rev is not None and rev > 0:
+        gm_check = gp / rev
+        if gm_check > 1.0 or gm_check < -0.5:
+            # Bad XBRL value — try COGS fallback
+            if cor is not None and rev is not None:
+                gp = rev - cor
+                latest["gross_profit"] = gp
+            else:
+                gp = None
+                latest["gross_profit"] = None
+    elif gp is None and rev is not None and cor is not None:
+        # GrossProfit concept not tagged — derive from COGS
+        gp = rev - cor
+        latest["gross_profit"] = gp
+
     if rev and rev > 0 and gp is not None:
-        latest["gross_margin"] = gp / rev
+        gm = gp / rev
+        # Final sanity gate — if still nonsensical after COGS fallback, null it
+        if 0.0 <= gm <= 1.0:
+            latest["gross_margin"] = gm
 
     # Interest coverage
     if op_inc is not None and int_pd and int_pd > 0:
