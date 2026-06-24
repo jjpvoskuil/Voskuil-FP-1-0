@@ -59,19 +59,31 @@ CONCEPT_MAP = {
     # ── Income Statement ─────────────────────────────────────────────────────
 
     "revenue": [
-        # Modern tag (post-ASC 606 revenue recognition standard ~2018)
-        "RevenueFromContractWithCustomerExcludingAssessedTax",
-        "RevenueFromContractWithCustomerIncludingAssessedTax",
-        # Legacy tag — still widely used
+        # Most universally reliable — used by the majority of filers across all eras
         "Revenues",
+        # Legacy net sales tag — common pre-2018
         "SalesRevenueNet",
         "SalesRevenueGoodsNet",
-        # Service businesses
-        "RevenueFromContractWithCustomerExcludingAssessedTaxAbstract",
+        # ASC 606 tag (post-2018 revenue recognition standard)
+        # Listed after Revenues because some filers tag BOTH and the ASC 606
+        # tag sometimes includes segment subtotals that cause double-counting
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        # NOTE: RevenueFromContractWithCustomerExcludingAssessedTaxAbstract
+        # intentionally excluded — Abstract concepts are XBRL structural
+        # containers, not reported values, and return garbage data
     ],
 
     "gross_profit": [
         "GrossProfit",
+    ],
+
+    "cost_of_revenue": [
+        "CostOfRevenue",
+        "CostOfGoodsAndServicesSold",
+        "CostOfGoodsSold",
+        # Some tech companies use this
+        "CostOfRevenueExcludingDepreciationAndAmortization",
     ],
 
     "op_income": [
@@ -252,4 +264,3 @@ CYCLICAL_SIC_CODES = {
     "5150", "5160",          # Farm products & chemicals wholesale
     "5170",                  # Petroleum wholesale
 }
-
