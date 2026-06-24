@@ -759,6 +759,182 @@ if _cache_key and _cache_key in st.session_state:
         if missing_concepts:
             st.warning(f"XBRL concepts not found in this company's filings: {', '.join(missing_concepts[:10])}")
 
+    # ── Full Statement Comparison — EDGAR vs Polygon ──────────────────────────
+    poly_cache_key_stmt = f"es_results_{ticker_input}"
+    poly_stmt = (st.session_state.get(poly_cache_key_stmt) or {}).get("data", {})
+
+    with st.expander("📋 Full Statement Comparison — EDGAR vs Polygon (line by line)", expanded=False):
+        st.caption(
+            "Raw financial statement line items from both sources side by side. "
+            "🟡 = values differ by more than 5%.  🔴 = one source is missing the value entirely. "
+            "Use this to identify exactly where and why the two sources diverge."
+        )
+
+        def pct_diff(a, b):
+            """Return % difference between two values, or None if can't compute."""
+            try:
+                if a and b and b != 0:
+                    return abs(a - b) / abs(b)
+            except Exception:
+                pass
+            return None
+
+        def diff_color(a, b):
+            if a is None and b is None: return "⬜"
+            if a is None or b is None:  return "🔴"
+            d = pct_diff(a, b)
+            if d is None:               return "⬜"
+            if d > 0.05:                return "🟡"
+            return "✅"
+
+        def fmt_b(val):
+            """Format as $B or $M."""
+            if val is None: return "—"
+            if abs(val) >= 1e9:  return f"${val/1e9:.2f}B"
+            if abs(val) >= 1e6:  return f"${val/1e6:.1f}M"
+            return f"${val:,.0f}"
+
+        # Pull EDGAR latest raw values
+        el = data.get("_latest", {})
+
+        # ── Income Statement ─────────────────────────────────────────────────
+        st.markdown("#### 📊 Income Statement")
+        inc_rows = [
+            ("Revenue",              el.get("revenue"),         poly_stmt.get("revenues")),
+            ("Gross Profit",         el.get("gross_profit"),    poly_stmt.get("gross_profit")),
+            ("Operating Income",     el.get("op_income"),       None),   # Polygon doesn't expose directly
+            ("Interest Expense",     el.get("interest_expense"),None),
+            ("Interest Paid (cash)", el.get("interest_paid"),   None),
+            ("Net Income",           el.get("net_income"),      poly_stmt.get("net_income")),
+            ("EPS (diluted)",        el.get("eps_diluted"),     None),
+            ("Income Tax",           el.get("income_tax"),      None),
+        ]
+
+        hc1, hc2, hc3, hc4 = st.columns([3, 2, 2, 1])
+        hc1.markdown("**Line Item**")
+        hc2.markdown("**🏛️ EDGAR**")
+        hc3.markdown("**📡 Polygon**")
+        hc4.markdown("**Match**")
+
+        for label, edgar_val, poly_val in inc_rows:
+            flag = diff_color(edgar_val, poly_val)
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            c1.markdown(label)
+            c2.markdown(f"`{fmt_b(edgar_val)}`")
+            c3.markdown(f"`{fmt_b(poly_val)}`")
+            c4.markdown(flag)
+
+        # ── Cash Flow Statement ──────────────────────────────────────────────
+        st.markdown("#### 💵 Cash Flow Statement")
+
+        # Polygon FCF is already op+inv combined — show what we have
+        poly_op_cf  = poly_stmt.get("op_cf")
+        poly_inv_cf = poly_stmt.get("inv_cf")
+        poly_fcf    = poly_stmt.get("fcf")
+
+        cf_rows = [
+            ("Operating Cash Flow",  el.get("op_cf"),    poly_op_cf),
+            ("Investing Cash Flow",  el.get("inv_cf"),   poly_inv_cf),
+            ("Free Cash Flow",       el.get("fcf"),      poly_fcf),
+            ("CapEx",                el.get("capex"),    None),
+            ("D&A",                  el.get("dna"),      None),
+        ]
+
+        hc1, hc2, hc3, hc4 = st.columns([3, 2, 2, 1])
+        hc1.markdown("**Line Item**")
+        hc2.markdown("**🏛️ EDGAR**")
+        hc3.markdown("**📡 Polygon**")
+        hc4.markdown("**Match**")
+
+        for label, edgar_val, poly_val in cf_rows:
+            flag = diff_color(edgar_val, poly_val)
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            c1.markdown(label)
+            c2.markdown(f"`{fmt_b(edgar_val)}`")
+            c3.markdown(f"`{fmt_b(poly_val)}`")
+            c4.markdown(flag)
+
+        # ── Balance Sheet ────────────────────────────────────────────────────
+        st.markdown("#### 🏦 Balance Sheet")
+
+        poly_ltd = poly_stmt.get("long_term_debt")
+
+        bs_rows = [
+            ("Total Assets",         el.get("total_assets"),    None),
+            ("Current Assets",       el.get("current_assets"),  None),
+            ("Cash & Equivalents",   el.get("cash"),            None),
+            ("Inventory",            el.get("inventory"),       None),
+            ("Accounts Receivable",  el.get("accounts_receivable"), None),
+            ("PP&E (net)",           el.get("ppe_net"),         None),
+            ("Goodwill",             el.get("goodwill"),        None),
+            ("Total Liabilities",    el.get("total_liabilities"), None),
+            ("Current Liabilities",  el.get("current_liabilities"), None),
+            ("Long-Term Debt",       el.get("long_term_debt"),  poly_ltd),
+            ("Short-Term Debt",      el.get("short_term_debt"), None),
+            ("Total Debt",           el.get("total_debt"),      None),
+            ("Total Equity",         el.get("total_equity"),    None),
+            ("Retained Earnings",    el.get("retained_earnings"), None),
+        ]
+
+        hc1, hc2, hc3, hc4 = st.columns([3, 2, 2, 1])
+        hc1.markdown("**Line Item**")
+        hc2.markdown("**🏛️ EDGAR**")
+        hc3.markdown("**📡 Polygon**")
+        hc4.markdown("**Match**")
+
+        for label, edgar_val, poly_val in bs_rows:
+            flag = diff_color(edgar_val, poly_val)
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            c1.markdown(label)
+            c2.markdown(f"`{fmt_b(edgar_val)}`")
+            c3.markdown(f"`{fmt_b(poly_val)}`")
+            c4.markdown(flag)
+
+        # ── Derived Scoring Metrics ──────────────────────────────────────────
+        st.markdown("#### 🎯 Derived Scoring Metrics")
+        st.caption("These are the values that actually feed the scoring engine — computed from the raw fields above.")
+
+        drv_rows = [
+            ("FCF Yield",            data.get("fcf_yield"),         poly_stmt.get("fcf_yield"),       "pct"),
+            ("ROIC",                 data.get("roic"),              poly_stmt.get("roic"),             "pct"),
+            ("Gross Margin",         data.get("gross_margin"),      poly_stmt.get("gross_margin"),     "pct"),
+            ("Debt / FCF",           data.get("debt_to_fcf"),       poly_stmt.get("debt_to_fcf"),      "ratio"),
+            ("Interest Coverage",    data.get("interest_coverage"), poly_stmt.get("interest_coverage"),"ratio"),
+            ("Owner Earnings",       data.get("owner_earnings"),    poly_stmt.get("owner_earnings"),   "money"),
+            ("Price / Owner Earn",   data.get("price_owner_earn"),  poly_stmt.get("price_owner_earn"), "ratio"),
+        ]
+
+        def fmt_metric(val, fmt):
+            if val is None: return "—"
+            if fmt == "pct":   return f"{val:.2%}"
+            if fmt == "ratio": return f"{val:.2f}x"
+            return fmt_b(val)
+
+        hc1, hc2, hc3, hc4 = st.columns([3, 2, 2, 1])
+        hc1.markdown("**Metric**")
+        hc2.markdown("**🏛️ EDGAR**")
+        hc3.markdown("**📡 Polygon**")
+        hc4.markdown("**Match**")
+
+        for label, edgar_val, poly_val, fmt in drv_rows:
+            flag = diff_color(edgar_val, poly_val)
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            c1.markdown(label)
+            c2.markdown(f"`{fmt_metric(edgar_val, fmt)}`")
+            c3.markdown(f"`{fmt_metric(poly_val, fmt)}`")
+            c4.markdown(flag)
+
+        # ── XBRL Concept used for each field ─────────────────────────────────
+        with st.expander("🔎 EDGAR XBRL concepts used (debug)", expanded=False):
+            st.caption("Which XBRL concept tag was resolved for each field in this company's filing.")
+            from edgar_concept_map import CONCEPT_MAP
+            edgar_raw = data.get("_latest", {})
+            for field, concepts in CONCEPT_MAP.items():
+                if field in edgar_raw:
+                    st.caption(f"`{field}` → resolved ✅  (candidates: {', '.join(concepts[:2])}{'...' if len(concepts)>2 else ''})")
+                else:
+                    st.caption(f"`{field}` → **not found** ❌  (tried: {', '.join(concepts[:2])}{'...' if len(concepts)>2 else ''})")
+
     # ── Historical ROIC Chart (new — foundation for punch list #34/#40) ───────
     history = data.get("_history", {})
     op_cf_hist  = history.get("op_cf", [])
