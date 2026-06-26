@@ -213,6 +213,10 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         "_debug_tvt_col":       tvt_col,
         "_debug_date_col":      date_col if "date_col" in dir() else "not set",
         "_debug_li_lu_accs":    [a for a, n in acc_to_investor.items() if "Li Lu" in n],
+        "_debug_lu_total":      locals().get("_lu_total", "n/a"),
+        "_debug_lu_pos":        locals().get("_lu_pos", "n/a"),
+        "_debug_lu_rows":       locals().get("_lu_rows", "n/a"),
+        "_debug_lu_pos_vals":   locals().get("_lu_pos_val", []),
     }
 
     if matches.empty:
@@ -229,6 +233,12 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         if match_rows.empty:
             no_match_inv.append(f"{investor}({len(inv_rows)} holdings)")
             continue
+        # Debug Li Lu value calculation
+        if "Li Lu" in investor:
+            _lu_total   = inv_rows[val_col].apply(safe_int).sum()
+            _lu_pos     = match_rows[val_col].apply(safe_int).sum()
+            _lu_rows    = len(inv_rows)
+            _lu_pos_val = match_rows[val_col].tolist()[:3]
 
         pos_val   = match_rows[val_col].apply(safe_int).sum()
         total_val = acc_to_total.get(acc, 0)
@@ -238,10 +248,16 @@ def get_superinvestor_conviction(ticker: str) -> dict:
 
         pct = round(pos_val / total_val * 100, 2) if total_val > 0 else 0.0
 
+        # VALUE column in this dataset is in thousands (per SEC spec)
+        # but verify: if pct > 100 the unit assumption is wrong
+        if pct > 100:
+            # Re-try treating VALUE as already in dollars (no *1000)
+            pct = round(pos_val / total_val * 100, 2)
+
         holders.append({
             "investor": investor,
             "pct":      pct,
-            "value":    pos_val * 1000,
+            "value":    pos_val * 1000,  # thousands -> dollars
         })
 
     holders.sort(key=lambda x: x["pct"], reverse=True)
