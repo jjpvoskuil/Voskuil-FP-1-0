@@ -596,6 +596,13 @@ if _cache_key and _cache_key in st.session_state:
         st.caption(f"Debug — _si_full_map ticker_map size: {len(_tm)}")
         st.caption(f"Debug — ABBV in ticker_map: {'ABBV' in _tm}")
         st.caption(f"Debug — sample tickers: {list(_tm.keys())[:15]}")
+        # Show raw manager data
+        _mgrs = _full.get("managers", [])
+        if _mgrs:
+            _m0 = _mgrs[0]
+            st.caption(f"Debug — first manager: {_m0.get('name')} | error: {_m0.get('error')} | holdings count: {len(_m0.get('holdings',[]))}")
+            if _m0.get('holdings'):
+                st.caption(f"Debug — first 3 holdings raw: {_m0['holdings'][:3]}")
 
     if si.get("error"):
         st.warning(f"⚠️ {si['error'][:300]}")
