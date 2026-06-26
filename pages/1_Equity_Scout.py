@@ -578,6 +578,22 @@ if _cache_key and _cache_key in st.session_state:
     if si.get("error"):
         st.warning(f"⚠️ {si['error'][:300]}")
 
+    # Debug expander — shows GP status and sample tickers
+    with st.expander("🔍 Debug — Grand Portfolio status"):
+        gp = get_grand_portfolio()
+        gp_error = gp.get("_error")
+        if gp_error:
+            st.error(f"GP fetch error: {gp_error}")
+        else:
+            real_keys = [k for k in gp.keys() if not k.startswith("_")]
+            st.caption(f"Total stocks in GP: {len(real_keys)}")
+            st.caption(f"Sample tickers: {real_keys[:20]}")
+            st.caption(f"ABBV in GP: {'ABBV' in gp}")
+            st.caption(f"{ticker_input} in GP: {ticker_input.upper() in gp}")
+            if real_keys:
+                sample = {k: gp[k] for k in real_keys[:3]}
+                st.json(sample)
+
     st.divider()
     st.markdown("### 📊 Key Metrics at a Glance")
     m1, m2, m3, m4 = st.columns(4)
