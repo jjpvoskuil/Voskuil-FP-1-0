@@ -209,6 +209,10 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         "_debug_missing":       [n for n in SUPERINVESTORS if n not in acc_to_investor.values()],
         "_debug_brk_sample":    brk_sample,
         "_debug_brk_match":     brk_match,
+        "_debug_sub_cols":      list(sub_df.columns[:12]),
+        "_debug_tvt_col":       tvt_col,
+        "_debug_date_col":      date_col if "date_col" in dir() else "not set",
+        "_debug_li_lu_accs":    [a for a, n in acc_to_investor.items() if "Li Lu" in n],
     }
 
     if matches.empty:
