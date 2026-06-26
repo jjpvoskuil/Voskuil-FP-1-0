@@ -265,9 +265,11 @@ def get_superinvestor_conviction(ticker: str) -> dict:
     total_mgrs   = data.get("total_managers", 82)
     avg_pct      = sum(h["pct"] for h in holders) / n if n > 0 else 0
 
-    # Score: breadth (up to 70) + weight (up to 30)
-    breadth = min(70, int(n / max(total_mgrs, 1) * 70))
-    weight  = min(30, int(avg_pct / 10 * 30))   # 10%+ avg = full 30 pts
+    # Score: breadth (up to 60 pts) + weight (up to 40 pts)
+    # Breadth: 1 holder=10, 3=25, 5=40, 10=60, 20+=60
+    breadth = min(60, n * 6)
+    # Weight: avg portfolio % — 5%+ avg is very high conviction
+    weight  = min(40, int(avg_pct / 5 * 40))
     score   = breadth + weight
 
     return {
