@@ -156,10 +156,20 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         return {"holders": [], "holder_count": 0, "conviction_score": 0, "period": period,
                 "error": f"No superinvestors found in dataset. Sample CIKs: {sub_df[cik_col].head(3).tolist()}"}
 
-    # Build accession maps
+    # Keep only the latest filing per investor (dataset covers 3-month window,
+    # may include original + amendments). Sort by filed date and take last per CIK.
+    date_col = next((c for c in si_subs.columns if "FILED" in c or "DATE" in c), None)
+    if date_col:
+        si_subs_latest = (
+            si_subs.sort_values(date_col, ascending=True)
+                   .drop_duplicates(subset=["_cik_norm"], keep="last")
+        )
+    else:
+        si_subs_latest = si_subs.drop_duplicates(subset=["_cik_norm"], keep="last")
+
     acc_to_investor = {}
     acc_to_total    = {}
-    for _, row in si_subs.iterrows():
+    for _, row in si_subs_latest.iterrows():
         cik_val = row["_cik_norm"]
         name    = CIK_TO_NAME.get(cik_val, "")
         acc     = str(row[acc_col]).strip()
@@ -220,12 +230,7 @@ def get_superinvestor_conviction(ticker: str) -> dict:
         total_val = acc_to_total.get(acc, 0)
         if total_val == 0:
             total_val = inv_rows[val_col].apply(safe_int).sum()
-        # Cap obviously inflated totals (dataset contains multiple quarters)
-        # Real single-quarter totals: Berkshire ~$300B, most others <$50B
-        # If total > $500B it's almost certainly summed across multiple filings
-        if total_val > 500_000_000:  # in thousands, so this is $500B
-            # Re-sum from matched accession's holdings only
-            total_val = inv_rows[val_col].apply(safe_int).sum()
+
 
         pct = round(pos_val / total_val * 100, 2) if total_val > 0 else 0.0
 
