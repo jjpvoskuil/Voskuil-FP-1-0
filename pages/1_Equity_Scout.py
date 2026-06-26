@@ -589,7 +589,8 @@ if _cache_key and _cache_key in st.session_state:
         st.caption(f"Columns: {si.get('_debug_cols', [])}")
         st.caption(f"Matched ({si.get('_debug_acc_count', 0)}): {si.get('_debug_acc_investors', [])}")
         st.caption(f"Missing: {si.get('_debug_missing', [])}")
-        st.caption(f"Berkshire KO-related names: {si.get('_debug_brk_ko', [])}")
+        st.caption(f"Berkshire match: {si.get('_debug_brk_match', [])}")
+        st.caption(f"In dataset but no {ticker_input} holding: {si.get('_debug_no_match', [])}")
         st.caption(f"Berkshire sample names: {si.get('_debug_brk_sample', [])}")
         if si.get("error"):
             st.text(si["error"][:600])
