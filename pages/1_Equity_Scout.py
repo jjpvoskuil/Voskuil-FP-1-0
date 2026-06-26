@@ -586,7 +586,10 @@ if _cache_key and _cache_key in st.session_state:
         st.info("No tracked superinvestors currently hold this stock — or it may be too small/foreign for 13F reporting.")
 
     with st.expander("🔍 Debug info"):
-        st.caption(f"Columns: {si.get('_debug_cols', [])}")
+        st.caption(f"Info cols: {si.get('_debug_cols', [])}")
+        st.caption(f"Sub cols: {si.get('_debug_sub_cols', [])}")
+        st.caption(f"TVT col: {si.get('_debug_tvt_col')} | Date col: {si.get('_debug_date_col')}")
+        st.caption(f"Li Lu accessions: {si.get('_debug_li_lu_accs', [])}")
         st.caption(f"Matched ({si.get('_debug_acc_count', 0)}): {si.get('_debug_acc_investors', [])}")
         st.caption(f"Missing: {si.get('_debug_missing', [])}")
         st.caption(f"Berkshire match: {si.get('_debug_brk_match', [])}")
