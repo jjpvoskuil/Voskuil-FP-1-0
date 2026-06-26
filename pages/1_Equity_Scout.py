@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sec_utils import fetch_10k_sections
 from claude_utils import ask_claude_about_equity
-from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
+from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache, get_conviction_data
 
 st.set_page_config(page_title="Equity Scout", layout="wide")
 
@@ -588,6 +588,16 @@ if _cache_key and _cache_key in st.session_state:
                     )
     elif n_holders == 0 and not si.get("error"):
         st.info(f"No superinvestors currently hold {ticker_input}.")
+        # Debug: show nearby tickers to check parsing
+        data = get_conviction_data()
+        tm   = data.get("ticker_map", {})
+        # Find anything containing the ticker letters
+        nearby = [t for t in tm.keys() if ticker_input.upper()[:3] in t][:10]
+        abbv_variants = [t for t in tm.keys() if "ABB" in t or "ABBV" in t]
+        st.caption(f"Debug — tickers with '{ticker_input[:3]}': {nearby}")
+        st.caption(f"Debug — ABBV variants in map: {abbv_variants}")
+        st.caption(f"Debug — total tickers in map: {len(tm)}")
+        st.caption(f"Debug — sample tickers: {list(tm.keys())[:20]}")
 
     if si.get("error"):
         st.warning(f"⚠️ {si['error'][:300]}")
