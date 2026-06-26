@@ -534,8 +534,9 @@ if _cache_key and _cache_key in st.session_state:
     # ── Superinvestor Conviction ──────────────────────────────────────
     st.markdown("### 🦁 Superinvestor Conviction")
     st.caption(
-        "How many of 13 tracked value superinvestors (Buffett, Ackman, Klarman, etc.) "
-        "hold this stock — sourced directly from SEC EDGAR 13F filings."
+        "How many of 82 tracked superinvestors hold this stock — "
+        "via Dataroma.com (aggregates SEC 13F filings). "
+        "Shows each holder's portfolio weight and recent activity."
     )
 
     si_refresh = st.button("🔄 Refresh", key=f"si_refresh_{ticker_input}",
