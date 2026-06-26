@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sec_utils import fetch_10k_sections
 from claude_utils import ask_claude_about_equity
-from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache, get_grand_portfolio
+from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
 
 st.set_page_config(page_title="Equity Scout", layout="wide")
 
@@ -542,12 +542,13 @@ if _cache_key and _cache_key in st.session_state:
                            help="Clear cache and re-fetch from Dataroma")
     if si_refresh:
         clear_superinvestor_cache()
+        st.rerun()
 
-    si        = get_superinvestor_conviction(ticker_input)
-    n_holders = si.get("holder_count", 0)
-    si_score  = si.get("conviction_score", 0)
-    pct_grand = si.get("pct_grand", 0.0)
-    total_stocks = si.get("total_stocks", 0)
+    si           = get_superinvestor_conviction(ticker_input)
+    n_holders    = si.get("holder_count", 0)
+    si_score     = si.get("conviction_score", 0)
+    si_holders   = si.get("holders", [])
+    total_mgrs   = si.get("total_managers", 82)
 
     si_c1, si_c2, si_c3 = st.columns(3)
     with si_c1:
@@ -556,7 +557,7 @@ if _cache_key and _cache_key in st.session_state:
             f"<div style='font-size:2em; font-weight:bold; color:{color}'>{n_holders}</div>",
             unsafe_allow_html=True
         )
-        st.caption(f"Superinvestors holding (of ~{total_stocks} tracked stocks)")
+        st.caption(f"Superinvestors holding (of {total_mgrs} tracked)")
     with si_c2:
         st.markdown(
             f"<div style='font-size:2em; font-weight:bold'>{si_score}/100</div>",
@@ -564,35 +565,37 @@ if _cache_key and _cache_key in st.session_state:
         )
         st.caption("Conviction score")
     with si_c3:
-        if pct_grand > 0:
-            st.markdown(
-                f"<div style='font-size:1.6em; font-weight:bold'>{pct_grand:.2f}%</div>",
-                unsafe_allow_html=True
-            )
-            st.caption("of Grand Portfolio")
         st.caption("Source: Dataroma.com")
+        st.caption(si.get("note", "Top-10 holdings data"))
 
-    if n_holders == 0 and not si.get("error"):
-        st.info(f"No superinvestors currently hold {ticker_input} — not in the Dataroma Grand Portfolio.")
+    if si_holders:
+        st.markdown(f"**Holders** (avg position: {si.get('avg_pct', 0):.1f}% of portfolio):")
+        holder_cols = st.columns(min(len(si_holders), 3))
+        for i, h in enumerate(si_holders):
+            with holder_cols[i % 3]:
+                activity  = h.get('activity', '').strip()
+                act_color = ("#2ecc71" if any(w in activity for w in ["Add", "New", "Buy"])
+                             else "#e74c3c" if any(w in activity for w in ["Reduce", "Sold", "Sell"])
+                             else "#888")
+                pct_str = f"{h['pct']:.1f}% of portfolio" if h['pct'] > 0 else ""
+                st.markdown(f"**{h['investor']}**")
+                if pct_str:
+                    st.caption(pct_str)
+                if activity:
+                    st.markdown(
+                        f"<span style='color:{act_color}; font-size:0.8em'>{activity}</span>",
+                        unsafe_allow_html=True
+                    )
+    elif n_holders == 0 and not si.get("error"):
+        st.info(f"No superinvestors currently hold {ticker_input}.")
 
     if si.get("error"):
         st.warning(f"⚠️ {si['error'][:300]}")
 
-    # Debug expander — shows GP status and sample tickers
-    with st.expander("🔍 Debug — Grand Portfolio status"):
-        gp = get_grand_portfolio()
-        gp_error = gp.get("_error")
-        if gp_error:
-            st.error(f"GP fetch error: {gp_error}")
-        else:
-            real_keys = [k for k in gp.keys() if not k.startswith("_")]
-            st.caption(f"Total stocks in GP: {len(real_keys)}")
-            st.caption(f"Sample tickers: {real_keys[:20]}")
-            st.caption(f"ABBV in GP: {'ABBV' in gp}")
-            st.caption(f"{ticker_input} in GP: {ticker_input.upper() in gp}")
-            if real_keys:
-                sample = {k: gp[k] for k in real_keys[:3]}
-                st.json(sample)
+    st.caption(
+        f"Source: Dataroma.com · {si.get('total_managers', 82)} managers · "
+        f"{si.get('total_holdings', 0):,} total holdings tracked"
+    )
 
     st.divider()
     st.markdown("### 📊 Key Metrics at a Glance")
