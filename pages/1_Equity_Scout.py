@@ -575,17 +575,17 @@ if _cache_key and _cache_key in st.session_state:
         for i, h in enumerate(si_holders):
             with holder_cols[i % 3]:
                 activity  = h.get('activity', '').strip()
-                act_color = ("#2ecc71" if any(w in activity for w in ["Add", "New", "Buy"])
-                             else "#e74c3c" if any(w in activity for w in ["Reduce", "Sold", "Sell"])
-                             else "#888")
                 pct_str = f"{h['pct']:.1f}% of portfolio" if h['pct'] > 0.05 else "< 0.1% of portfolio"
                 st.markdown(f"**{h['investor']}**")
                 st.caption(pct_str)
-                if activity:
-                    st.markdown(
-                        f"<span style='color:{act_color}; font-size:0.8em'>{activity}</span>",
-                        unsafe_allow_html=True
-                    )
+                display_activity = activity if activity else "Held"
+                act_color = ("#2ecc71" if any(w in display_activity for w in ["Add", "New", "Buy"])
+                             else "#e74c3c" if any(w in display_activity for w in ["Reduce", "Sold", "Sell"])
+                             else "#888")
+                st.markdown(
+                    f"<span style='color:{act_color}; font-size:0.8em'>{display_activity}</span>",
+                    unsafe_allow_html=True
+                )
     elif n_holders == 0 and not si.get("error"):
         st.info(f"No superinvestors currently hold {ticker_input}.")
 
