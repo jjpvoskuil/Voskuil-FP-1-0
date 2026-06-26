@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sec_utils import fetch_10k_sections
 from claude_utils import ask_claude_about_equity
-from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
+from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache, get_grand_portfolio
 
 st.set_page_config(page_title="Equity Scout", layout="wide")
 
@@ -538,30 +538,25 @@ if _cache_key and _cache_key in st.session_state:
         "hold this stock — sourced directly from SEC EDGAR 13F filings."
     )
 
-    si_key = f"si_conviction_{ticker_input}"
     si_refresh = st.button("🔄 Refresh", key=f"si_refresh_{ticker_input}",
-                           help="Clear cache and re-fetch 13F data")
+                           help="Clear cache and re-fetch from Dataroma")
     if si_refresh:
         clear_superinvestor_cache()
-        st.session_state.pop(si_key, None)
-    if si_key not in st.session_state:
-        with st.spinner("Checking superinvestor 13F filings..."):
-            st.session_state[si_key] = get_superinvestor_conviction(ticker_input)
 
-    si = st.session_state[si_key]
-    n_holders      = si.get("holder_count", 0)
-    si_score       = si.get("conviction_score", 0)
-    si_holders     = si.get("holders", [])
-    si_period      = si.get("period", "")
+    si        = get_superinvestor_conviction(ticker_input)
+    n_holders = si.get("holder_count", 0)
+    si_score  = si.get("conviction_score", 0)
+    pct_grand = si.get("pct_grand", 0.0)
+    total_stocks = si.get("total_stocks", 0)
 
     si_c1, si_c2, si_c3 = st.columns(3)
     with si_c1:
-        color = "#2ecc71" if n_holders >= 3 else "#f39c12" if n_holders >= 1 else "#888"
+        color = "#2ecc71" if n_holders >= 5 else "#f39c12" if n_holders >= 2 else "#888"
         st.markdown(
-            f"<div style='font-size:2em; font-weight:bold; color:{color}'>{n_holders}/13</div>",
+            f"<div style='font-size:2em; font-weight:bold; color:{color}'>{n_holders}</div>",
             unsafe_allow_html=True
         )
-        st.caption("Superinvestors holding")
+        st.caption(f"Superinvestors holding (of ~{total_stocks} tracked stocks)")
     with si_c2:
         st.markdown(
             f"<div style='font-size:2em; font-weight:bold'>{si_score}/100</div>",
@@ -569,29 +564,19 @@ if _cache_key and _cache_key in st.session_state:
         )
         st.caption("Conviction score")
     with si_c3:
-        if si_period:
-            st.caption(f"📅 Data as of {si_period}")
-        st.caption("Source: SEC EDGAR 13F filings")
+        if pct_grand > 0:
+            st.markdown(
+                f"<div style='font-size:1.6em; font-weight:bold'>{pct_grand:.2f}%</div>",
+                unsafe_allow_html=True
+            )
+            st.caption("of Grand Portfolio")
+        st.caption("Source: Dataroma.com")
 
-    if si_holders:
-        st.markdown("**Holders:**")
-        holder_cols = st.columns(min(len(si_holders), 3))
-        for i, h in enumerate(si_holders):
-            with holder_cols[i % 3]:
-                pct_str      = f"{h['pct']:.1f}% of portfolio" if h['pct'] > 0 else "< 0.1%"
-                activity     = h.get('activity', '')
-                activity_str = f" · {activity}" if activity and activity.strip() else ""
-                # Activity color
-                act_color = "#2ecc71" if "Add" in activity or "New" in activity else "#e74c3c" if "Reduce" in activity or "Sold" in activity else "#888"
-                st.markdown(f"**{h['investor'].split('(')[0].strip()}**")
-                st.caption(pct_str)
-                if activity_str:
-                    st.markdown(f"<span style='color:{act_color}; font-size:0.8em'>{activity}</span>", unsafe_allow_html=True)
-    elif n_holders == 0:
-        st.info("No tracked superinvestors currently hold this stock — or it may be too small/foreign for 13F reporting.")
+    if n_holders == 0 and not si.get("error"):
+        st.info(f"No superinvestors currently hold {ticker_input} — not in the Dataroma Grand Portfolio.")
 
     if si.get("error"):
-        st.caption(f"⚠️ {si['error'][:200]}")
+        st.warning(f"⚠️ {si['error'][:300]}")
 
     st.divider()
     st.markdown("### 📊 Key Metrics at a Glance")
