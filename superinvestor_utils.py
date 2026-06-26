@@ -1,14 +1,23 @@
 """
 superinvestor_utils.py — Superinvestor conviction tracker for Voskuil FP 1.0
 
-Fetches the Dataroma Grand Portfolio — all 1,600+ stocks held by all
-superinvestors in one page, with owner count and % of grand portfolio.
+Fetches complete portfolios for all ~82 superinvestors tracked by Dataroma.
+Builds a full ticker -> investors lookup covering all ~1,676 holdings.
 
-Data source: https://www.dataroma.com/m/g/portfolio.php
-No API key required.
+Strategy:
+  1. Fetch managers.php to discover all manager codes dynamically
+  2. Fetch each manager's holdings.php in parallel batches
+  3. Build ticker_map: {ticker: [{name, pct, activity}]}
+  4. Cache entire map in session state
+
+First load: ~30-60 seconds. Subsequent lookups: instant.
+Data source: Dataroma.com (aggregates SEC 13F filings). No API key required.
 """
 
+import re
+import time
 import requests
+import concurrent.futures
 from bs4 import BeautifulSoup
 
 HEADERS = {
@@ -23,174 +32,260 @@ HEADERS = {
     "Connection":      "keep-alive",
 }
 
-# URL returns all ~1600+ stocks sorted by grand portfolio %
-# l=o sorts by ownership%, o=c shows all stocks, f=0 removes minimum filter
-GRAND_PORTFOLIO_URL = "https://www.dataroma.com/m/g/portfolio.php?l=o&o=c&f=0"
+BASE_URL     = "https://www.dataroma.com"
+MANAGERS_URL = f"{BASE_URL}/m/managers.php"
+HOLDINGS_URL = f"{BASE_URL}/m/holdings.php?m="
+
+# Parallel workers — keep low to be polite to Dataroma
+MAX_WORKERS  = 5
+REQUEST_DELAY = 0.3   # seconds between requests per worker
 
 
-def fetch_grand_portfolio() -> dict:
+def fetch_manager_list() -> list:
     """
-    Fetch and parse the Dataroma Grand Portfolio.
-
-    Column layout (confirmed from live page):
-      Symbol | Stock Name | % of Grand Portfolio | No. of Owners | Hold Price | ...
-
-    Returns dict keyed by uppercase ticker:
-    {
-        "ABBV": {"ticker": "ABBV", "name": "AbbVie Inc.", "owners": 7, "pct_grand": 0.45},
-        ...
-        "_meta": {"total_stocks": 1676, "source": "Dataroma"}
-    }
+    Fetch managers.php and extract all manager {name, code} pairs.
+    Returns list of dicts: [{name, code}]
     """
     try:
-        resp = requests.get(GRAND_PORTFOLIO_URL, headers=HEADERS, timeout=30)
+        resp = requests.get(MANAGERS_URL, headers=HEADERS, timeout=20)
         if resp.status_code != 200:
-            return {"_error": f"HTTP {resp.status_code} from Dataroma"}
+            return []
+
+        soup     = BeautifulSoup(resp.text, "html.parser")
+        managers = []
+        seen     = set()
+
+        for link in soup.find_all("a", href=re.compile(r"/m/holdings\.php\?m=")):
+            href       = link.get("href", "")
+            code_match = re.search(r"\?m=([^&\s]+)", href)
+            if not code_match:
+                continue
+            code = code_match.group(1).strip()
+            if code in seen:
+                continue
+            seen.add(code)
+
+            # Manager name: use link text or parent cell text
+            name = link.text.strip()
+            if not name:
+                td = link.find_parent("td")
+                name = td.text.strip().split("\n")[0] if td else code
+
+            if code and name:
+                managers.append({"name": name, "code": code})
+
+        return managers
+    except Exception:
+        return []
+
+
+def fetch_one_portfolio(manager: dict) -> dict:
+    """
+    Fetch complete holdings for one manager.
+    Returns {name, code, holdings: [{ticker, pct, activity}]}
+    """
+    name = manager["name"]
+    code = manager["code"]
+    try:
+        time.sleep(REQUEST_DELAY)
+        resp = requests.get(f"{HOLDINGS_URL}{code}", headers=HEADERS, timeout=15)
+        if resp.status_code != 200:
+            return {"name": name, "code": code, "holdings": [], "error": f"HTTP {resp.status_code}"}
 
         soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Find the holdings table
         grid = soup.find("table", {"id": "grid"})
         if not grid:
-            tables = soup.find_all("table")
-            # Pick the largest table
-            grid = max(tables, key=lambda t: len(t.find_all("tr"))) if tables else None
+            return {"name": name, "code": code, "holdings": [], "error": "No grid table"}
 
-        if not grid:
-            return {"_error": "No data table found on Grand Portfolio page"}
-
-        # Confirmed column layout from live Dataroma page:
-        # Col 0: Symbol (MSFT, AMZN, etc.)
-        # Col 1: Stock name (Microsoft Corp., Amazon.com Inc., etc.)
-        # Col 2: % of Grand Portfolio (2.439, 2.123, etc.)
-        # Col 3: Number of superinvestor owners (33, 26, etc.)
-        # Col 4: Hold Price ($421.50, etc.)
-        # Col 5: Max % (28.55, etc.)
-        sym_idx  = 0
-        name_idx = 1
-        pct_idx  = 2
-        own_idx  = 3
-
-        headers = []
-
-        portfolio = {}
-        rows      = grid.find_all("tr")[1:]  # skip header
+        holdings = []
+        rows     = grid.find_all("tr")[1:]   # skip header
 
         for row in rows:
             cells = row.find_all("td")
-            if len(cells) < 3:
+            if len(cells) < 4:
                 continue
             try:
-                cell_texts = [c.text.strip() for c in cells]
-
-                # Symbol
-                ticker = cell_texts[sym_idx].strip().upper()
-                if not ticker or len(ticker) > 6 or not ticker.replace(".", "").replace("-", "").isalpha():
+                # Col 0: "TICKER - Company Name"
+                stock_text = cells[0].text.strip()
+                if " - " in stock_text:
+                    ticker = stock_text.split(" - ")[0].strip().upper()
+                elif stock_text:
+                    ticker = stock_text.split()[0].strip().upper()
+                else:
                     continue
 
-                # Name
-                name = cell_texts[name_idx].strip() if len(cell_texts) > name_idx else ticker
+                if not ticker or len(ticker) > 6:
+                    continue
 
-                # % of Grand Portfolio
+                # Col 1: % of portfolio
                 try:
-                    pct_grand = float(cell_texts[pct_idx].replace("%", "").replace(",", "").strip())
+                    pct = float(cells[1].text.strip().replace("%", "").replace(",", ""))
                 except (ValueError, IndexError):
-                    pct_grand = 0.0
+                    pct = 0.0
 
-                # Number of owners
+                # Col 3: Recent activity (Add X%, Reduce X%, New, Sold)
                 try:
-                    owners = int(cell_texts[own_idx].replace(",", "").strip())
-                except (ValueError, IndexError):
-                    owners = 0
+                    activity = cells[3].text.strip()
+                except IndexError:
+                    activity = ""
 
-                if ticker:
-                    portfolio[ticker] = {
-                        "ticker":    ticker,
-                        "name":      name,
-                        "owners":    owners,
-                        "pct_grand": pct_grand,
-                    }
-
+                holdings.append({
+                    "ticker":   ticker,
+                    "pct":      pct,
+                    "activity": activity,
+                })
             except Exception:
                 continue
 
-        portfolio["_meta"] = {
-            "total_stocks": len(portfolio),
-            "source":       "Dataroma Grand Portfolio",
-        }
-
-        return portfolio
+        return {"name": name, "code": code, "holdings": holdings, "error": None}
 
     except requests.Timeout:
-        return {"_error": "Timeout fetching Dataroma (30s). Try refreshing."}
+        return {"name": name, "code": code, "holdings": [], "error": "Timeout"}
     except Exception as e:
-        return {"_error": str(e)}
+        return {"name": name, "code": code, "holdings": [], "error": str(e)}
 
 
-def get_grand_portfolio() -> dict:
-    """Returns cached Grand Portfolio. Fetches on first call per session."""
+def build_full_conviction_map() -> dict:
+    """
+    Fetch all manager portfolios and build a complete ticker->investors map.
+    Returns:
+    {
+        "ticker_map": {
+            "ABBV": [{"investor": "Li Lu", "pct": 4.2, "activity": "Add 15%"}, ...],
+            ...
+        },
+        "managers": [{"name", "code", "holdings", "error"}],
+        "total_managers": 82,
+        "total_holdings": 2456,
+        "error": None or str
+    }
+    """
+    # Step 1: get manager list
+    managers = fetch_manager_list()
+    if not managers:
+        return {
+            "ticker_map": {}, "managers": [], "total_managers": 0,
+            "total_holdings": 0, "error": "Could not fetch manager list from Dataroma",
+        }
+
+    # Step 2: fetch all portfolios in parallel
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(fetch_one_portfolio, m): m for m in managers}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception:
+                pass
+
+    # Step 3: build ticker map
+    ticker_map     = {}
+    total_holdings = 0
+
+    for result in results:
+        investor_name = result["name"]
+        for holding in result.get("holdings", []):
+            ticker   = holding["ticker"]
+            pct      = holding["pct"]
+            activity = holding["activity"]
+            total_holdings += 1
+
+            if ticker not in ticker_map:
+                ticker_map[ticker] = []
+
+            ticker_map[ticker].append({
+                "investor": investor_name,
+                "pct":      pct,
+                "activity": activity,
+            })
+
+    # Sort each ticker's investors by portfolio % descending
+    for ticker in ticker_map:
+        ticker_map[ticker].sort(key=lambda x: x["pct"], reverse=True)
+
+    return {
+        "ticker_map":     ticker_map,
+        "managers":       results,
+        "total_managers": len(managers),
+        "total_holdings": total_holdings,
+        "error":          None,
+    }
+
+
+def get_conviction_data() -> dict:
+    """Returns cached full conviction map. Builds on first call."""
     import streamlit as st
-    if "_gp_data" not in st.session_state:
-        with st.spinner("📊 Loading superinvestor Grand Portfolio from Dataroma..."):
-            st.session_state["_gp_data"] = fetch_grand_portfolio()
-    return st.session_state.get("_gp_data", {})
+    if "_si_full_map" not in st.session_state:
+        with st.spinner(
+            "📊 Loading complete superinvestor portfolios from Dataroma "
+            "(82 managers — first load ~30-60 seconds, then cached)..."
+        ):
+            st.session_state["_si_full_map"] = build_full_conviction_map()
+    return st.session_state.get("_si_full_map", {})
 
 
 def clear_superinvestor_cache():
-    """Clear Grand Portfolio cache — forces re-fetch."""
+    """Clear all cached superinvestor data."""
     import streamlit as st
-    st.session_state.pop("_gp_data", None)
-    for key in list(st.session_state.keys()):
-        if key.startswith("si_"):
-            del st.session_state[key]
+    for key in ["_si_full_map", "_gp_data", "_si_data"]:
+        st.session_state.pop(key, None)
+    for k in list(st.session_state.keys()):
+        if k.startswith("si_"):
+            del st.session_state[k]
 
 
 def get_superinvestor_conviction(ticker: str) -> dict:
-    """Look up conviction data for a ticker from the Grand Portfolio."""
-    gp    = get_grand_portfolio()
-    error = gp.get("_error")
+    """
+    Look up complete conviction data for a ticker.
+    Returns all investors holding it with portfolio % and recent activity.
+    """
+    data       = get_conviction_data()
+    error      = data.get("error")
+    ticker_map = data.get("ticker_map", {})
 
-    if error:
+    if error and not ticker_map:
         return {
             "holders": [], "holder_count": 0, "conviction_score": 0,
-            "pct_grand": 0.0, "period": "Dataroma",
-            "error": f"Grand Portfolio fetch failed: {error}",
+            "period": "Dataroma", "error": error,
         }
 
     ticker_upper = ticker.upper()
-    entry        = gp.get(ticker_upper)
-    meta         = gp.get("_meta", {})
+    holders      = ticker_map.get(ticker_upper, [])
+    n            = len(holders)
+    total_mgrs   = data.get("total_managers", 82)
+    avg_pct      = sum(h["pct"] for h in holders) / n if n > 0 else 0
 
-    if not entry:
-        return {
-            "holders": [], "holder_count": 0, "conviction_score": 0,
-            "pct_grand": 0.0, "period": "Latest 13F (Dataroma)",
-            "total_stocks": meta.get("total_stocks", 0),
-            "error": None,
-        }
-
-    owners    = entry.get("owners",    0)
-    pct_grand = entry.get("pct_grand", 0.0)
-    name      = entry.get("name",      ticker_upper)
-
-    # Score: up to 70 pts breadth + 30 pts weight
-    breadth = min(70, int(owners / 80 * 70))
-    weight  = min(30, int(pct_grand / 5 * 30))
+    # Score: breadth (up to 70) + weight (up to 30)
+    breadth = min(70, int(n / max(total_mgrs, 1) * 70))
+    weight  = min(30, int(avg_pct / 10 * 30))   # 10%+ avg = full 30 pts
     score   = breadth + weight
 
     return {
-        "holders":          [],
-        "holder_count":     owners,
-        "name":             name,
+        "holders":          holders,
+        "holder_count":     n,
         "conviction_score": score,
-        "pct_grand":        pct_grand,
-        "period":           "Latest 13F (Dataroma)",
-        "total_stocks":     meta.get("total_stocks", 0),
+        "avg_pct":          round(avg_pct, 2),
+        "period":           "Latest 13F (via Dataroma)",
+        "total_managers":   total_mgrs,
+        "total_holdings":   data.get("total_holdings", 0),
         "error":            None,
     }
 
 
 def get_all_tickers_with_conviction() -> dict:
-    """Returns full Grand Portfolio dict for bulk Market Screener scoring."""
-    gp = get_grand_portfolio()
-    return {k: v for k, v in gp.items() if not k.startswith("_")}
+    """
+    Returns {ticker: {"owners": N, "avg_pct": X, "investors": [...]}}
+    for use in Market Screener bulk scoring.
+    """
+    data       = get_conviction_data()
+    ticker_map = data.get("ticker_map", {})
+    result     = {}
+    for ticker, holders in ticker_map.items():
+        n       = len(holders)
+        avg_pct = sum(h["pct"] for h in holders) / n if n > 0 else 0
+        result[ticker] = {
+            "owners":    n,
+            "avg_pct":   round(avg_pct, 2),
+            "investors": holders,
+        }
+    return result
