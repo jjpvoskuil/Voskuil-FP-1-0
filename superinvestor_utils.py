@@ -24,7 +24,8 @@ HEADERS = {
 }
 
 # URL returns all ~1600+ stocks sorted by grand portfolio %
-GRAND_PORTFOLIO_URL = "https://www.dataroma.com/m/g/portfolio.php"
+# l=o sorts by ownership%, o=c shows all stocks, f=0 removes minimum filter
+GRAND_PORTFOLIO_URL = "https://www.dataroma.com/m/g/portfolio.php?l=o&o=c&f=0"
 
 
 def fetch_grand_portfolio() -> dict:
@@ -58,27 +59,19 @@ def fetch_grand_portfolio() -> dict:
         if not grid:
             return {"_error": "No data table found on Grand Portfolio page"}
 
-        # Detect header to confirm column positions
-        header_row = grid.find("tr")
-        headers    = [th.text.strip().lower() for th in header_row.find_all(["th", "td"])] if header_row else []
+        # Confirmed column layout from live Dataroma page:
+        # Col 0: Symbol (MSFT, AMZN, etc.)
+        # Col 1: Stock name (Microsoft Corp., Amazon.com Inc., etc.)
+        # Col 2: % of Grand Portfolio (2.439, 2.123, etc.)
+        # Col 3: Number of superinvestor owners (33, 26, etc.)
+        # Col 4: Hold Price ($421.50, etc.)
+        # Col 5: Max % (28.55, etc.)
+        sym_idx  = 0
+        name_idx = 1
+        pct_idx  = 2
+        own_idx  = 3
 
-        # Find column indices from header
-        # Expected: symbol, stock, % ownership/grand, no. of investors/owners
-        sym_idx   = 0   # Symbol is always first
-        name_idx  = 1   # Stock name is always second
-        pct_idx   = 2   # % Grand Portfolio is third
-        own_idx   = 3   # Number of owners is fourth
-
-        # Try to detect from header if present
-        for i, h in enumerate(headers):
-            if "symbol" in h or h == "sym":
-                sym_idx = i
-            elif "stock" in h or "name" in h:
-                name_idx = i
-            elif "%" in h or "ownership" in h or "portfolio" in h:
-                pct_idx = i
-            elif "investor" in h or "owner" in h or "no." in h or "num" in h:
-                own_idx = i
+        headers = []
 
         portfolio = {}
         rows      = grid.find_all("tr")[1:]  # skip header
@@ -124,7 +117,6 @@ def fetch_grand_portfolio() -> dict:
         portfolio["_meta"] = {
             "total_stocks": len(portfolio),
             "source":       "Dataroma Grand Portfolio",
-            "headers":      headers[:8],
         }
 
         return portfolio
