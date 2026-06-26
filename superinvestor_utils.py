@@ -1,20 +1,16 @@
 """
 superinvestor_utils.py — Superinvestor conviction tracker for Voskuil FP 1.0
 
-Scrapes Dataroma.com for superinvestor holdings data.
-Dataroma aggregates 13F filings into clean, per-investor portfolio pages
-with ticker, % of portfolio, shares, recent activity, and value.
+Phase 1: Fetches the Dataroma Grand Portfolio — all stocks held by all
+superinvestors in one page. Cached in session state for instant lookups.
 
-No API key required. Data sourced from public 13F filings via Dataroma.
+Data source: https://www.dataroma.com/m/g/portfolio.php
+Updated quarterly after 13F filings. No API key required.
 """
 
-import re
-import time
 import requests
-import streamlit as st
 from bs4 import BeautifulSoup
 
-# Browser headers to avoid bot detection
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -27,79 +23,129 @@ HEADERS = {
     "Connection":      "keep-alive",
 }
 
-BASE_URL = "https://www.dataroma.com"
-
-# Curated superinvestors with their Dataroma manager codes
-# Format: display_name -> dataroma_code
-SUPERINVESTORS = {
-    "Warren Buffett (Berkshire)":  "BRK",
-    "Bill Ackman (Pershing Sq)":   "PA",
-    "Seth Klarman (Baupost)":      "BG",
-    "David Tepper (Appaloosa)":    "APL",
-    "David Einhorn (Greenlight)":  "GLC",
-    "Chuck Akre (Akre Capital)":   "ACM",
-    "Tom Gayner (Markel)":         "MKL",
-    "Mohnish Pabrai (Pabrai Inv)": "PI",
-    "Li Lu (Himalaya Capital)":    "HC",
-    "Guy Spier (Aquamarine)":      "aq",
-    "Chris Bloomstran (Semper)":   "SEM",
-    "Pat Dorsey (Dorsey Asset)":   "DA",
-    "Allan Mecham (Arlington)":    "AVI",
-}
+GRAND_PORTFOLIO_URL = "https://www.dataroma.com/m/g/portfolio.php"
+STOCK_DETAIL_URL    = "https://www.dataroma.com/m/stock.php?sym={ticker}"
 
 
-def _fetch_holdings(manager_code: str) -> list:
+def fetch_grand_portfolio() -> dict:
     """
-    Fetch holdings for one manager from Dataroma.
-    Returns list of dicts: {ticker, name, pct, activity, value}
+    Fetch the Dataroma Grand Portfolio page and parse all holdings.
+
+    Returns dict keyed by uppercase ticker:
+    {
+        "AAPL": {
+            "ticker":    "AAPL",
+            "name":      "Apple Inc.",
+            "owners":    12,         # number of superinvestors holding
+            "pct_grand": 8.45,       # % of grand portfolio
+        },
+        ...
+    }
+    Returns empty dict on failure.
     """
-    url  = f"{BASE_URL}/m/holdings.php?m={manager_code}"
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = requests.get(GRAND_PORTFOLIO_URL, headers=HEADERS, timeout=20)
         if resp.status_code != 200:
-            return []
+            return {"_error": f"HTTP {resp.status_code} from Dataroma"}
 
         soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Dataroma uses <table id="grid"> for the holdings table
         grid = soup.find("table", {"id": "grid"})
         if not grid:
-            return []
+            # Try any table with stock data
+            tables = soup.find_all("table")
+            grid   = tables[0] if tables else None
 
-        holdings = []
-        rows = grid.find_all("tr")[1:]  # skip header row
+        if not grid:
+            return {"_error": "No data table found on Grand Portfolio page"}
+
+        portfolio = {}
+        rows      = grid.find_all("tr")[1:]  # skip header
+
         for row in rows:
             cells = row.find_all("td")
-            if len(cells) < 5:
+            if len(cells) < 3:
                 continue
             try:
-                # Column order: Stock | % of Portfolio | Shares | Recent Activity | Reported Price | Value
-                stock_text    = cells[0].text.strip()  # e.g. "AAPL - Apple Inc."
-                pct_text      = cells[1].text.strip()  # e.g. "25.96"
-                activity_text = cells[3].text.strip()  # e.g. "Add 5.20%" or "New"
+                # Grand Portfolio columns vary — try to detect layout
+                # Common layout: Stock | No. of Investors | % of Grand Portfolio | ...
+                cell_texts = [c.text.strip() for c in cells]
 
-                # Parse ticker and company name
-                if " - " in stock_text:
-                    ticker, name = stock_text.split(" - ", 1)
+                # First cell usually has ticker and name: "AAPL - Apple Inc."
+                stock_cell = cell_texts[0]
+                if " - " in stock_cell:
+                    ticker, name = stock_cell.split(" - ", 1)
+                elif stock_cell:
+                    ticker = stock_cell.split()[0]
+                    name   = stock_cell
                 else:
-                    ticker = stock_text
-                    name   = stock_text
+                    continue
 
-                holdings.append({
-                    "ticker":   ticker.strip().upper(),
-                    "name":     name.strip(),
-                    "pct":      float(pct_text) if pct_text else 0.0,
-                    "activity": activity_text,
-                })
+                ticker = ticker.strip().upper()
+                if not ticker or len(ticker) > 6:
+                    continue
+
+                # Parse owner count and grand portfolio %
+                # Try different column positions
+                owners    = 0
+                pct_grand = 0.0
+
+                for cell_text in cell_texts[1:]:
+                    clean = cell_text.replace(",", "").replace("%", "").strip()
+                    try:
+                        val = float(clean)
+                        if val == int(val) and 1 <= val <= 200 and owners == 0:
+                            owners = int(val)
+                        elif 0 < val < 100 and pct_grand == 0.0:
+                            pct_grand = val
+                    except ValueError:
+                        continue
+
+                portfolio[ticker] = {
+                    "ticker":    ticker,
+                    "name":      name.strip(),
+                    "owners":    owners,
+                    "pct_grand": pct_grand,
+                }
+
             except Exception:
                 continue
 
-        return holdings
+        if portfolio:
+            portfolio["_meta"] = {
+                "total_stocks": len(portfolio),
+                "source": "Dataroma Grand Portfolio",
+            }
 
-    except Exception:
-        return []
+        return portfolio
+
+    except requests.Timeout:
+        return {"_error": "Timeout fetching Dataroma Grand Portfolio"}
+    except Exception as e:
+        return {"_error": str(e)}
+
+
+def get_grand_portfolio() -> dict:
+    """
+    Returns cached Grand Portfolio dict. Fetches on first call per session.
+    Cached in st.session_state['_gp_data'].
+    """
+    import streamlit as st
+
+    if "_gp_data" not in st.session_state:
+        with st.spinner("📊 Loading superinvestor Grand Portfolio from Dataroma..."):
+            data = fetch_grand_portfolio()
+        st.session_state["_gp_data"] = data
+
+    return st.session_state.get("_gp_data", {})
 
 
 def clear_superinvestor_cache():
-    """Clear per-ticker cached results."""
+    """Clear Grand Portfolio cache — forces re-fetch on next call."""
+    import streamlit as st
+    st.session_state.pop("_gp_data", None)
+    # Also clear per-ticker conviction cache
     for key in list(st.session_state.keys()):
         if key.startswith("si_"):
             del st.session_state[key]
@@ -107,56 +153,69 @@ def clear_superinvestor_cache():
 
 def get_superinvestor_conviction(ticker: str) -> dict:
     """
-    Main entry point. Scrapes Dataroma for each superinvestor and checks
-    whether they hold the given ticker.
+    Look up conviction data for a ticker from the cached Grand Portfolio.
 
     Returns:
-        holders:          list of {investor, pct, activity}
-        holder_count:     int
-        conviction_score: 0-100
-        period:           str (data period label)
+        holder_count:     int — number of superinvestors holding
+        pct_grand:        float — % of aggregate grand portfolio
+        conviction_score: int 0-100
+        period:           str
         error:            str or None
     """
+    gp = get_grand_portfolio()
+
+    error = gp.get("_error")
+    if error:
+        return {
+            "holders":          [],
+            "holder_count":     0,
+            "conviction_score": 0,
+            "pct_grand":        0.0,
+            "period":           "Dataroma",
+            "error":            f"Grand Portfolio fetch failed: {error}",
+        }
+
     ticker_upper = ticker.upper()
-    holders      = []
-    errors       = []
+    entry        = gp.get(ticker_upper)
 
-    # Per-investor holdings are cached to avoid re-fetching on rerun
-    for investor, code in SUPERINVESTORS.items():
-        cache_key = f"_dr_holdings_{code}"
-        if cache_key not in st.session_state:
-            holdings = _fetch_holdings(code)
-            st.session_state[cache_key] = holdings
-            time.sleep(0.3)  # be polite — don't hammer Dataroma
-        else:
-            holdings = st.session_state[cache_key]
+    if not entry:
+        return {
+            "holders":          [],
+            "holder_count":     0,
+            "conviction_score": 0,
+            "pct_grand":        0.0,
+            "period":           "Latest 13F (Dataroma)",
+            "error":            None,  # simply not held — not an error
+        }
 
-        if not holdings:
-            errors.append(f"{investor}: no data")
-            continue
+    owners    = entry.get("owners",    0)
+    pct_grand = entry.get("pct_grand", 0.0)
 
-        # Check if ticker is in this investor's portfolio
-        match = next((h for h in holdings if h["ticker"] == ticker_upper), None)
-        if match:
-            holders.append({
-                "investor": investor,
-                "pct":      match["pct"],
-                "activity": match["activity"],
-            })
-
-    holders.sort(key=lambda x: x["pct"], reverse=True)
-
-    n       = len(holders)
-    max_n   = len(SUPERINVESTORS)
-    avg_pct = sum(h["pct"] for h in holders) / n if n > 0 else 0
-    breadth = min(60, int(n / max_n * 60))
-    weight  = min(40, int(avg_pct / 10 * 40))
+    # Conviction score: 0-100
+    # Up to 70 pts for breadth (owners / ~100 total SIs on Dataroma)
+    # Up to 30 pts for grand portfolio weight
+    breadth = min(70, int(owners / 80 * 70))
+    weight  = min(30, int(pct_grand / 5 * 30))   # 5%+ of grand portfolio = full 30 pts
     score   = breadth + weight
 
+    meta   = gp.get("_meta", {})
+    period = "Latest 13F (Dataroma)"
+
     return {
-        "holders":          holders,
-        "holder_count":     n,
+        "holders":          [],   # Phase 2 will populate per-investor detail
+        "holder_count":     owners,
         "conviction_score": score,
-        "period":           "Latest 13F (via Dataroma)",
-        "error":            "; ".join(errors) if errors and n == 0 else None,
+        "pct_grand":        pct_grand,
+        "period":           period,
+        "total_stocks":     meta.get("total_stocks", 0),
+        "error":            None,
     }
+
+
+def get_all_tickers_with_conviction() -> dict:
+    """
+    Returns the full Grand Portfolio dict for use in Market Screener bulk scoring.
+    Keys are tickers, values include owners and pct_grand.
+    """
+    gp = get_grand_portfolio()
+    return {k: v for k, v in gp.items() if not k.startswith("_")}
