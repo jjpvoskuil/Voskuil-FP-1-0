@@ -105,8 +105,14 @@ def fetch_one_portfolio(manager: dict) -> dict:
             if len(cells) < 4:
                 continue
             try:
-                # Col 0: "TICKER - Company Name"
-                stock_text = cells[0].text.strip()
+                # Col 0: ≡ history button (skip)
+                # Col 1: "TICKER - Company Name"
+                # Col 2: % of portfolio
+                # Col 3: Recent activity OR shares (activity is optional)
+                if len(cells) < 3:
+                    continue
+
+                stock_text = cells[1].text.strip()
                 if " - " in stock_text:
                     ticker = stock_text.split(" - ")[0].strip().upper()
                 elif stock_text:
@@ -114,20 +120,24 @@ def fetch_one_portfolio(manager: dict) -> dict:
                 else:
                     continue
 
-                if not ticker or len(ticker) > 6:
+                if not ticker or len(ticker) > 6 or not ticker.replace(".", "").replace("-", "").isalpha():
                     continue
 
-                # Col 1: % of portfolio
+                # Col 2: % of portfolio
                 try:
-                    pct = float(cells[1].text.strip().replace("%", "").replace(",", ""))
+                    pct = float(cells[2].text.strip().replace("%", "").replace(",", ""))
                 except (ValueError, IndexError):
                     pct = 0.0
 
-                # Col 3: Recent activity (Add X%, Reduce X%, New, Sold)
+                # Col 3: Recent activity if present (Add X%, Reduce X%, New, Sold)
+                # Sometimes col 3 is shares if no activity — detect by checking for letters
+                activity = ""
                 try:
-                    activity = cells[3].text.strip()
+                    col3 = cells[3].text.strip()
+                    if any(w in col3 for w in ["Add", "Reduce", "New", "Sold", "Buy"]):
+                        activity = col3
                 except IndexError:
-                    activity = ""
+                    pass
 
                 holdings.append({
                     "ticker":   ticker,
