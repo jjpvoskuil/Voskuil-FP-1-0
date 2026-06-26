@@ -588,16 +588,14 @@ if _cache_key and _cache_key in st.session_state:
                     )
     elif n_holders == 0 and not si.get("error"):
         st.info(f"No superinvestors currently hold {ticker_input}.")
-        # Debug: show nearby tickers to check parsing
-        data = get_conviction_data()
-        tm   = data.get("ticker_map", {})
-        # Find anything containing the ticker letters
-        nearby = [t for t in tm.keys() if ticker_input.upper()[:3] in t][:10]
-        abbv_variants = [t for t in tm.keys() if "ABB" in t or "ABBV" in t]
-        st.caption(f"Debug — tickers with '{ticker_input[:3]}': {nearby}")
-        st.caption(f"Debug — ABBV variants in map: {abbv_variants}")
-        st.caption(f"Debug — total tickers in map: {len(tm)}")
-        st.caption(f"Debug — sample tickers: {list(tm.keys())[:20]}")
+        # Debug: inspect session state directly
+        _full = st.session_state.get("_si_full_map", {})
+        _tm   = _full.get("ticker_map", {})
+        _ss_keys = [k for k in st.session_state.keys() if k.startswith("_si")]
+        st.caption(f"Debug — session state SI keys: {_ss_keys}")
+        st.caption(f"Debug — _si_full_map ticker_map size: {len(_tm)}")
+        st.caption(f"Debug — ABBV in ticker_map: {'ABBV' in _tm}")
+        st.caption(f"Debug — sample tickers: {list(_tm.keys())[:15]}")
 
     if si.get("error"):
         st.warning(f"⚠️ {si['error'][:300]}")
