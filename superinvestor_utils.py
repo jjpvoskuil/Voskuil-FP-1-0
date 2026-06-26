@@ -43,7 +43,7 @@ CIK_TO_NAME = {str(int(v)): k for k, v in SUPERINVESTORS.items()}
 
 TICKER_NAME_MAP = {
     "BRK.B": "BERKSHIRE",    "BRK.A": "BERKSHIRE",
-    "ABBV":  "ABBVIE",       "BMY":   "BRISTOL MYERS",
+    "ABBV":  "ABBVIE",       "BMY":   "BRISTOL-MYERS",
     "MO":    "ALTRIA",       "PM":    "PHILIP MORRIS",
     "AMP":   "AMERIPRISE",   "KO":    "COCA COLA",
     "GOOGL": "ALPHABET",     "GOOG":  "ALPHABET",
@@ -207,16 +207,24 @@ def get_superinvestor_conviction(ticker: str) -> dict:
                 **debug}
 
     # Build holders list
-    holders = []
+    holders      = []
+    no_match_inv = []  # investors in dataset but don't hold this ticker
     for acc, investor in acc_to_investor.items():
         inv_rows   = si_info[si_info[acc_col_i].str.strip() == acc]
         match_rows = matches[matches[acc_col_i].str.strip() == acc]
         if match_rows.empty:
+            no_match_inv.append(f"{investor}({len(inv_rows)} holdings)")
             continue
 
         pos_val   = match_rows[val_col].apply(safe_int).sum()
         total_val = acc_to_total.get(acc, 0)
         if total_val == 0:
+            total_val = inv_rows[val_col].apply(safe_int).sum()
+        # Cap obviously inflated totals (dataset contains multiple quarters)
+        # Real single-quarter totals: Berkshire ~$300B, most others <$50B
+        # If total > $500B it's almost certainly summed across multiple filings
+        if total_val > 500_000_000:  # in thousands, so this is $500B
+            # Re-sum from matched accession's holdings only
             total_val = inv_rows[val_col].apply(safe_int).sum()
 
         pct = round(pos_val / total_val * 100, 2) if total_val > 0 else 0.0
@@ -233,5 +241,6 @@ def get_superinvestor_conviction(ticker: str) -> dict:
     avg_pct = sum(h["pct"] for h in holders) / n if n > 0 else 0
     score   = min(60, int(n / len(SUPERINVESTORS) * 60)) + min(40, int(avg_pct / 10 * 40))
 
+    debug["_debug_no_match"] = no_match_inv
     return {"holders": holders, "holder_count": n, "conviction_score": score,
             "period": period, "error": None, **debug}
