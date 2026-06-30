@@ -1012,54 +1012,71 @@ if _cache_key and _cache_key in st.session_state:
 
     st.divider()
 
-    # ── Superinvestor Conviction ──────────────────────────────────────────────
+    # ── Superinvestor Conviction ──────────────────────────────────────
     st.markdown("### 🦁 Superinvestor Conviction")
     st.caption(
-        "How many of 13 tracked value superinvestors (Buffett, Ackman, Klarman, etc.) "
-        "hold this stock — sourced directly from SEC EDGAR 13F filings."
+        "How many of 82 tracked superinvestors hold this stock — "
+        "via Dataroma.com (aggregates SEC 13F filings). "
+        "Shows each holder's portfolio weight and recent activity."
     )
-    si_key     = f"si_edgar_conviction_{ticker_input}"
+
     si_refresh = st.button("🔄 Refresh", key=f"si_edgar_refresh_{ticker_input}",
-                           help="Clear cache and re-fetch 13F data")
+                           help="Clear cache and re-fetch from Dataroma")
     if si_refresh:
         clear_superinvestor_cache()
-        st.session_state.pop(si_key, None)
-    if si_key not in st.session_state:
-        with st.spinner("Checking superinvestor 13F filings..."):
-            st.session_state[si_key] = get_superinvestor_conviction(ticker_input)
+        st.rerun()
 
-    si         = st.session_state[si_key]
-    n_holders  = si.get("holder_count", 0)
-    si_score   = si.get("conviction_score", 0)
-    si_holders = si.get("holders", [])
-    si_period  = si.get("period", "")
+    si           = get_superinvestor_conviction(ticker_input)
+    n_holders    = si.get("holder_count", 0)
+    si_score     = si.get("conviction_score", 0)
+    si_holders   = si.get("holders", [])
+    total_mgrs   = si.get("total_managers", 82)
 
     si_c1, si_c2, si_c3 = st.columns(3)
     with si_c1:
-        color = "#2ecc71" if n_holders >= 3 else "#f39c12" if n_holders >= 1 else "#888"
-        st.markdown(f"<div style='font-size:2em; font-weight:bold; color:{color}'>{n_holders}/13</div>",
-                    unsafe_allow_html=True)
-        st.caption("Superinvestors holding")
+        color = "#2ecc71" if n_holders >= 5 else "#f39c12" if n_holders >= 2 else "#888"
+        st.markdown(
+            f"<div style='font-size:2em; font-weight:bold; color:{color}'>{n_holders}</div>",
+            unsafe_allow_html=True
+        )
+        st.caption(f"Superinvestors holding (of {total_mgrs} tracked)")
     with si_c2:
-        st.markdown(f"<div style='font-size:2em; font-weight:bold'>{si_score}/100</div>",
-                    unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='font-size:2em; font-weight:bold'>{si_score}/100</div>",
+            unsafe_allow_html=True
+        )
         st.caption("Conviction score")
     with si_c3:
-        if si_period:
-            st.caption(f"📅 Data as of {si_period}")
-        st.caption("Source: SEC EDGAR 13F filings")
+        st.caption("Source: Dataroma.com")
+        st.caption("Complete portfolio data from all 82 managers")
 
     if si_holders:
-        st.markdown("**Holders:**")
+        st.markdown(f"**Holders** (avg position: {si.get('avg_pct', 0):.1f}% of portfolio):")
         holder_cols = st.columns(min(len(si_holders), 3))
         for i, h in enumerate(si_holders):
             with holder_cols[i % 3]:
-                pct_str = f"{h['pct']:.1f}% of portfolio" if h["pct"] > 0 else "< 0.1%"
-                val_str = f"${h['value']/1e9:.2f}B" if h["value"] >= 1e9 else f"${h['value']/1e6:.0f}M"
-                st.markdown(f"**{h['investor'].split('(')[0].strip()}**")
-                st.caption(f"{pct_str} · {val_str}")
-    elif n_holders == 0:
-        st.info("No tracked superinvestors currently hold this stock.")
+                activity  = h.get('activity', '').strip()
+                pct_str = f"{h['pct']:.1f}% of portfolio" if h['pct'] > 0.05 else "< 0.1% of portfolio"
+                st.markdown(f"**{h['investor']}**")
+                st.caption(pct_str)
+                display_activity = activity if activity else "Held"
+                act_color = ("#2ecc71" if any(w in display_activity for w in ["Add", "New", "Buy"])
+                             else "#e74c3c" if any(w in display_activity for w in ["Reduce", "Sold", "Sell"])
+                             else "#888")
+                st.markdown(
+                    f"<span style='color:{act_color}; font-size:0.8em'>{display_activity}</span>",
+                    unsafe_allow_html=True
+                )
+    elif n_holders == 0 and not si.get("error"):
+        st.info(f"No superinvestors currently hold {ticker_input}.")
+
+    if si.get("error"):
+        st.warning(f"⚠️ {si['error'][:300]}")
+
+    st.caption(
+        f"Source: Dataroma.com · {si.get('total_managers', 82)} managers · "
+        f"{si.get('total_holdings', 0):,} total holdings tracked"
+    )
 
     st.divider()
 
