@@ -792,6 +792,9 @@ if 'ms_edgar_results_df' in st.session_state:
         div[data-testid="stMetricLabel"] {
             font-size: 0.78rem;
         }
+        div[data-testid="stCheckbox"] label p {
+            white-space: nowrap;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -804,7 +807,7 @@ if 'ms_edgar_results_df' in st.session_state:
         with st.container():
             _has_si = 'si_holders' in row.index
             if _has_si:
-                c1, c2, c3, c4, c5, c6, c7, c8, c9, c10 = st.columns([1, 2.6, 1.7, 1.7, 1.7, 1.7, 1.7, 1.7, 1.3, 1.3])
+                c1, c2, c3, c4, c5, c6, c7, c8, c9, c10 = st.columns([1, 2.6, 1.7, 1.7, 1.7, 1.7, 1.7, 1.7, 1.2, 1.6])
             else:
                 c1, c2, c3, c4, c5, c6, c7, c8, c10 = st.columns([1, 3, 2, 2, 2, 2, 2, 2, 1.5])
                 c9 = None
