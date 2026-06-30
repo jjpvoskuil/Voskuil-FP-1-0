@@ -426,14 +426,23 @@ def fetch_quality_edgar(ticker: str, cik: str) -> dict:
         if cash > total_debt:
             is_net_creditor = True
 
-    # Market cap — fetched upfront for every Stage 1 ticker so the
-    # market-cap-tier filter can apply before Stage 2 pricing/scoring.
-    # Uses yfinance's lightweight fast_info (no full .info call) to keep
-    # this as cheap as possible at full-universe scan scale.
+    # Market cap & sector — fetched upfront for every Stage 1 ticker so
+    # the market-cap-tier and Sector filters can apply before Stage 2
+    # pricing/scoring. fast_info covers market cap cheaply; sector
+    # requires the fuller .info call, which is slower — this is the
+    # cost of having Sector available before any scan completes, per
+    # the user's choice to prioritize full pre-scan filtering over
+    # Stage 1 speed.
     market_cap = None
+    sector     = "Unknown"
     try:
         import yfinance as yf
-        market_cap = getattr(yf.Ticker(ticker).fast_info, "market_cap", None)
+        yf_ticker  = yf.Ticker(ticker)
+        market_cap = getattr(yf_ticker.fast_info, "market_cap", None)
+        try:
+            sector = yf_ticker.info.get("sector") or "Unknown"
+        except Exception:
+            sector = "Unknown"
     except Exception:
         market_cap = None
 
@@ -444,6 +453,7 @@ def fetch_quality_edgar(ticker: str, cik: str) -> dict:
         "is_financial":      meta.get("is_financial", False),
         "is_cyclical":       meta.get("is_cyclical", False),
         "market_cap":        market_cap,
+        "sector":            sector,
         "fcf":               fcf,
         "roic":              roic,
         "gross_margin":      gross_margin,
@@ -742,14 +752,32 @@ st.caption(
     f"major industry groups — full SEC classification table, no scan required to populate."
 )
 
-fcol1, fcol2, fcol3 = st.columns(3)
+GICS_SECTORS = [
+    "Basic Materials", "Communication Services", "Consumer Cyclical",
+    "Consumer Defensive", "Energy", "Financial Services", "Healthcare",
+    "Industrials", "Real Estate", "Technology", "Utilities",
+]
+
+fcol0, fcol1, fcol2, fcol3 = st.columns(4)
+with fcol0:
+    sector_filter = st.multiselect(
+        "Sector",
+        options=GICS_SECTORS,
+        default=[],
+        help="GICS sector, via yfinance — the broadest classification level. Leave empty to "
+             "include all sectors. Fetched for every Stage 1 candidate, so this adds some time "
+             "to Stage 1 (same trade-off as Market Cap Tier).",
+    )
 with fcol1:
     industry_filter = st.multiselect(
         "Industry",
         options=sorted(set(_sic_map.get("major", {}).values())),
         default=[],
         help="Major SIC industry group(s). Leave empty to include all industries. "
-             "Companies are classified by their primary SIC code in SEC filings.",
+             "Companies are classified by their primary SIC code in SEC filings. "
+             "Independent of the Sector filter above — SIC and GICS are different "
+             "classification systems, so combining both narrows further but they don't "
+             "nest perfectly into each other.",
     )
 with fcol2:
     # Sub-industry options sourced directly from the COMPLETE static SIC
@@ -795,7 +823,7 @@ with si_filt_col2:
     else:
         st.caption("Optional — load to filter Stage 1 results to only companies held by at least one of 82 tracked superinvestors.")
 
-_est_min = max(1, round(max_scan / 8 / 60 * 1.3))  # rough: 8 parallel workers, ~1 req/sec/worker, 30% overhead
+_est_min = max(1, round(max_scan / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
 st.caption(f"⏱️ Estimated Stage 1 time for {max_scan} tickers: ~{_est_min} minute{'s' if _est_min != 1 else ''}. Stage 2 (price lookups on survivors) adds 10-60 seconds.")
 
 st.divider()
@@ -872,8 +900,14 @@ if run_screen:
         st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
         st.stop()
 
-    # ── Apply Stage 1 filters: industry, sub-industry, market cap, SI ──
+    # ── Apply Stage 1 filters: sector, industry, sub-industry, market cap, SI ──
     _pre_filter_count = len(stage1_results)
+
+    if sector_filter:  # non-empty list = filter active
+        stage1_results = [
+            d for d in stage1_results
+            if d.get("sector") in sector_filter
+        ]
 
     if industry_filter:  # non-empty list = filter active
         stage1_results = [
@@ -903,7 +937,7 @@ if run_screen:
         st.caption(f"🔍 Stage 1 filters applied: {_pre_filter_count} → {len(stage1_results)} companies.")
 
     if not stage1_results:
-        st.warning("No companies survived the Stage 1 filters you selected. Try relaxing industry, market cap, or SI coverage filters.")
+        st.warning("No companies survived the Stage 1 filters you selected. Try relaxing sector, industry, market cap, or SI coverage filters.")
         st.stop()
 
     # ── Stage 2: Price lookup for survivors only ────────────────────────
@@ -949,7 +983,7 @@ if run_screen:
                 **qdata,
                 "price":            price,
                 "market_cap":       market_cap or qdata.get("market_cap"),
-                "sector":           sector,
+                "sector":           sector if sector and sector != "N/A" else qdata.get("sector", "Unknown"),
                 "fcf_yield":        fcf_yield,
                 "price_owner_earn": poe,
                 "dividend_yield":   div_yield,
