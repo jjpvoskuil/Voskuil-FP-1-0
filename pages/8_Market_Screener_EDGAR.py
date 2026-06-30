@@ -351,6 +351,29 @@ def sic_full_name(sic: str, sic_map: dict) -> str:
     return f"SIC {sic}"
 
 
+def sub_industries_for_major(major_name: str, sic_map: dict) -> list:
+    """
+    Returns sorted sub-industry names belonging to a given major industry
+    group, sourced from the COMPLETE static SIC table — not from any
+    prior scan's results. This lets the filter dropdowns be fully
+    populated before a screen ever runs, rather than requiring a scan
+    first just to discover what's selectable.
+
+    If major_name is "All Industries", returns every sub-industry across
+    all groups (large list — only used when no major filter is set).
+    """
+    full_map  = sic_map.get("full", {})
+    major_map = sic_map.get("major", {})
+
+    names = set()
+    for code, title in full_map.items():
+        code2 = code[:2] if len(code) >= 2 else code
+        this_major = major_map.get(code2, f"SIC {code2}xx")
+        if major_name == "All Industries" or this_major == major_name:
+            names.add(title.title())
+    return sorted(names)
+
+
 def market_cap_tier(cap) -> str:
     """Classify a market cap value into a size tier label."""
     if cap is None:
@@ -710,8 +733,8 @@ with col3:
 # ── Stage 1 filters: industry, market cap, superinvestor coverage ──────
 st.markdown("#### Stage 1 Filters")
 st.caption(
-    "Applied after the quality scan, before Stage 2 pricing — narrowing here speeds up "
-    "Stage 2 since fewer survivors need a price lookup."
+    "Set these before running the scan. They're applied right after the quality scan "
+    "completes (Stage 1), narrowing the candidate pool before Stage 2's price lookups."
 )
 
 _sic_map = fetch_sic_industry_map()
@@ -724,40 +747,18 @@ with fcol1:
         help="Major SIC industry group. Companies are classified by their primary SIC code in SEC filings.",
     )
 with fcol2:
-    # Sub-industry options narrow based on the selected major industry.
-    # Sourced from the FULL Stage 1 quality-survivor pool (not the
-    # narrow top_n Stage 2 results) so industries with many companies
-    # actually show their sub-categories. Populated after a scan runs;
-    # before that, only "All Sub-Industries" is available.
-    _stage1_pool = st.session_state.get('ms_edgar_stage1_pool', [])
-    if not _stage1_pool:
-        # Fallback: derive from the last displayed results table if the
-        # dedicated pool key is missing — e.g. right after an app redeploy
-        # wipes session state but the results table was somehow retained,
-        # or for backward compatibility with older saved sessions.
-        _prior_df = st.session_state.get('ms_edgar_results_df')
-        if _prior_df is not None and 'sic' in _prior_df.columns:
-            _stage1_pool = _prior_df[['ticker', 'sic']].to_dict('records')
-    sub_industry_options = ["All Sub-Industries"]
-    if _stage1_pool:
-        _sub_names = set()
-        for d in _stage1_pool:
-            sic = d.get("sic")
-            if not sic:
-                continue
-            if industry_filter == "All Industries" or sic_major_name(str(sic), _sic_map) == industry_filter:
-                _sub_names.add(sic_full_name(str(sic), _sic_map))
-        sub_industry_options = ["All Sub-Industries"] + sorted(_sub_names)
+    # Sub-industry options sourced directly from the COMPLETE static SIC
+    # table (same source as the Industry dropdown) — fully populated
+    # before any scan ever runs, not derived from prior results. Narrows
+    # automatically based on the selected major industry.
+    sub_industry_options = ["All Sub-Industries"] + sub_industries_for_major(industry_filter, _sic_map)
     sub_industry_filter = st.selectbox(
         "Sub-Industry",
         options=sub_industry_options,
-        help="Populated from the most recent scan's full Stage 1 results (all quality survivors, "
-             "not just the top displayed). Run a scan first to see specific sub-industries.",
+        help="Every sub-industry within the selected major group, per the SEC's official SIC code "
+             "list — available before you run a scan. Not every sub-industry will necessarily have "
+             "matches in your scanned universe.",
     )
-    if _stage1_pool:
-        st.caption(f"✅ {len(_stage1_pool)} companies in saved scan pool")
-    else:
-        st.caption("⚠️ No saved scan pool yet — run a screen below to populate sub-industries")
 with fcol3:
     cap_filter = st.multiselect(
         "Market Cap Tier",
@@ -864,14 +865,6 @@ if run_screen:
     if not stage1_results:
         st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
         st.stop()
-
-    # Persist the FULL Stage 1 candidate pool (before industry/cap/SI
-    # filters are applied below) so the Industry/Sub-Industry dropdowns
-    # have the complete set of SIC codes to populate from on rerun —
-    # not just the narrow top_n Stage 2 results, which was the bug:
-    # only ~15 companies survive to the final table, so most industries
-    # never had enough representation to show meaningful sub-categories.
-    st.session_state['ms_edgar_stage1_pool'] = stage1_results.copy()
 
     # ── Apply Stage 1 filters: industry, sub-industry, market cap, SI ──
     _pre_filter_count = len(stage1_results)
