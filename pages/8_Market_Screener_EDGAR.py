@@ -155,7 +155,7 @@ OTHER_LISTED_URL  = "https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt
 
 
 @st.cache_data(ttl=86400)
-def fetch_full_us_equity_universe() -> list:
+def fetch_full_us_equity_universe(universe: str = "all") -> list:
     """
     Fetch the complete list of US-listed common stocks from Nasdaq
     Trader's public Symbol Directory (NASDAQ + NYSE + NYSE American +
@@ -1027,11 +1027,13 @@ if run_screen:
         if universe_choice == "S&P 500 (~500)":
             tickers = get_sp500_tickers()
         else:
-            tickers = fetch_full_us_equity_universe()
+            tickers = fetch_full_us_equity_universe(universe="all_us")
 
     if not tickers:
         st.error(f"Could not load the {universe_choice} ticker list. Try again — Nasdaq Trader/Wikipedia data sources occasionally have transient issues.")
         st.stop()
+
+    st.caption(f"📋 {len(tickers):,} tickers loaded — scanning up to {max_scan:,}.")
 
     tickers_to_scan = tickers[:max_scan]
     total_tickers   = len(tickers_to_scan)
