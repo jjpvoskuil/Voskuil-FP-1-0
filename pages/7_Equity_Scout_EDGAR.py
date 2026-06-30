@@ -104,12 +104,29 @@ st.set_page_config(page_title="Equity Scout — EDGAR", layout="wide")
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 
 DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
-    "ROIC":                   20,
-    "Debt / FCF":             25,
-    "Gross Margin":           15,
-    "Interest Coverage":      10,
+    "FCF Yield":         30,
+    "ROIC":              20,
+    "Debt / FCF":        25,
+    "Gross Margin":      15,
+    "Interest Coverage": 10,
 }
+
+# ── Migrate stale session state from old 6-criteria weights ──────────
+# If scoring_weights still contains the removed "Price / Owner Earnings"
+# key, or if any weight value exceeds the old caps (max was 40/60 before,
+# now it's 100), the session is stale — reset to current defaults so the
+# sliders render correctly. This one-time migration fires whenever the
+# page loads with stale session state from a pre-update session.
+_needs_reset = (
+    "Price / Owner Earnings" in st.session_state.get("scoring_weights", {})
+    or "Price / Owner Earnings" in st.session_state.get("committed_weights", {})
+    or st.session_state.get("scoring_weights", {}) == {}
+)
+if _needs_reset:
+    st.session_state["scoring_weights"]   = DEFAULT_WEIGHTS.copy()
+    st.session_state["committed_weights"] = DEFAULT_WEIGHTS.copy()
+    for _k in ["w_fcf_e", "w_roic_e", "w_debt_e", "w_gm_e", "w_ic_e", "w_poe_e"]:
+        st.session_state.pop(_k, None)
 
 THRESHOLDS = {
     "fcf_yield_good":           0.04,
