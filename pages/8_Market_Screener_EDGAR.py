@@ -152,6 +152,63 @@ ISHARES_FUNDS = {
 
 
 @st.cache_data(ttl=86400)  # holdings update ~daily; cache for a day
+def fetch_ishares_holdings_debug(product_id: str, slug: str, etf_ticker: str) -> dict:
+    """
+    Debug version — returns full diagnostic info alongside the ticker list
+    so we can see exactly where parsing fails: HTTP status, raw response
+    snippet, whether the header row was found, detected columns, etc.
+    """
+    url = (
+        f"https://www.ishares.com/us/products/{product_id}/{slug}/"
+        f"1467271812596.ajax?fileType=csv&fileName={etf_ticker}_holdings&dataType=fund"
+    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0; +https://github.com/jjpvoskuil)"
+    }
+    debug = {"url": url, "status": None, "raw_len": 0, "header_found": False,
+             "header_idx": None, "columns": [], "raw_snippet": "", "error": None,
+             "tickers": []}
+    try:
+        resp = requests.get(url, headers=headers, timeout=20)
+        debug["status"]  = resp.status_code
+        debug["raw_len"] = len(resp.text)
+        debug["raw_snippet"] = resp.text[:800]
+
+        if resp.status_code != 200:
+            return debug
+
+        lines = resp.text.splitlines()
+        header_idx = None
+        for i, line in enumerate(lines):
+            if line.strip().startswith("Ticker,Name") or line.strip().startswith('"Ticker","Name"'):
+                header_idx = i
+                break
+
+        debug["header_found"] = header_idx is not None
+        debug["header_idx"]   = header_idx
+
+        if header_idx is None:
+            return debug
+
+        csv_body = "\n".join(lines[header_idx:])
+        df = pd.read_csv(StringIO(csv_body), thousands=",")
+        df.columns = [c.strip() for c in df.columns]
+        debug["columns"] = df.columns.tolist()
+
+        if "Ticker" not in df.columns or "Asset Class" not in df.columns:
+            return debug
+
+        equities = df[df["Asset Class"].astype(str).str.contains("Equity", case=False, na=False)]
+        tickers  = equities["Ticker"].dropna().astype(str).str.strip().str.upper().tolist()
+        tickers  = [t for t in tickers if t and t not in ("--", "N/A") and len(t) <= 6]
+        debug["tickers"] = sorted(set(tickers))
+        return debug
+    except Exception as e:
+        debug["error"] = str(e)
+        return debug
+
+
+@st.cache_data(ttl=86400)  # holdings update ~daily; cache for a day
 def fetch_ishares_holdings(product_id: str, slug: str, etf_ticker: str) -> list:
     """
     Fetch the constituent list for an iShares ETF (used as a free proxy for
@@ -519,6 +576,40 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts")
 
 weights = st.session_state.get("committed_weights", DEFAULT_WEIGHTS.copy())
+
+with st.expander("🔧 Debug — iShares Holdings Fetch (temporary diagnostic)"):
+    st.caption("Click to test the Russell 1000 (IWB) and Russell 2000 (IWM) CSV fetch directly and see exactly what's returned.")
+    dbg_col1, dbg_col2 = st.columns(2)
+    with dbg_col1:
+        if st.button("Test IWB (Russell 1000)", key="dbg_iwb"):
+            with st.spinner("Fetching..."):
+                d = fetch_ishares_holdings_debug("239707", "ishares-russell-1000-etf", "IWB")
+            st.write(f"**URL:** {d['url']}")
+            st.write(f"**HTTP status:** {d['status']}")
+            st.write(f"**Response length:** {d['raw_len']:,} chars")
+            st.write(f"**Header row found:** {d['header_found']} (at line {d['header_idx']})")
+            st.write(f"**Columns detected:** {d['columns']}")
+            st.write(f"**Tickers parsed:** {len(d['tickers'])}")
+            if d['tickers']:
+                st.write(f"**Sample:** {d['tickers'][:15]}")
+            if d['error']:
+                st.error(f"Exception: {d['error']}")
+            st.text_area("Raw response (first 800 chars)", d['raw_snippet'], height=200, key="dbg_iwb_raw")
+    with dbg_col2:
+        if st.button("Test IWM (Russell 2000)", key="dbg_iwm"):
+            with st.spinner("Fetching..."):
+                d = fetch_ishares_holdings_debug("239710", "ishares-russell-2000-etf", "IWM")
+            st.write(f"**URL:** {d['url']}")
+            st.write(f"**HTTP status:** {d['status']}")
+            st.write(f"**Response length:** {d['raw_len']:,} chars")
+            st.write(f"**Header row found:** {d['header_found']} (at line {d['header_idx']})")
+            st.write(f"**Columns detected:** {d['columns']}")
+            st.write(f"**Tickers parsed:** {len(d['tickers'])}")
+            if d['tickers']:
+                st.write(f"**Sample:** {d['tickers'][:15]}")
+            if d['error']:
+                st.error(f"Exception: {d['error']}")
+            st.text_area("Raw response (first 800 chars)", d['raw_snippet'], height=200, key="dbg_iwm_raw")
 
 st.markdown("#### Ticker Universe")
 universe_choice = st.radio(
@@ -1044,4 +1135,3 @@ else:
 
     *Fundamentals sourced directly from SEC EDGAR Company Facts API — free, no rate-limit risk at this scale, no third-party normalization layer.*
     """)
-
