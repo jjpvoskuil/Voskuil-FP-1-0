@@ -779,6 +779,22 @@ if 'ms_edgar_results_df' in st.session_state:
     # Clear selections when a new screen runs
     _selected = st.session_state.get('ms_selected_tickers', [])
 
+    # Shrink metric value font so percentages/ratios fit their narrow
+    # columns without truncating (e.g. "100.0%" was overflowing at the
+    # default st.metric font size).
+    st.markdown("""
+        <style>
+        div[data-testid="stMetricValue"] {
+            font-size: 1.05rem;
+            white-space: nowrap;
+            overflow: visible;
+        }
+        div[data-testid="stMetricLabel"] {
+            font-size: 0.78rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     for rank, row in results_df.iterrows():
         score       = int(row['score'])
         label, icon = score_to_label(score)
@@ -834,7 +850,8 @@ if 'ms_edgar_results_df' in st.session_state:
                     st.session_state['ms_selected_tickers'] = _selected
 
             div = row.get('dividend_yield')
-            if div: st.caption(f"💰 Dividend Yield: {div:.2%}")
+            if div is not None and not (isinstance(div, float) and pd.isna(div)) and div > 0:
+                st.caption(f"💰 Dividend Yield: {div:.2%}")
             if row.get('is_net_creditor'): st.caption("✨ Net Creditor")
             st.markdown(f"[🔍 Deep Dive in Equity Scout]({APP_URL}/equity_scout?ticker={ticker}&auto=1)")
             st.divider()
