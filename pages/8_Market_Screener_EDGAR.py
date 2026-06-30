@@ -313,18 +313,22 @@ def fetch_sic_industry_map() -> dict:
     """
     full_map = {}
     try:
+        from bs4 import BeautifulSoup
         headers = {"User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0)"}
         resp = requests.get(SIC_LIST_URL, headers=headers, timeout=15)
         if resp.status_code == 200:
-            # Table rows look like: | 2834 | Office of Life Sciences | PHARMACEUTICAL PREPARATIONS |
-            import re as _re
-            rows = _re.findall(
-                r'\|\s*(\d{2,4})\s*\|[^|]+\|\s*([A-Z0-9&,.\'\-\s()]+?)\s*\|',
-                resp.text
-            )
-            for code, title in rows:
-                code = code.zfill(4) if len(code) <= 4 else code
-                full_map[code] = title.strip()
+            soup  = BeautifulSoup(resp.text, "html.parser")
+            table = soup.find("table")
+            if table:
+                for row in table.find_all("tr"):
+                    cells = row.find_all(["td", "th"])
+                    if len(cells) < 3:
+                        continue
+                    code_text = cells[0].get_text(strip=True)
+                    title     = cells[2].get_text(strip=True)
+                    if code_text.isdigit() and title:
+                        code = code_text.zfill(4)
+                        full_map[code] = title
     except Exception:
         pass
 
@@ -351,25 +355,25 @@ def sic_full_name(sic: str, sic_map: dict) -> str:
     return f"SIC {sic}"
 
 
-def sub_industries_for_major(major_name: str, sic_map: dict) -> list:
+def sub_industries_for_major(major_names, sic_map: dict) -> list:
     """
-    Returns sorted sub-industry names belonging to a given major industry
-    group, sourced from the COMPLETE static SIC table — not from any
-    prior scan's results. This lets the filter dropdowns be fully
-    populated before a screen ever runs, rather than requiring a scan
-    first just to discover what's selectable.
+    Returns sorted sub-industry names belonging to the given major
+    industry group(s), sourced from the COMPLETE static SIC table — not
+    from any prior scan's results. This lets the filter dropdowns be
+    fully populated before a screen ever runs, rather than requiring a
+    scan first just to discover what's selectable.
 
-    If major_name is "All Industries", returns every sub-industry across
-    all groups (large list — only used when no major filter is set).
+    major_names: list of major industry names, or empty list for "all".
     """
     full_map  = sic_map.get("full", {})
     major_map = sic_map.get("major", {})
+    major_set = set(major_names) if major_names else None  # None = no filter
 
     names = set()
     for code, title in full_map.items():
         code2 = code[:2] if len(code) >= 2 else code
         this_major = major_map.get(code2, f"SIC {code2}xx")
-        if major_name == "All Industries" or this_major == major_name:
+        if major_set is None or this_major in major_set:
             names.add(title.title())
     return sorted(names)
 
@@ -741,23 +745,27 @@ _sic_map = fetch_sic_industry_map()
 
 fcol1, fcol2, fcol3 = st.columns(3)
 with fcol1:
-    industry_filter = st.selectbox(
+    industry_filter = st.multiselect(
         "Industry",
-        options=["All Industries"] + sorted(set(_sic_map.get("major", {}).values())),
-        help="Major SIC industry group. Companies are classified by their primary SIC code in SEC filings.",
+        options=sorted(set(_sic_map.get("major", {}).values())),
+        default=[],
+        help="Major SIC industry group(s). Leave empty to include all industries. "
+             "Companies are classified by their primary SIC code in SEC filings.",
     )
 with fcol2:
     # Sub-industry options sourced directly from the COMPLETE static SIC
     # table (same source as the Industry dropdown) — fully populated
     # before any scan ever runs, not derived from prior results. Narrows
-    # automatically based on the selected major industry.
-    sub_industry_options = ["All Sub-Industries"] + sub_industries_for_major(industry_filter, _sic_map)
-    sub_industry_filter = st.selectbox(
+    # automatically based on the selected major industries (if any).
+    sub_industry_options = sub_industries_for_major(industry_filter, _sic_map)
+    sub_industry_filter = st.multiselect(
         "Sub-Industry",
         options=sub_industry_options,
-        help="Every sub-industry within the selected major group, per the SEC's official SIC code "
-             "list — available before you run a scan. Not every sub-industry will necessarily have "
-             "matches in your scanned universe.",
+        default=[],
+        help="Every sub-industry within the selected major group(s), per the SEC's official SIC "
+             "code list — available before you run a scan. Leave empty to include all "
+             "sub-industries within your industry selection. Not every sub-industry will "
+             "necessarily have matches in your scanned universe.",
     )
 with fcol3:
     cap_filter = st.multiselect(
@@ -869,16 +877,16 @@ if run_screen:
     # ── Apply Stage 1 filters: industry, sub-industry, market cap, SI ──
     _pre_filter_count = len(stage1_results)
 
-    if industry_filter != "All Industries":
+    if industry_filter:  # non-empty list = filter active
         stage1_results = [
             d for d in stage1_results
-            if sic_major_name(str(d.get("sic") or ""), _sic_map) == industry_filter
+            if sic_major_name(str(d.get("sic") or ""), _sic_map) in industry_filter
         ]
 
-    if sub_industry_filter != "All Sub-Industries":
+    if sub_industry_filter:  # non-empty list = filter active
         stage1_results = [
             d for d in stage1_results
-            if sic_full_name(str(d.get("sic") or ""), _sic_map) == sub_industry_filter
+            if sic_full_name(str(d.get("sic") or ""), _sic_map) in sub_industry_filter
         ]
 
     if cap_filter:
