@@ -104,12 +104,11 @@ st.set_page_config(page_title="Equity Scout — EDGAR", layout="wide")
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 
 DEFAULT_WEIGHTS = {
-    "FCF Yield":              20,
-    "ROIC":                   10,
-    "Debt / FCF":             20,
+    "FCF Yield":              30,
+    "ROIC":                   20,
+    "Debt / FCF":             25,
     "Gross Margin":           15,
     "Interest Coverage":      10,
-    "Price / Owner Earnings": 25,
 }
 
 THRESHOLDS = {
@@ -388,20 +387,6 @@ def score_stock(data, weights):
                      "note": "Munger's survival lens: can this business service its debt through elevated rates, suppressed growth, and tightening credit? Net Creditor status is the ultimate fortress signal.",
                      "missing": (not is_nc and ic_val is None)})
 
-    max_pts = weights["Price / Owner Earnings"]
-    poe     = data.get("price_owner_earn")
-    if poe is not None:
-        if poe <= THRESHOLDS["poe_bargain"]:     pts, verdict = max_pts, "Bargain"
-        elif poe <= THRESHOLDS["poe_fair"]:      pts, verdict = round(max_pts * 0.67), "Fair Value"
-        elif poe <= THRESHOLDS["poe_stretched"]: pts, verdict = round(max_pts * 0.25), "Stretched"
-        else:                                    pts, verdict = 0, "Expensive"
-    else:
-        pts, verdict = 0, "No Data"
-    criteria.append({"name": "Price / Owner Earnings",
-                     "value": f"{poe:.1f}x" if poe is not None else "N/A",
-                     "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                     "note": "Buffett: 'Price is what you pay. Value is what you get.' Owner Earnings = net income + D&A − maintenance capex. Under 15x is a bargain; over 35x you're paying for perfection.",
-                     "missing": poe is None})
 
     raw_score     = sum(c["points_earned"] for c in criteria)
     missing_pts   = sum(c["points_max"] for c in criteria if c.get("missing"))
@@ -454,7 +439,7 @@ _weight_map = [
     ("w_debt_e", "Debt / FCF"),
     ("w_gm_e",   "Gross Margin"),
     ("w_ic_e",   "Interest Coverage"),
-    ("w_poe_e",  "Price / Owner Earnings"),
+
 ]
 for _wkey, _mkey in _weight_map:
     if st.session_state.pop(f"pending_reset_{_wkey}", False):
@@ -481,7 +466,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         "Debt / FCF":             st.session_state.get("w_debt_e", sw["Debt / FCF"]),
         "Gross Margin":           st.session_state.get("w_gm_e",   sw["Gross Margin"]),
         "Interest Coverage":      st.session_state.get("w_ic_e",   sw["Interest Coverage"]),
-        "Price / Owner Earnings": st.session_state.get("w_poe_e",  sw["Price / Owner Earnings"]),
+
     }
     draft_total = sum(draft_weights.values())
     apply_ok    = draft_total == 100
@@ -493,7 +478,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     cw = st.session_state.committed_weights
     rc3.caption(
         f"**Active:** FCF {cw['FCF Yield']} · ROIC {cw['ROIC']} · Debt {cw['Debt / FCF']} · "
-        f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']} · P/OE {cw['Price / Owner Earnings']}"
+        f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']}"
     )
     w_col1, w_col2 = st.columns(2)
     with w_col1:
@@ -510,7 +495,7 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic_e", use_container_width=True):
                 st.session_state["pending_reset_w_roic_e"] = True; st.rerun()
         _sc, _sb = st.columns([4, 1])
-        with _sc: w_debt = st.slider("Debt / FCF", 0, 40, sw["Debt / FCF"], step=5, key="w_debt_e")
+        with _sc: w_debt = st.slider("Debt / FCF", 0, 100, sw["Debt / FCF"], step=5, key="w_debt_e")
         with _sb:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['Debt / FCF']}", key="reset_w_debt_e", use_container_width=True):
@@ -528,15 +513,10 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic_e", use_container_width=True):
                 st.session_state["pending_reset_w_ic_e"] = True; st.rerun()
-        _sc, _sb = st.columns([4, 1])
-        with _sc: w_poe = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, key="w_poe_e")
-        with _sb:
-            st.write("")
-            if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe_e", use_container_width=True):
-                st.session_state["pending_reset_w_poe_e"] = True; st.rerun()
+
     active_weights = {
         "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
-        "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
+        "Gross Margin": w_gm, "Interest Coverage": w_ic,
     }
     st.session_state.scoring_weights = active_weights
     total_weight = sum(active_weights.values())
@@ -1353,7 +1333,7 @@ else:
     | Debt / FCF | 20 pts | Balance sheet strength |
     | Gross Margin | 15 pts | Pricing power and moat durability |
     | Interest Coverage | 10 pts | Ability to service debt |
-    | Price / Owner Earnings | 25 pts | What you're paying per dollar of real earnings |
+    | Price / Owner Earnings | — | Shown as reference only (not scored) |
 
     **Score guide:** 80-100 = Strong Buy · 65-79 = Watch · 45-64 = Caution · <45 = Avoid
 
