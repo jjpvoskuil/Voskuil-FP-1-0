@@ -724,21 +724,27 @@ with fcol1:
         help="Major SIC industry group. Companies are classified by their primary SIC code in SEC filings.",
     )
 with fcol2:
-    # Sub-industry options narrow based on the selected major industry —
-    # populated after Stage 1 runs, since we need to know which 4-digit
-    # SIC codes actually appear among the scan results for this major
-    # group. Before a scan has run, show a placeholder.
-    _prior_results = st.session_state.get('ms_edgar_results_df')
+    # Sub-industry options narrow based on the selected major industry.
+    # Sourced from the FULL Stage 1 quality-survivor pool (not the
+    # narrow top_n Stage 2 results) so industries with many companies
+    # actually show their sub-categories. Populated after a scan runs;
+    # before that, only "All Sub-Industries" is available.
+    _stage1_pool = st.session_state.get('ms_edgar_stage1_pool', [])
     sub_industry_options = ["All Sub-Industries"]
-    if _prior_results is not None and 'sic' in _prior_results.columns:
-        for sic in _prior_results['sic'].dropna().unique():
+    if _stage1_pool:
+        _sub_names = set()
+        for d in _stage1_pool:
+            sic = d.get("sic")
+            if not sic:
+                continue
             if industry_filter == "All Industries" or sic_major_name(str(sic), _sic_map) == industry_filter:
-                sub_industry_options.append(sic_full_name(str(sic), _sic_map))
-        sub_industry_options = ["All Sub-Industries"] + sorted(set(sub_industry_options[1:]))
+                _sub_names.add(sic_full_name(str(sic), _sic_map))
+        sub_industry_options = ["All Sub-Industries"] + sorted(_sub_names)
     sub_industry_filter = st.selectbox(
         "Sub-Industry",
         options=sub_industry_options,
-        help="Populated from the most recent scan's results. Run a scan first to see specific sub-industries.",
+        help="Populated from the most recent scan's full Stage 1 results (all quality survivors, "
+             "not just the top displayed). Run a scan first to see specific sub-industries.",
     )
 with fcol3:
     cap_filter = st.multiselect(
@@ -846,6 +852,14 @@ if run_screen:
     if not stage1_results:
         st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
         st.stop()
+
+    # Persist the FULL Stage 1 candidate pool (before industry/cap/SI
+    # filters are applied below) so the Industry/Sub-Industry dropdowns
+    # have the complete set of SIC codes to populate from on rerun —
+    # not just the narrow top_n Stage 2 results, which was the bug:
+    # only ~15 companies survive to the final table, so most industries
+    # never had enough representation to show meaningful sub-categories.
+    st.session_state['ms_edgar_stage1_pool'] = stage1_results.copy()
 
     # ── Apply Stage 1 filters: industry, sub-industry, market cap, SI ──
     _pre_filter_count = len(stage1_results)
