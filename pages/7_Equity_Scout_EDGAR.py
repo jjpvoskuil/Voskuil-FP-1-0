@@ -415,9 +415,7 @@ st.title("🔍 Equity Scout — EDGAR")
 st.caption("Concentrated, Buffett-style fundamental analysis. Primary data: SEC EDGAR Company Facts API.")
 
 st.info(
-    "🧪 **Validation page** — One input runs both EDGAR and Polygon simultaneously. "
-    "Results appear side-by-side in the comparison panel below the score. "
-    "Once validated against your core holdings, EDGAR replaces Polygon. See punch list #57.",
+"🏛️ Fundamentals sourced directly from **SEC EDGAR** Company Facts API. No Polygon dependency.",
     icon="🔬"
 )
 
@@ -483,13 +481,13 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     w_col1, w_col2 = st.columns(2)
     with w_col1:
         _sc, _sb = st.columns([4, 1])
-        with _sc: w_fcf = st.slider("FCF Yield", 0, 60, sw["FCF Yield"], step=5, key="w_fcf_e")
+        with _sc: w_fcf = st.slider("FCF Yield",  0, 100, sw["FCF Yield"], step=5, key="w_fcf_e")
         with _sb:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf_e", use_container_width=True):
                 st.session_state["pending_reset_w_fcf_e"] = True; st.rerun()
         _sc, _sb = st.columns([4, 1])
-        with _sc: w_roic = st.slider("ROIC", 0, 40, sw["ROIC"], step=5, key="w_roic_e")
+        with _sc: w_roic = st.slider("ROIC",       0, 100, sw["ROIC"], step=5, key="w_roic_e")
         with _sb:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic_e", use_container_width=True):
@@ -502,13 +500,13 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
                 st.session_state["pending_reset_w_debt_e"] = True; st.rerun()
     with w_col2:
         _sc, _sb = st.columns([4, 1])
-        with _sc: w_gm = st.slider("Gross Margin", 0, 40, sw["Gross Margin"], step=5, key="w_gm_e")
+        with _sc: w_gm   = st.slider("Gross Margin",      0, 100, sw["Gross Margin"], step=5, key="w_gm_e")
         with _sb:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['Gross Margin']}", key="reset_w_gm_e", use_container_width=True):
                 st.session_state["pending_reset_w_gm_e"] = True; st.rerun()
         _sc, _sb = st.columns([4, 1])
-        with _sc: w_ic = st.slider("Interest Coverage", 0, 40, sw["Interest Coverage"], step=5, key="w_ic_e")
+        with _sc: w_ic   = st.slider("Interest Coverage", 0, 100, sw["Interest Coverage"], step=5, key="w_ic_e")
         with _sb:
             st.write("")
             if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic_e", use_container_width=True):
@@ -557,36 +555,13 @@ if analyze and ticker_input:
     if total_weight != 100:
         st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
 
-    col_p, col_e = st.columns(2)
-
-    # Fetch both sources in parallel columns so spinners show simultaneously
-    with col_e:
-        with st.spinner(f"🏛️ Fetching **{ticker_input}** from SEC EDGAR..."):
-            data = fetch_fundamentals_edgar(ticker_input)
-
-    with col_p:
-        with st.spinner(f"📡 Fetching **{ticker_input}** from Polygon..."):
-            poly_data = fetch_fundamentals_polygon(ticker_input)
+    with st.spinner(f"🏛️ Fetching **{ticker_input}** from SEC EDGAR..."):
+        data = fetch_fundamentals_edgar(ticker_input)
 
     # EDGAR errors are blocking — can't show the page without it
     if data.get("error"):
         st.error(f"EDGAR fetch failed for {ticker_input}: {data['error']}")
         st.stop()
-
-    # Polygon errors are non-blocking — show warning, comparison panel will degrade gracefully
-    poly_cache_key = f"es_results_{ticker_input}"
-    if poly_data.get("error"):
-        st.warning(f"⚠️ Polygon fetch failed: {poly_data['error']} — comparison will be unavailable.")
-    else:
-        # Store in same cache key format as 1_Equity_Scout.py so comparison panel works
-        poly_raw, poly_rebalanced, poly_missing, poly_criteria = score_stock(poly_data, weights)
-        poly_verdict_label, poly_verdict_color = score_to_verdict(poly_rebalanced)
-        st.session_state[poly_cache_key] = {
-            "data": poly_data, "raw_score": poly_raw,
-            "rebalanced_score": poly_rebalanced, "missing_names": poly_missing,
-            "criteria": poly_criteria, "verdict_label": poly_verdict_label,
-            "verdict_color": poly_verdict_color,
-        }
 
     # Financial/cyclical firm warnings
     if data.get("is_financial"):
@@ -739,181 +714,105 @@ if _cache_key and _cache_key in st.session_state:
         if missing_concepts:
             st.warning(f"XBRL concepts not found in this company's filings: {', '.join(missing_concepts[:10])}")
 
-    # ── Full Statement Comparison — EDGAR vs Polygon ──────────────────────────
-    poly_cache_key_stmt = f"es_results_{ticker_input}"
-    poly_stmt = (st.session_state.get(poly_cache_key_stmt) or {}).get("data", {})
-
-    with st.expander("📋 Full Statement Comparison — EDGAR vs Polygon (line by line)", expanded=False):
+    # ── Full Financial Statement Panel (EDGAR) ────────────────────────────────
+    with st.expander("📋 Full Financial Statements — EDGAR", expanded=False):
         st.caption(
-            "Raw financial statement line items from both sources side by side. "
-            "🟡 = values differ by more than 5%.  🔴 = one source is missing the value entirely. "
-            "Use this to identify exactly where and why the two sources diverge."
+            "Raw financial statement values sourced directly from SEC EDGAR Company Facts API — "
+            "no Polygon normalization layer. Values in $B or $M."
         )
 
-        def pct_diff(a, b):
-            """Return % difference between two values, or None if can't compute."""
-            try:
-                if a and b and b != 0:
-                    return abs(a - b) / abs(b)
-            except Exception:
-                pass
-            return None
-
-        def diff_color(a, b):
-            if a is None and b is None: return "⬜"
-            if a is None or b is None:  return "🔴"
-            d = pct_diff(a, b)
-            if d is None:               return "⬜"
-            if d > 0.05:                return "🟡"
-            return "✅"
-
         def fmt_b(val):
-            """Format as $B or $M."""
             if val is None: return "—"
             if abs(val) >= 1e9:  return f"${val/1e9:.2f}B"
             if abs(val) >= 1e6:  return f"${val/1e6:.1f}M"
             return f"${val:,.0f}"
 
-        # Pull EDGAR latest raw values
+        def fmt_pct(val):
+            if val is None: return "—"
+            return f"{val:.1%}"
+
+        def fmt_x(val):
+            if val is None: return "—"
+            return f"{val:.1f}x"
+
         el = data.get("_latest", {})
 
-        # ── Income Statement ─────────────────────────────────────────────────
         st.markdown("#### 📊 Income Statement")
         inc_rows = [
-            ("Revenue",              el.get("revenue"),         poly_stmt.get("revenues")),
-            ("Gross Profit",         el.get("gross_profit"),    poly_stmt.get("gross_profit")),
-            ("Operating Income",     el.get("op_income"),       None),   # Polygon doesn't expose directly
-            ("Interest Expense",     el.get("interest_expense"),None),
-            ("Interest Paid (cash)", el.get("interest_paid"),   None),
-            ("Net Income",           el.get("net_income"),      poly_stmt.get("net_income")),
-            ("EPS (diluted)",        el.get("eps_diluted"),     None),
-            ("Income Tax",           el.get("income_tax"),      None),
+            ("Revenue",          fmt_b(el.get("revenue"))),
+            ("Gross Profit",     fmt_b(el.get("gross_profit"))),
+            ("Gross Margin",     fmt_pct(el.get("gross_margin"))),
+            ("Operating Income", fmt_b(el.get("op_income"))),
+            ("Interest Expense", fmt_b(el.get("interest_expense"))),
+            ("Interest Paid",    fmt_b(el.get("interest_paid"))),
+            ("Net Income",       fmt_b(el.get("net_income"))),
         ]
+        hc1, hc2 = st.columns([2, 2])
+        hc1.markdown("**Field**")
+        hc2.markdown("**EDGAR**")
+        for label, edgar_val in inc_rows:
+            c1, c2 = st.columns([2, 2])
+            c1.caption(label)
+            c2.caption(edgar_val)
 
-        hc1, hc2, hc3, hc4 = st.columns([3, 2, 2, 1])
-        hc1.markdown("**Line Item**")
-        hc2.markdown("**🏛️ EDGAR**")
-        hc3.markdown("**📡 Polygon**")
-        hc4.markdown("**Match**")
-
-        for label, edgar_val, poly_val in inc_rows:
-            flag = diff_color(edgar_val, poly_val)
-            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-            c1.markdown(label)
-            c2.markdown(f"`{fmt_b(edgar_val)}`")
-            c3.markdown(f"`{fmt_b(poly_val)}`")
-            c4.markdown(flag)
-
-        # ── Cash Flow Statement ──────────────────────────────────────────────
         st.markdown("#### 💵 Cash Flow Statement")
-
-        # Polygon FCF is already op+inv combined — show what we have
-        poly_op_cf  = poly_stmt.get("op_cf")
-        poly_inv_cf = poly_stmt.get("inv_cf")
-        poly_fcf    = poly_stmt.get("fcf")
-
         cf_rows = [
-            ("Operating Cash Flow",  el.get("op_cf"),    poly_op_cf),
-            ("Investing Cash Flow",  el.get("inv_cf"),   poly_inv_cf),
-            ("Free Cash Flow",       el.get("fcf"),      poly_fcf),
-            ("CapEx",                el.get("capex"),    None),
-            ("D&A",                  el.get("dna"),      None),
+            ("Operating Cash Flow",    fmt_b(el.get("op_cf"))),
+            ("Investing Cash Flow",    fmt_b(el.get("inv_cf"))),
+            ("Free Cash Flow",         fmt_b(el.get("fcf"))),
+            ("CapEx",                  fmt_b(el.get("capex"))),
+            ("D&A",                    fmt_b(el.get("da"))),
+            ("Owner Earnings (approx)", fmt_b(el.get("owner_earnings"))),
         ]
+        hc1, hc2 = st.columns([2, 2])
+        hc1.markdown("**Field**")
+        hc2.markdown("**EDGAR**")
+        for label, edgar_val in cf_rows:
+            c1, c2 = st.columns([2, 2])
+            c1.caption(label)
+            c2.caption(edgar_val)
 
-        hc1, hc2, hc3, hc4 = st.columns([3, 2, 2, 1])
-        hc1.markdown("**Line Item**")
-        hc2.markdown("**🏛️ EDGAR**")
-        hc3.markdown("**📡 Polygon**")
-        hc4.markdown("**Match**")
-
-        for label, edgar_val, poly_val in cf_rows:
-            flag = diff_color(edgar_val, poly_val)
-            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-            c1.markdown(label)
-            c2.markdown(f"`{fmt_b(edgar_val)}`")
-            c3.markdown(f"`{fmt_b(poly_val)}`")
-            c4.markdown(flag)
-
-        # ── Balance Sheet ────────────────────────────────────────────────────
         st.markdown("#### 🏦 Balance Sheet")
-
-        poly_ltd = poly_stmt.get("long_term_debt")
-
         bs_rows = [
-            ("Total Assets",         el.get("total_assets"),    None),
-            ("Current Assets",       el.get("current_assets"),  None),
-            ("Cash & Equivalents",   el.get("cash"),            None),
-            ("Inventory",            el.get("inventory"),       None),
-            ("Accounts Receivable",  el.get("accounts_receivable"), None),
-            ("PP&E (net)",           el.get("ppe_net"),         None),
-            ("Goodwill",             el.get("goodwill"),        None),
-            ("Total Liabilities",    el.get("total_liabilities"), None),
-            ("Current Liabilities",  el.get("current_liabilities"), None),
-            ("Long-Term Debt",       el.get("long_term_debt"),  poly_ltd),
-            ("Short-Term Debt",      el.get("short_term_debt"), None),
-            ("Total Debt",           el.get("total_debt"),      None),
-            ("Total Equity",         el.get("total_equity"),    None),
-            ("Retained Earnings",    el.get("retained_earnings"), None),
+            ("Total Assets",           fmt_b(el.get("total_assets"))),
+            ("Current Liabilities",    fmt_b(el.get("current_liabilities"))),
+            ("Long-Term Debt",         fmt_b(el.get("long_term_debt"))),
+            ("Short-Term Debt",        fmt_b(el.get("short_term_debt"))),
+            ("Total Equity",           fmt_b(el.get("total_equity"))),
+            ("Cash",                   fmt_b(el.get("cash"))),
         ]
+        hc1, hc2 = st.columns([2, 2])
+        hc1.markdown("**Field**")
+        hc2.markdown("**EDGAR**")
+        for label, edgar_val in bs_rows:
+            c1, c2 = st.columns([2, 2])
+            c1.caption(label)
+            c2.caption(edgar_val)
 
-        hc1, hc2, hc3, hc4 = st.columns([3, 2, 2, 1])
-        hc1.markdown("**Line Item**")
-        hc2.markdown("**🏛️ EDGAR**")
-        hc3.markdown("**📡 Polygon**")
-        hc4.markdown("**Match**")
-
-        for label, edgar_val, poly_val in bs_rows:
-            flag = diff_color(edgar_val, poly_val)
-            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-            c1.markdown(label)
-            c2.markdown(f"`{fmt_b(edgar_val)}`")
-            c3.markdown(f"`{fmt_b(poly_val)}`")
-            c4.markdown(flag)
-
-        # ── Derived Scoring Metrics ──────────────────────────────────────────
         st.markdown("#### 🎯 Derived Scoring Metrics")
-        st.caption("These are the values that actually feed the scoring engine — computed from the raw fields above.")
-
-        drv_rows = [
-            ("FCF Yield",            data.get("fcf_yield"),         poly_stmt.get("fcf_yield"),       "pct"),
-            ("ROIC",                 data.get("roic"),              poly_stmt.get("roic"),             "pct"),
-            ("Gross Margin",         data.get("gross_margin"),      poly_stmt.get("gross_margin"),     "pct"),
-            ("Debt / FCF",           data.get("debt_to_fcf"),       poly_stmt.get("debt_to_fcf"),      "ratio"),
-            ("Interest Coverage",    data.get("interest_coverage"), poly_stmt.get("interest_coverage"),"ratio"),
-            ("Owner Earnings",       data.get("owner_earnings"),    poly_stmt.get("owner_earnings"),   "money"),
-            ("Price / Owner Earn",   data.get("price_owner_earn"),  poly_stmt.get("price_owner_earn"), "ratio"),
+        dm_rows = [
+            ("FCF Yield",           fmt_pct(data.get("fcf_yield"))),
+            ("ROIC",                fmt_pct(el.get("roic"))),
+            ("Debt / FCF",          fmt_x(el.get("debt_to_fcf"))),
+            ("Interest Coverage",   fmt_x(el.get("int_coverage"))),
+            ("Price / Owner Earn.", fmt_x(data.get("price_owner_earn"))),
         ]
-
-        def fmt_metric(val, fmt):
-            if val is None: return "—"
-            if fmt == "pct":   return f"{val:.2%}"
-            if fmt == "ratio": return f"{val:.2f}x"
-            return fmt_b(val)
-
-        hc1, hc2, hc3, hc4 = st.columns([3, 2, 2, 1])
+        hc1, hc2 = st.columns([2, 2])
         hc1.markdown("**Metric**")
-        hc2.markdown("**🏛️ EDGAR**")
-        hc3.markdown("**📡 Polygon**")
-        hc4.markdown("**Match**")
+        hc2.markdown("**Value**")
+        for label, val in dm_rows:
+            c1, c2 = st.columns([2, 2])
+            c1.caption(label)
+            c2.caption(val)
 
-        for label, edgar_val, poly_val, fmt in drv_rows:
-            flag = diff_color(edgar_val, poly_val)
-            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-            c1.markdown(label)
-            c2.markdown(f"`{fmt_metric(edgar_val, fmt)}`")
-            c3.markdown(f"`{fmt_metric(poly_val, fmt)}`")
-            c4.markdown(flag)
-
-        # ── XBRL Concept used for each field ─────────────────────────────────
-        with st.expander("🔎 EDGAR XBRL concepts used (debug)", expanded=False):
-            st.caption("Which XBRL concept tag was resolved for each field in this company's filing.")
+        with st.expander("🔎 XBRL concepts resolved (debug)", expanded=False):
             from edgar_concept_map import CONCEPT_MAP
             edgar_raw = data.get("_latest", {})
             for field, concepts in CONCEPT_MAP.items():
                 if field in edgar_raw:
-                    st.caption(f"`{field}` → resolved ✅  (candidates: {', '.join(concepts[:2])}{'...' if len(concepts)>2 else ''})")
+                    st.caption(f"`{field}` → ✅  (candidates: {', '.join(concepts[:2])}{'...' if len(concepts)>2 else ''})")
                 else:
-                    st.caption(f"`{field}` → **not found** ❌  (tried: {', '.join(concepts[:2])}{'...' if len(concepts)>2 else ''})")
+                    st.caption(f"`{field}` → ❌ not found  (tried: {', '.join(concepts[:2])}{'...' if len(concepts)>2 else ''})")
 
     # ── Historical ROIC Chart (new — foundation for punch list #34/#40) ───────
     history = data.get("_history", {})
@@ -1078,86 +977,39 @@ if _cache_key and _cache_key in st.session_state:
 
     st.divider()
 
-    # ── Polygon vs EDGAR Comparison ───────────────────────────────────────────
-    st.markdown("### 🔬 Source Comparison — EDGAR vs Polygon")
-    st.caption("Side-by-side view of how SEC EDGAR and Polygon report the same metrics. Differences may reflect normalization choices, concept tag selection, or filing period alignment.")
+    # ── Key Metrics Summary (EDGAR) ────────────────────────────────────────────
+    st.markdown("### 📊 Key Metrics — EDGAR")
+    st.caption("Core scoring metrics sourced directly from SEC EDGAR Company Facts API.")
 
-    poly_cache_key = f"es_results_{ticker_input}"
-    poly_cached    = st.session_state.get(poly_cache_key)
+    metric_rows = [
+        ("Conviction Score",   f"{rebalanced_score}/100  ({verdict_label})", None),
+        ("Free Cash Flow",      fmt_val(data.get("fcf")),          None),
+        ("FCF Yield",           fmt_val(data.get("fcf_yield"), "pct"),  None),
+        ("ROIC",                fmt_val(data.get("roic"), "pct"),        None),
+        ("Gross Margin",        fmt_val(data.get("gross_margin"), "pct"), None),
+        ("Debt / FCF",          fmt_val(data.get("debt_to_fcf"), "ratio"), None),
+        ("Interest Coverage",   fmt_val(data.get("interest_coverage"), "ratio"), None),
+        ("Owner Earnings",      fmt_val(data.get("owner_earnings")),    None),
+        ("Price / Owner Earn.", fmt_val(data.get("price_owner_earn"), "ratio"), "Reference only — not scored"),
+        ("Net Income",          fmt_val(data.get("net_income")),        None),
+        ("Revenue",             fmt_val(data.get("revenues")),          None),
+        ("Long-Term Debt",      fmt_val(data.get("long_term_debt")),    None),
+        ("Market Cap",          fmt_val(data.get("market_cap")),        None),
+        ("Price",               f"${data.get('price'):,.2f}" if data.get("price") else "N/A", None),
+    ]
 
-    if poly_cached:
-        poly_data  = poly_cached.get("data", {})
-        poly_score = poly_cached.get("rebalanced_score")
-        poly_verdict = poly_cached.get("verdict_label", "")
+    hc1, hc2, hc3 = st.columns([2, 2, 2])
+    hc1.markdown("**Metric**")
+    hc2.markdown("**Value**")
+    hc3.markdown("**Note**")
+    st.markdown("---")
 
-        # Build comparison rows
-        compare_rows = [
-            ("Conviction Score",    f"{rebalanced_score}/100  ({verdict_label})",
-                                    f"{poly_score}/100  ({poly_verdict})"
-                                    if poly_score is not None else "N/A"),
-            ("Free Cash Flow",      fmt_val(data.get("fcf")),
-                                    fmt_val(poly_data.get("fcf"))),
-            ("Operating CF",        fmt_val(data.get("op_cf")),
-                                    fmt_val(poly_data.get("fcf"))),  # Polygon doesn't expose op_cf directly
-            ("FCF Yield",           fmt_val(data.get("fcf_yield"), "pct"),
-                                    fmt_val(poly_data.get("fcf_yield"), "pct")),
-            ("ROIC",                fmt_val(data.get("roic"), "pct"),
-                                    fmt_val(poly_data.get("roic"), "pct")),
-            ("Gross Margin",        fmt_val(data.get("gross_margin"), "pct"),
-                                    fmt_val(poly_data.get("gross_margin"), "pct")),
-            ("Debt / FCF",          fmt_val(data.get("debt_to_fcf"), "ratio"),
-                                    fmt_val(poly_data.get("debt_to_fcf"), "ratio")),
-            ("Interest Coverage",   fmt_val(data.get("interest_coverage"), "ratio"),
-                                    fmt_val(poly_data.get("interest_coverage"), "ratio")),
-            ("Owner Earnings",      fmt_val(data.get("owner_earnings")),
-                                    fmt_val(poly_data.get("owner_earnings"))),
-            ("Price / Owner Earn",  fmt_val(data.get("price_owner_earn"), "ratio"),
-                                    fmt_val(poly_data.get("price_owner_earn"), "ratio")),
-            ("Net Income",          fmt_val(data.get("net_income")),
-                                    fmt_val(poly_data.get("net_income"))),
-            ("Revenue",             fmt_val(data.get("revenues")),
-                                    fmt_val(poly_data.get("revenues"))),
-            ("Long-Term Debt",      fmt_val(data.get("long_term_debt")),
-                                    fmt_val(poly_data.get("long_term_debt"))),
-            ("Market Cap",          fmt_val(data.get("market_cap")),
-                                    fmt_val(poly_data.get("market_cap"))),
-            ("Price",               f"${data.get('price'):,.2f}" if data.get("price") else "N/A",
-                                    f"${poly_data.get('price'):,.2f}" if poly_data.get("price") else "N/A"),
-        ]
-
-        # Header row
-        hc1, hc2, hc3 = st.columns([2, 1.5, 1.5])
-        hc1.markdown("**Metric**")
-        hc2.markdown("**🏛️ EDGAR** *(primary)*")
-        hc3.markdown("**📡 Polygon** *(reference)*")
-        st.markdown("---")
-
-        for label, edgar_val, poly_val in compare_rows:
-            c1, c2, c3 = st.columns([2, 1.5, 1.5])
-            c1.markdown(f"{label}")
-
-            # Highlight differences
-            match = edgar_val == poly_val or edgar_val == "N/A" or poly_val == "N/A"
-            if match:
-                c2.markdown(f"`{edgar_val}`")
-                c3.markdown(f"`{poly_val}`")
-            else:
-                c2.markdown(f"**`{edgar_val}`**")
-                c3.markdown(f"<span style='color:#f39c12'>**`{poly_val}`**</span>",
-                            unsafe_allow_html=True)
-
-        st.caption(
-            "🟡 Orange values differ between sources. "
-            "Differences in scoring metrics usually trace to: debt definition (total vs long-term only), "
-            "interest expense (cash paid vs accrual), or fiscal year alignment."
-        )
-
-    else:
-        st.info(
-            f"📋 Enter a ticker above and click **Analyze** — both EDGAR and Polygon will run "
-            f"simultaneously and the comparison will appear here.",
-            icon="💡"
-        )
+    for label, value, note in metric_rows:
+        c1, c2, c3 = st.columns([2, 2, 2])
+        c1.markdown(f"{label}")
+        c2.markdown(f"`{value}`")
+        if note:
+            c3.caption(note)
 
     st.divider()
 
@@ -1337,5 +1189,5 @@ else:
 
     **Score guide:** 80-100 = Strong Buy · 65-79 = Watch · 45-64 = Caution · <45 = Avoid
 
-    *Run the same ticker on Equity Scout (Polygon) to compare scores — see punch list #57.*
+    
     """)
