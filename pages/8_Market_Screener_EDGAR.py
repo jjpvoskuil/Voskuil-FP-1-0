@@ -16,12 +16,11 @@ st.set_page_config(page_title="Market Screener — EDGAR", layout="wide")
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 
 DEFAULT_WEIGHTS = {
-    "FCF Yield":              20,
-    "ROIC":                   10,
-    "Debt / FCF":             20,
+    "FCF Yield":              30,
+    "ROIC":                   20,
+    "Debt / FCF":             25,
     "Gross Margin":           15,
     "Interest Coverage":      10,
-    "Price / Owner Earnings": 25,
 }
 
 THRESHOLDS = {
@@ -536,7 +535,12 @@ def fetch_price_data(ticker: str) -> dict:
 
 
 def score_stock(data, weights):
-    """Full 6-criteria scoring — identical logic to Equity Scout EDGAR / original screener."""
+    """
+    5-criteria scoring (FCF Yield, ROIC, Debt/FCF, Gross Margin, Interest
+    Coverage). Price/Owner Earnings is intentionally excluded from scoring
+    — it's still computed and shown on result cards/CSV export as a
+    valuation reference, but doesn't factor into the conviction score.
+    """
     criteria = []
 
     max_pts   = weights["FCF Yield"]
@@ -598,17 +602,6 @@ def score_stock(data, weights):
     criteria.append({"name": "Interest Coverage", "points_earned": pts, "points_max": max_pts,
                      "missing": (not is_nc and ic_val is None)})
 
-    max_pts = weights["Price / Owner Earnings"]
-    poe     = data.get('price_owner_earn')
-    if poe is not None:
-        if poe <= THRESHOLDS['poe_bargain']:     pts = max_pts
-        elif poe <= THRESHOLDS['poe_fair']:      pts = round(max_pts * 0.67)
-        elif poe <= THRESHOLDS['poe_stretched']: pts = round(max_pts * 0.25)
-        else:                                    pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "Price/Owner Earnings", "points_earned": pts, "points_max": max_pts, "missing": poe is None})
-
     raw_score     = sum(c['points_earned'] for c in criteria)
     missing_pts   = sum(c['points_max'] for c in criteria if c.get('missing'))
     available_pts = 100 - missing_pts
@@ -629,14 +622,14 @@ st.caption("Two-stage screen: quality first via SEC EDGAR (free, no rate limits 
 st.info(
     "**🏛️ EDGAR Validation Page** — Quality fundamentals (ROIC, Debt/FCF, Gross Margin, "
     "Interest Coverage) come directly from SEC Company Facts API. Only companies that clear "
-    "the quality bar get a live price lookup for FCF Yield and Price/Owner Earnings — "
-    "this is what makes a full-market scan practical without Polygon."
+    "the quality bar get a live price lookup for FCF Yield (scored) and Price/Owner Earnings "
+    "(shown as reference, not scored) — this is what makes a full-market scan practical without Polygon."
 )
 st.divider()
 
 # ── Weight reset handler ────────────────────────────────────────────
 _weight_map = [("w_fcf_e","FCF Yield"),("w_roic_e","ROIC"),("w_debt_e","Debt / FCF"),
-               ("w_gm_e","Gross Margin"),("w_ic_e","Interest Coverage"),("w_poe_e","Price / Owner Earnings")]
+               ("w_gm_e","Gross Margin"),("w_ic_e","Interest Coverage")]
 for _wkey, _mkey in _weight_map:
     if st.session_state.pop(f"pending_reset_{_wkey}", False):
         st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
@@ -663,7 +656,6 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
         "Debt / FCF":             st.session_state.get("w_debt_e", sw["Debt / FCF"]),
         "Gross Margin":           st.session_state.get("w_gm_e",   sw["Gross Margin"]),
         "Interest Coverage":      st.session_state.get("w_ic_e",   sw["Interest Coverage"]),
-        "Price / Owner Earnings": st.session_state.get("w_poe_e",  sw["Price / Owner Earnings"]),
     }
     draft_total = sum(draft_weights.values())
     apply_ok    = draft_total == 100
@@ -676,22 +668,21 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
     cw = st.session_state.committed_weights
     rc3.caption(
         f"**Active:** FCF {cw['FCF Yield']} · ROIC {cw['ROIC']} · Debt {cw['Debt / FCF']} · "
-        f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']} · P/OE {cw['Price / Owner Earnings']}"
+        f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']}"
     )
 
     w_col1, w_col2 = st.columns(2)
     with w_col1:
-        w_fcf  = st.slider("FCF Yield",  0, 60, sw["FCF Yield"],  step=5, key="w_fcf_e")
-        w_roic = st.slider("ROIC",       0, 40, sw["ROIC"],       step=5, key="w_roic_e")
-        w_debt = st.slider("Debt / FCF", 0, 40, sw["Debt / FCF"], step=5, key="w_debt_e")
+        w_fcf  = st.slider("FCF Yield",  0, 100, sw["FCF Yield"],  step=5, key="w_fcf_e")
+        w_roic = st.slider("ROIC",       0, 100, sw["ROIC"],       step=5, key="w_roic_e")
+        w_debt = st.slider("Debt / FCF", 0, 100, sw["Debt / FCF"], step=5, key="w_debt_e")
     with w_col2:
-        w_gm  = st.slider("Gross Margin",           0, 40, sw["Gross Margin"],           step=5, key="w_gm_e")
-        w_ic  = st.slider("Interest Coverage",      0, 40, sw["Interest Coverage"],      step=5, key="w_ic_e")
-        w_poe = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, key="w_poe_e")
+        w_gm  = st.slider("Gross Margin",      0, 100, sw["Gross Margin"],      step=5, key="w_gm_e")
+        w_ic  = st.slider("Interest Coverage", 0, 100, sw["Interest Coverage"], step=5, key="w_ic_e")
 
     active_weights = {
         "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
-        "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
+        "Gross Margin": w_gm, "Interest Coverage": w_ic,
     }
     st.session_state.scoring_weights = active_weights
     total_weight = sum(active_weights.values())
@@ -934,31 +925,56 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
                 "industry":         sic_major_name(str(qdata.get("sic") or ""), _sic_map),
                 "sub_industry":     sic_full_name(str(qdata.get("sic") or ""), _sic_map),
             }
-            full_data["score"] = score_stock(full_data, weights)
+            # Score is NOT computed here — it's applied in apply_weights_and_rank()
+            # below, so weight changes can be re-applied without re-pricing.
             results.append(full_data)
 
     progress_bar2.progress(1.0)
-    status_text2.markdown(f"✅ Stage 2 complete — {len(results)} fully scored companies.")
+    status_text2.markdown(f"✅ Stage 2 complete — {len(results)} priced companies.")
 
     if not results:
         st.warning("No results survived Stage 2. Try removing the dividend filter.")
         st.stop()
 
-    results_df = pd.DataFrame(results)
+    # Cache the full PRICED pool (before scoring/truncation) so weights
+    # can be changed and re-applied later via "Re-score with New
+    # Weights" without re-running Stage 2 pricing again.
+    st.session_state['ms_edgar_stage2_priced_pool'] = results
+    st.session_state['ms_edgar_total_tickers']      = total_tickers
+
+    apply_weights_and_rank(results)
+
+
+def apply_weights_and_rank(priced_pool: list):
+    """
+    Applies score_stock() with the CURRENT weights to an already-priced
+    pool (from Stage 2), sorts by score, truncates to top_n, and updates
+    the displayed results. This is the cheapest re-run path — no EDGAR
+    fetch, no price fetch, just re-doing the scoring arithmetic — so
+    changing weights and clicking "Re-score" is near-instant.
+    """
+    scored = []
+    for d in priced_pool:
+        d = dict(d)  # don't mutate the cached pool
+        d["score"] = score_stock(d, weights)
+        scored.append(d)
+
+    results_df = pd.DataFrame(scored)
     results_df = results_df.sort_values('score', ascending=False).head(top_n).reset_index(drop=True)
 
     st.session_state['ms_edgar_results_df']    = results_df
-    st.session_state['ms_edgar_total_tickers'] = total_tickers
-    st.session_state['ms_edgar_results_count'] = len(results)
+    st.session_state['ms_edgar_results_count'] = len(scored)
     st.session_state['ms_claude_convo']        = []
     st.session_state['ms_claude_context_sent'] = False
     st.session_state['ms_selected_tickers']    = []
     st.session_state.pop('ms_filings', None)
 
 
-_has_cached_pool = 'ms_edgar_stage1_raw_pool' in st.session_state
-refilter_col1, refilter_col2 = st.columns([2, 4])
-with refilter_col1:
+_has_cached_pool  = 'ms_edgar_stage1_raw_pool' in st.session_state
+_has_priced_pool  = 'ms_edgar_stage2_priced_pool' in st.session_state
+
+action_col1, action_col2, action_col3 = st.columns([2, 2, 4])
+with action_col1:
     refilter_clicked = st.button(
         "🔁 Re-apply Filters (no rescan)", use_container_width=True,
         disabled=not _has_cached_pool,
@@ -967,8 +983,21 @@ with refilter_col1:
              "in seconds, without re-fetching EDGAR data." if _has_cached_pool else
              "Run a full scan first (below) to enable fast re-filtering.",
     )
-with refilter_col2:
-    if _has_cached_pool:
+with action_col2:
+    rescore_clicked = st.button(
+        "⚡ Re-score with New Weights", use_container_width=True,
+        disabled=not _has_priced_pool,
+        help="Re-applies the current scoring weights to your last priced results — no EDGAR fetch, "
+             "no price fetch, just the scoring math. Nearly instant. Note: this re-scores the same "
+             "set of companies from your last filter/scan; it does NOT re-apply Sector/Industry/Cap "
+             "filters — use Re-apply Filters for that." if _has_priced_pool else
+             "Run a scan first to enable instant weight re-scoring.",
+    )
+with action_col3:
+    if _has_priced_pool:
+        _priced_n = len(st.session_state['ms_edgar_stage2_priced_pool'])
+        st.caption(f"💾 {_priced_n} priced companies cached — change weights above (Apply Weights first) then click Re-score for instant re-ranking.")
+    elif _has_cached_pool:
         _cached_n = len(st.session_state['ms_edgar_stage1_raw_pool'])
         st.caption(f"💾 {_cached_n} companies cached from last scan — change filters above and click Re-apply to cycle through combinations instantly.")
     else:
@@ -982,6 +1011,12 @@ if refilter_clicked and _has_cached_pool:
         st.session_state['ms_edgar_stage1_raw_pool'],
         st.session_state.get('ms_edgar_stage1_raw_total', len(st.session_state['ms_edgar_stage1_raw_pool'])),
     )
+
+if rescore_clicked and _has_priced_pool:
+    if total_weight != 100:
+        st.error(f"Weights must add up to 100. Currently at {total_weight}.")
+        st.stop()
+    apply_weights_and_rank(st.session_state['ms_edgar_stage2_priced_pool'])
 
 if run_screen:
     if total_weight != 100:
@@ -1401,7 +1436,7 @@ else:
 
     **Stage 2 — Valuation Check (only survivors)**
     6. **Fetches live price** via yfinance for quality survivors only — not all 500
-    7. **Completes scoring** with FCF Yield and Price/Owner Earnings
+    7. **Completes scoring** with FCF Yield, and shows Price/Owner Earnings as a reference valuation metric (not scored)
     8. **Returns top results** ranked by full conviction score
 
     This mirrors Buffett/Munger philosophy structurally: a company can't screen well by being
