@@ -25,6 +25,12 @@ SECTION_LIMIT = 8_000
 
 
 def get_cik(ticker: str):
+    """
+    Single-ticker CIK lookup. For bulk lookups (Market Screener scanning
+    hundreds of tickers), use get_ticker_cik_map() instead and look up
+    from the returned dict — this avoids re-downloading the full
+    company_tickers.json file (10,000+ entries) on every call.
+    """
     try:
         resp = requests.get(f"{SEC_BASE}/files/company_tickers.json", headers=HEADERS, timeout=10)
         if resp.status_code != 200:
@@ -35,6 +41,44 @@ def get_cik(ticker: str):
         return None, f"Ticker {ticker} not found in EDGAR tickers list"
     except Exception as e:
         return None, str(e)
+
+
+def get_ticker_cik_map() -> dict:
+    """
+    Fetch the full EDGAR ticker -> CIK mapping ONCE.
+    Returns {"AAPL": "0000320193", "MSFT": "0000789019", ...}
+
+    This is the key optimization for bulk scanning (Market Screener):
+    one ~1MB download instead of one redundant download per ticker.
+    Cache this in st.session_state at the call site for the duration
+    of a screen run.
+    """
+    try:
+        resp = requests.get(f"{SEC_BASE}/files/company_tickers.json", headers=HEADERS, timeout=15)
+        if resp.status_code != 200:
+            return {}
+        data = resp.json()
+        return {
+            entry.get("ticker", "").upper(): str(entry["cik_str"]).zfill(10)
+            for entry in data.values()
+            if entry.get("ticker")
+        }
+    except Exception:
+        return {}
+
+
+def fetch_company_facts_with_cik(ticker: str, cik: str) -> dict:
+    """
+    Same as fetch_company_facts() but accepts a pre-resolved CIK,
+    skipping the CIK lookup step entirely. Used by bulk scanners
+    (Market Screener) that already built a ticker_cik_map once via
+    get_ticker_cik_map().
+    """
+    if not cik:
+        return {"latest": {}, "history": {}, "meta": {}, "missing": [],
+                "error": f"No CIK provided for {ticker}"}
+    return _fetch_company_facts_for_cik(ticker, cik)
+
 
 
 def fetch_company_facts(ticker: str) -> dict:
@@ -63,17 +107,20 @@ def fetch_company_facts(ticker: str) -> dict:
     "error"   → None on success, error string on failure
     "missing" → list of scoring fields not found in this company's XBRL data
     """
-
-    # 1. Resolve ticker → CIK
     cik, err = get_cik(ticker)
     if not cik:
         return {"latest": {}, "history": {}, "meta": {}, "missing": [],
                 "error": f"CIK lookup failed: {err}"}
+    return _fetch_company_facts_for_cik(ticker, cik)
 
-    # 2. Fetch Company Facts JSON
+
+def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
+    """Internal: does the actual Company Facts fetch + parse once CIK is known."""
+    # Fetch Company Facts JSON
     # This returns ALL XBRL concepts ever filed — typically 2-8MB for large caps
     url = f"{EDGAR_BASE}/api/xbrl/companyfacts/CIK{cik}.json"
     try:
+
         resp = requests.get(url, headers=HEADERS, timeout=30)
         if resp.status_code != 200:
             return {"latest": {}, "history": {}, "meta": {}, "missing": [],
