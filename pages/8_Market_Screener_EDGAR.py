@@ -830,75 +830,19 @@ st.divider()
 run_screen = st.button("🚀 Run Two-Stage Screen", type="primary", use_container_width=True)
 
 # ── Run screen ──────────────────────────────────────────────────────
-if run_screen:
-    if total_weight != 100:
-        st.error(f"Weights must add up to 100. Currently at {total_weight}.")
-        st.stop()
-
-    with st.spinner(f"Loading {universe_choice} ticker list..."):
-        if universe_choice == "S&P 500 (~500)":
-            tickers = get_sp500_tickers()
-        else:
-            tickers = fetch_full_us_equity_universe()
-
-    if not tickers:
-        st.error(f"Could not load the {universe_choice} ticker list. Try again — Nasdaq Trader/Wikipedia data sources occasionally have transient issues.")
-        st.stop()
-
-    tickers_to_scan = tickers[:max_scan]
-    total_tickers   = len(tickers_to_scan)
-
-    # ── Build ticker -> CIK map ONCE (the key bulk-scan optimization) ──
-    with st.spinner("Resolving tickers to SEC CIK numbers (one-time lookup)..."):
-        ticker_cik_map = get_ticker_cik_map()
-
-    if not ticker_cik_map:
-        st.error("Could not load EDGAR ticker-to-CIK map. Try again in a moment.")
-        st.stop()
-
-    # ── Stage 1: Quality scan (EDGAR, parallel, no price) ──────────────
-    st.markdown(f"### Stage 1 — Quality Scan ({total_tickers} companies, EDGAR fundamentals)")
-    progress_bar = st.progress(0)
-    status_text  = st.empty()
-    stage1_results = []
-    completed = 0
-
-    def _stage1_worker(ticker):
-        cik = ticker_cik_map.get(ticker.upper())
-        if not cik:
-            return None
-        return fetch_quality_edgar(ticker, cik)
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {executor.submit(_stage1_worker, t): t for t in tickers_to_scan}
-        for future in concurrent.futures.as_completed(futures):
-            completed += 1
-            pct = completed / total_tickers
-            progress_bar.progress(pct)
-            status_text.markdown(f"⏳ Stage 1: {completed} of {total_tickers} ({int(pct*100)}%) — {len(stage1_results)} candidates so far")
-            try:
-                data = future.result()
-            except Exception:
-                data = None
-            if data is None:
-                continue
-            if skip_financials and data.get("is_financial"):
-                continue
-            q_earned, q_max = score_quality_only(data, weights)
-            if q_max > 0 and (q_earned / q_max) >= STAGE1_QUALITY_FLOOR:
-                data["_quality_score"] = q_earned
-                data["_quality_max"]   = q_max
-                stage1_results.append(data)
-
-    progress_bar.progress(1.0)
-    status_text.markdown(
-        f"✅ Stage 1 complete — {len(stage1_results)} of {total_tickers} companies cleared the "
-        f"quality floor ({int(STAGE1_QUALITY_FLOOR*100)}% of price-independent points)."
-    )
-
-    if not stage1_results:
-        st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
-        st.stop()
+def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
+    """
+    Applies the currently-selected Stage 1 filters (sector, industry,
+    sub-industry, market cap, SI coverage) to an already-fetched Stage 1
+    pool, then runs Stage 2 (price lookups + full scoring) on the
+    survivors. This is split out from the Stage 1 EDGAR scan so filters
+    can be changed and re-applied — including a fresh dividend/min-div
+    or weight change — WITHOUT re-fetching EDGAR data, which is the slow
+    and rate-limit-sensitive part. Stage 2 still re-fetches live prices
+    each time it runs, since price is the one input that's genuinely
+    time-sensitive.
+    """
+    stage1_results = stage1_pool
 
     # ── Apply Stage 1 filters: sector, industry, sub-industry, market cap, SI ──
     _pre_filter_count = len(stage1_results)
@@ -1010,6 +954,112 @@ if run_screen:
     st.session_state['ms_claude_context_sent'] = False
     st.session_state['ms_selected_tickers']    = []
     st.session_state.pop('ms_filings', None)
+
+
+_has_cached_pool = 'ms_edgar_stage1_raw_pool' in st.session_state
+refilter_col1, refilter_col2 = st.columns([2, 4])
+with refilter_col1:
+    refilter_clicked = st.button(
+        "🔁 Re-apply Filters (no rescan)", use_container_width=True,
+        disabled=not _has_cached_pool,
+        help="Re-runs filtering + Stage 2 pricing on the cached Stage 1 pool from your last full "
+             "scan — change Sector/Industry/Cap/SI filters above and click this to see new results "
+             "in seconds, without re-fetching EDGAR data." if _has_cached_pool else
+             "Run a full scan first (below) to enable fast re-filtering.",
+    )
+with refilter_col2:
+    if _has_cached_pool:
+        _cached_n = len(st.session_state['ms_edgar_stage1_raw_pool'])
+        st.caption(f"💾 {_cached_n} companies cached from last scan — change filters above and click Re-apply to cycle through combinations instantly.")
+    else:
+        st.caption("No cached scan yet — run a full scan below first.")
+
+if refilter_clicked and _has_cached_pool:
+    if total_weight != 100:
+        st.error(f"Weights must add up to 100. Currently at {total_weight}.")
+        st.stop()
+    run_filters_and_stage2(
+        st.session_state['ms_edgar_stage1_raw_pool'],
+        st.session_state.get('ms_edgar_stage1_raw_total', len(st.session_state['ms_edgar_stage1_raw_pool'])),
+    )
+
+if run_screen:
+    if total_weight != 100:
+        st.error(f"Weights must add up to 100. Currently at {total_weight}.")
+        st.stop()
+
+    with st.spinner(f"Loading {universe_choice} ticker list..."):
+        if universe_choice == "S&P 500 (~500)":
+            tickers = get_sp500_tickers()
+        else:
+            tickers = fetch_full_us_equity_universe()
+
+    if not tickers:
+        st.error(f"Could not load the {universe_choice} ticker list. Try again — Nasdaq Trader/Wikipedia data sources occasionally have transient issues.")
+        st.stop()
+
+    tickers_to_scan = tickers[:max_scan]
+    total_tickers   = len(tickers_to_scan)
+
+    # ── Build ticker -> CIK map ONCE (the key bulk-scan optimization) ──
+    with st.spinner("Resolving tickers to SEC CIK numbers (one-time lookup)..."):
+        ticker_cik_map = get_ticker_cik_map()
+
+    if not ticker_cik_map:
+        st.error("Could not load EDGAR ticker-to-CIK map. Try again in a moment.")
+        st.stop()
+
+    # ── Stage 1: Quality scan (EDGAR, parallel, no price) ──────────────
+    st.markdown(f"### Stage 1 — Quality Scan ({total_tickers} companies, EDGAR fundamentals)")
+    progress_bar = st.progress(0)
+    status_text  = st.empty()
+    stage1_results = []
+    completed = 0
+
+    def _stage1_worker(ticker):
+        cik = ticker_cik_map.get(ticker.upper())
+        if not cik:
+            return None
+        return fetch_quality_edgar(ticker, cik)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(_stage1_worker, t): t for t in tickers_to_scan}
+        for future in concurrent.futures.as_completed(futures):
+            completed += 1
+            pct = completed / total_tickers
+            progress_bar.progress(pct)
+            status_text.markdown(f"⏳ Stage 1: {completed} of {total_tickers} ({int(pct*100)}%) — {len(stage1_results)} candidates so far")
+            try:
+                data = future.result()
+            except Exception:
+                data = None
+            if data is None:
+                continue
+            if skip_financials and data.get("is_financial"):
+                continue
+            q_earned, q_max = score_quality_only(data, weights)
+            if q_max > 0 and (q_earned / q_max) >= STAGE1_QUALITY_FLOOR:
+                data["_quality_score"] = q_earned
+                data["_quality_max"]   = q_max
+                stage1_results.append(data)
+
+    progress_bar.progress(1.0)
+    status_text.markdown(
+        f"✅ Stage 1 complete — {len(stage1_results)} of {total_tickers} companies cleared the "
+        f"quality floor ({int(STAGE1_QUALITY_FLOOR*100)}% of price-independent points)."
+    )
+
+    if not stage1_results:
+        st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
+        st.stop()
+
+    # Cache the RAW, unfiltered Stage 1 pool so filters can be changed
+    # and re-applied later via the "Re-apply Filters" button above,
+    # without re-running the slow EDGAR fetch.
+    st.session_state['ms_edgar_stage1_raw_pool']  = stage1_results
+    st.session_state['ms_edgar_stage1_raw_total'] = total_tickers
+
+    run_filters_and_stage2(stage1_results, total_tickers)
 
 # ── Render results (fresh or cached) ─────────────────────────────────
 if 'ms_edgar_results_df' in st.session_state:
