@@ -6,6 +6,7 @@ import time
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
+from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
@@ -778,8 +779,20 @@ if df_holdings_raw is not None:
     elif sort_by == "Symbol (Z→A)":
         display_df = display_df.sort_values('Symbol', ascending=False)
 
+    # ── Superinvestor data load button (only if not already cached) ────
+    if "_si_full_map" not in st.session_state:
+        si_load_col1, si_load_col2 = st.columns([2, 5])
+        with si_load_col1:
+            if st.button("🦁 Load Superinvestor Conviction", use_container_width=True,
+                         help="Fetches all 82 superinvestor portfolios from Dataroma (~30-60s, one-time per session)"):
+                st.session_state["_si_full_map"] = get_conviction_data()
+                st.rerun()
+        with si_load_col2:
+            st.caption("Optional — adds a Superinvestor Conviction column showing how many of 82 tracked value investors hold each position.")
+        st.markdown("")
+
     # ── Column Headers ─────────────────────────────────────────────────
-    h1, h2, h3, h4, h5, h6, h7, h8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.5, 2])
+    h1, h2, h3, h4, h5, h6, h7, h8, h9 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8])
     with h1: st.markdown("**Symbol**")
     with h2: st.markdown("**Name**")
     with h3: st.markdown("**Type**")
@@ -787,13 +800,14 @@ if df_holdings_raw is not None:
     with h5: st.markdown("**Accts**")
     with h6: st.markdown("**Score**")
     with h7: st.markdown("**Signal**")
-    with h8: st.markdown("**Analysis**")
+    with h8: st.markdown("**🦁 SI**")
+    with h9: st.markdown("**Analysis**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     # ── Rows ───────────────────────────────────────────────────────────
     ht = st.session_state.hold_thresholds
     for _, row in display_df.iterrows():
-        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.2, 3, 2, 1.5, 1.2, 1.5, 1.5, 2])
+        c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8])
         with c1:
             src = row.get('Source')
             sym_label = f"**{row['Symbol']}**"
@@ -826,6 +840,23 @@ if df_holdings_raw is not None:
             else:
                 st.caption("—")
         with c8:
+            si_data = st.session_state.get("_si_full_map", {})
+            if si_data and si_data.get("ticker_map"):
+                si_result   = get_superinvestor_conviction(row['Symbol'])
+                si_n        = si_result.get("holder_count", 0)
+                si_score    = si_result.get("conviction_score", 0)
+                if si_n > 0:
+                    si_color = "#2ecc71" if si_n >= 5 else "#f39c12" if si_n >= 2 else "#888"
+                    st.markdown(
+                        f"<span style='font-weight:bold; color:{si_color}'>🦁 {si_n}</span>",
+                        unsafe_allow_html=True
+                    )
+                    st.caption(f"{si_score}/100")
+                else:
+                    st.caption("🦁 0")
+            else:
+                st.caption("—")
+        with c9:
             if st.button("🔍 Deep Dive", key=f"dive_{row['Symbol']}", use_container_width=True, type="primary"):
                 st.session_state["dive_ticker"] = row['Symbol']
                 st.switch_page("pages/1_Equity_Scout.py")
