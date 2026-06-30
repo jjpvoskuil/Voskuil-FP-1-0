@@ -746,6 +746,16 @@ with fcol2:
         help="Populated from the most recent scan's full Stage 1 results (all quality survivors, "
              "not just the top displayed). Run a scan first to see specific sub-industries.",
     )
+    # Temporary diagnostic — remove once sub-industry population is confirmed working
+    with st.expander("🔧 Debug — Sub-Industry Population"):
+        st.caption(f"Stage 1 pool size in session state: {len(_stage1_pool)}")
+        if _stage1_pool:
+            _sample_sics = [(d.get('ticker'), d.get('sic'), sic_major_name(str(d.get('sic') or ''), _sic_map)) for d in _stage1_pool[:10]]
+            st.caption(f"Sample (ticker, sic, major industry): {_sample_sics}")
+            _matching = [d for d in _stage1_pool if industry_filter == "All Industries" or sic_major_name(str(d.get('sic') or ''), _sic_map) == industry_filter]
+            st.caption(f"Companies matching selected industry '{industry_filter}': {len(_matching)}")
+            if _matching:
+                st.caption(f"Their SIC codes: {[d.get('sic') for d in _matching[:10]]}")
 with fcol3:
     cap_filter = st.multiselect(
         "Market Cap Tier",
