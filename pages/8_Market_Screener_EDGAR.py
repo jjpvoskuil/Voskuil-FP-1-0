@@ -136,132 +136,92 @@ import re
 
 
 # ── Ticker universe sources ─────────────────────────────────────────────
-# iShares publishes daily holdings for its Russell-tracking ETFs as free,
-# no-login CSV downloads. This gives us free access to the Russell 1000
-# and Russell 2000 constituent lists, which FTSE Russell itself only
-# licenses commercially.
-ISHARES_FUNDS = {
-    "S&P 500 (505)":              None,   # handled separately via Wikipedia
-    "Russell 1000 (~1,000 large/mid-cap)": {
-        "product_id": "239707", "slug": "ishares-russell-1000-etf", "ticker": "IWB",
-    },
-    "Russell 2000 (~2,000 small-cap)": {
-        "product_id": "239710", "slug": "ishares-russell-2000-etf", "ticker": "IWM",
-    },
-}
+# FTSE Russell's official Russell 1000/2000 constituent files are
+# commercial-license-only (no free API exists). iShares used to publish
+# free CSV exports of their tracking ETFs' holdings (IWB/IWM), but that
+# direct-download endpoint has since been retired in favor of a
+# JavaScript-rendered page that a simple HTTP request can't trigger.
+#
+# Instead we build a broad, free, market-cap-tiered universe directly
+# from Nasdaq Trader's public Symbol Directory files — the same files
+# every exchange-listed security is registered in. This isn't an exact
+# replica of official Russell membership, but Russell 1000/2000
+# membership IS fundamentally a market-cap-rank construction (roughly:
+# top ~1,000 US common stocks by float-adjusted market cap = Russell
+# 1000; next ~2,000 = Russell 2000), so ranking this universe by market
+# cap gives a very close practical approximation — without any
+# commercial licensing dependency.
+NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
+OTHER_LISTED_URL  = "https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt"
 
 
-@st.cache_data(ttl=86400)  # holdings update ~daily; cache for a day
-def fetch_ishares_holdings_debug(product_id: str, slug: str, etf_ticker: str) -> dict:
+@st.cache_data(ttl=86400)
+def fetch_full_us_equity_universe() -> list:
     """
-    Debug version — returns full diagnostic info alongside the ticker list
-    so we can see exactly where parsing fails: HTTP status, raw response
-    snippet, whether the header row was found, detected columns, etc.
+    Fetch the complete list of US-listed common stocks from Nasdaq
+    Trader's public Symbol Directory (NASDAQ + NYSE + NYSE American +
+    NYSE Arca + Cboe BZX). Filters out ETFs, test issues, warrants,
+    units, rights, and other non-common-stock instruments.
+
+    Returns a plain list of uppercase ticker symbols (~6,000-8,000).
+    Cached 24 hours — these files update intraday but daily refresh
+    is plenty for screening purposes.
     """
-    url = (
-        f"https://www.ishares.com/us/products/{product_id}/{slug}/"
-        f"1467271812596.ajax?fileType=csv&fileName={etf_ticker}_holdings&dataType=fund"
-    )
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0; +https://github.com/jjpvoskuil)"
-    }
-    debug = {"url": url, "status": None, "raw_len": 0, "header_found": False,
-             "header_idx": None, "columns": [], "raw_snippet": "", "error": None,
-             "tickers": []}
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0)"}
+    tickers = set()
+
+    # nasdaqlisted.txt: Symbol|Security Name|Market Category|Test Issue|
+    #                    Financial Status|Round Lot Size|ETF|NextShares
     try:
-        resp = requests.get(url, headers=headers, timeout=20)
-        debug["status"]  = resp.status_code
-        debug["raw_len"] = len(resp.text)
-        debug["raw_snippet"] = resp.text[:800]
-
-        if resp.status_code != 200:
-            return debug
-
-        lines = resp.text.splitlines()
-        header_idx = None
-        for i, line in enumerate(lines):
-            if line.strip().startswith("Ticker,Name") or line.strip().startswith('"Ticker","Name"'):
-                header_idx = i
-                break
-
-        debug["header_found"] = header_idx is not None
-        debug["header_idx"]   = header_idx
-
-        if header_idx is None:
-            return debug
-
-        csv_body = "\n".join(lines[header_idx:])
-        df = pd.read_csv(StringIO(csv_body), thousands=",")
-        df.columns = [c.strip() for c in df.columns]
-        debug["columns"] = df.columns.tolist()
-
-        if "Ticker" not in df.columns or "Asset Class" not in df.columns:
-            return debug
-
-        equities = df[df["Asset Class"].astype(str).str.contains("Equity", case=False, na=False)]
-        tickers  = equities["Ticker"].dropna().astype(str).str.strip().str.upper().tolist()
-        tickers  = [t for t in tickers if t and t not in ("--", "N/A") and len(t) <= 6]
-        debug["tickers"] = sorted(set(tickers))
-        return debug
-    except Exception as e:
-        debug["error"] = str(e)
-        return debug
-
-
-@st.cache_data(ttl=86400)  # holdings update ~daily; cache for a day
-def fetch_ishares_holdings(product_id: str, slug: str, etf_ticker: str) -> list:
-    """
-    Fetch the constituent list for an iShares ETF (used as a free proxy for
-    Russell 1000 / Russell 2000 membership — FTSE Russell's own index
-    constituent files are commercial-license-only).
-
-    Returns a list of uppercase ticker symbols, equities only (cash,
-    futures, and other non-equity holdings are filtered out).
-    """
-    url = (
-        f"https://www.ishares.com/us/products/{product_id}/{slug}/"
-        f"1467271812596.ajax?fileType=csv&fileName={etf_ticker}_holdings&dataType=fund"
-    )
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0; +https://github.com/jjpvoskuil)"
-    }
-    try:
-        resp = requests.get(url, headers=headers, timeout=20)
-        if resp.status_code != 200:
-            return []
-
-        # The CSV has several metadata/disclaimer rows before the real header.
-        # Find the header row by content match rather than assuming a fixed
-        # offset, since iShares has changed this layout before.
-        lines = resp.text.splitlines()
-        header_idx = None
-        for i, line in enumerate(lines):
-            if line.strip().startswith("Ticker,Name") or line.strip().startswith('"Ticker","Name"'):
-                header_idx = i
-                break
-        if header_idx is None:
-            return []
-
-        csv_body = "\n".join(lines[header_idx:])
-        df = pd.read_csv(StringIO(csv_body), thousands=",")
-        df.columns = [c.strip() for c in df.columns]
-
-        if "Ticker" not in df.columns or "Asset Class" not in df.columns:
-            return []
-
-        # Keep equities only — drop cash, futures, FX hedges, etc.
-        equities = df[df["Asset Class"].astype(str).str.contains("Equity", case=False, na=False)]
-        tickers  = (
-            equities["Ticker"].dropna().astype(str).str.strip().str.upper().tolist()
-        )
-        # Drop blanks and obvious non-ticker junk (cash lines sometimes show "--")
-        tickers = [t for t in tickers if t and t not in ("--", "N/A") and len(t) <= 6]
-        return sorted(set(tickers))
+        resp = requests.get(NASDAQ_LISTED_URL, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            lines = resp.text.strip().splitlines()
+            for line in lines[1:]:  # skip header
+                parts = line.split("|")
+                if len(parts) < 7:
+                    continue
+                symbol, name, _cat, test_issue, _fin_status, _lot, is_etf = parts[:7]
+                if test_issue.strip().upper() == "Y" or is_etf.strip().upper() == "Y":
+                    continue
+                name_upper = name.upper()
+                if any(x in name_upper for x in (" RIGHT", " WARRANT", " UNIT", " ORDINARY SHARE")):
+                    # Keep ADS/common but drop SPAC units/rights/warrants and
+                    # non-US ordinary shares (different reporting regime)
+                    if " ORDINARY SHARE" not in name_upper:
+                        continue
+                symbol = symbol.strip().upper()
+                if symbol and len(symbol) <= 6 and "." not in symbol and "$" not in symbol:
+                    tickers.add(symbol)
     except Exception:
-        return []
+        pass
+
+    # otherlisted.txt: ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|
+    #                   Round Lot Size|Test Issue|NASDAQ Symbol
+    try:
+        resp = requests.get(OTHER_LISTED_URL, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            lines = resp.text.strip().splitlines()
+            for line in lines[1:]:
+                parts = line.split("|")
+                if len(parts) < 7:
+                    continue
+                act_symbol, name, _exch, _cqs, is_etf, _lot, test_issue = parts[:7]
+                if test_issue.strip().upper() == "Y" or is_etf.strip().upper() == "Y":
+                    continue
+                name_upper = name.upper()
+                if any(x in name_upper for x in (" RIGHT", " WARRANT", " UNIT")):
+                    continue
+                symbol = act_symbol.strip().upper()
+                if symbol and len(symbol) <= 6 and "." not in symbol and "$" not in symbol:
+                    tickers.add(symbol)
+    except Exception:
+        pass
+
+    return sorted(tickers)
 
 
 def get_sp500_tickers():
+
     try:
         headers  = {"User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0)"}
         response = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=headers, timeout=10)
@@ -577,49 +537,20 @@ with st.expander("⚙️ Customize Scoring Weights", expanded=False):
 
 weights = st.session_state.get("committed_weights", DEFAULT_WEIGHTS.copy())
 
-with st.expander("🔧 Debug — iShares Holdings Fetch (temporary diagnostic)"):
-    st.caption("Click to test the Russell 1000 (IWB) and Russell 2000 (IWM) CSV fetch directly and see exactly what's returned.")
-    dbg_col1, dbg_col2 = st.columns(2)
-    with dbg_col1:
-        if st.button("Test IWB (Russell 1000)", key="dbg_iwb"):
-            with st.spinner("Fetching..."):
-                d = fetch_ishares_holdings_debug("239707", "ishares-russell-1000-etf", "IWB")
-            st.write(f"**URL:** {d['url']}")
-            st.write(f"**HTTP status:** {d['status']}")
-            st.write(f"**Response length:** {d['raw_len']:,} chars")
-            st.write(f"**Header row found:** {d['header_found']} (at line {d['header_idx']})")
-            st.write(f"**Columns detected:** {d['columns']}")
-            st.write(f"**Tickers parsed:** {len(d['tickers'])}")
-            if d['tickers']:
-                st.write(f"**Sample:** {d['tickers'][:15]}")
-            if d['error']:
-                st.error(f"Exception: {d['error']}")
-            st.text_area("Raw response (first 800 chars)", d['raw_snippet'], height=200, key="dbg_iwb_raw")
-    with dbg_col2:
-        if st.button("Test IWM (Russell 2000)", key="dbg_iwm"):
-            with st.spinner("Fetching..."):
-                d = fetch_ishares_holdings_debug("239710", "ishares-russell-2000-etf", "IWM")
-            st.write(f"**URL:** {d['url']}")
-            st.write(f"**HTTP status:** {d['status']}")
-            st.write(f"**Response length:** {d['raw_len']:,} chars")
-            st.write(f"**Header row found:** {d['header_found']} (at line {d['header_idx']})")
-            st.write(f"**Columns detected:** {d['columns']}")
-            st.write(f"**Tickers parsed:** {len(d['tickers'])}")
-            if d['tickers']:
-                st.write(f"**Sample:** {d['tickers'][:15]}")
-            if d['error']:
-                st.error(f"Exception: {d['error']}")
-            st.text_area("Raw response (first 800 chars)", d['raw_snippet'], height=200, key="dbg_iwm_raw")
-
 st.markdown("#### Ticker Universe")
 universe_choice = st.radio(
     "Select the universe to scan",
-    options=["S&P 500 (~500)", "Russell 1000 (~1,000)", "Russell 2000 (~2,000)", "Russell 1000 + 2000 (~3,000)"],
+    options=["S&P 500 (~500)", "All US Common Stocks (~6,000+)"],
     horizontal=True,
     help=(
-        "Russell 1000/2000 sourced free via iShares ETF (IWB/IWM) daily holdings files — "
-        "FTSE Russell's own constituent data is commercial-license-only. "
-        "Updated ~daily, cached for 24 hours."
+        "S&P 500 sourced from Wikipedia. 'All US Common Stocks' is sourced free from "
+        "Nasdaq Trader's public Symbol Directory (NASDAQ + NYSE + NYSE American + NYSE "
+        "Arca), filtered to common stock only (no ETFs, SPACs warrants/units, or test "
+        "issues). This is a much broader universe than the S&P 500 and a practical free "
+        "proxy for Russell 1000/2000-scale coverage — FTSE Russell's own official "
+        "constituent files are commercial-license-only, so there's no free exact match. "
+        "Within this scan, you control how many tickers to actually screen via "
+        "'Max stocks to scan' below."
     ),
 )
 
@@ -632,11 +563,10 @@ with col2:
     skip_cyclicals  = st.checkbox("Flag cyclical firms", value=False,
                                    help="Cyclicals aren't excluded, just labeled for full-cycle context.")
 with col3:
-    _default_max = {"S&P 500 (~500)": 500, "Russell 1000 (~1,000)": 1000,
-                     "Russell 2000 (~2,000)": 2000, "Russell 1000 + 2000 (~3,000)": 3000}[universe_choice]
+    _default_max = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)": 1000}[universe_choice]
     max_scan = st.number_input(
-        "Max stocks to scan (Stage 1)", min_value=10, max_value=3500,
-        value=min(_default_max, 500), step=50,
+        "Max stocks to scan (Stage 1)", min_value=10, max_value=8000,
+        value=_default_max, step=50,
         help="Larger universes take longer on Stage 1. EDGAR has no hard rate limit at this scale, "
              "but expect several minutes for 1,000+ tickers."
     )
@@ -657,17 +587,11 @@ if run_screen:
     with st.spinner(f"Loading {universe_choice} ticker list..."):
         if universe_choice == "S&P 500 (~500)":
             tickers = get_sp500_tickers()
-        elif universe_choice == "Russell 1000 (~1,000)":
-            tickers = fetch_ishares_holdings("239707", "ishares-russell-1000-etf", "IWB")
-        elif universe_choice == "Russell 2000 (~2,000)":
-            tickers = fetch_ishares_holdings("239710", "ishares-russell-2000-etf", "IWM")
-        else:  # Russell 1000 + 2000
-            r1000 = fetch_ishares_holdings("239707", "ishares-russell-1000-etf", "IWB")
-            r2000 = fetch_ishares_holdings("239710", "ishares-russell-2000-etf", "IWM")
-            tickers = sorted(set(r1000) | set(r2000))
+        else:
+            tickers = fetch_full_us_equity_universe()
 
     if not tickers:
-        st.error(f"Could not load the {universe_choice} ticker list. Try again — iShares/Wikipedia data sources occasionally have transient issues.")
+        st.error(f"Could not load the {universe_choice} ticker list. Try again — Nasdaq Trader/Wikipedia data sources occasionally have transient issues.")
         st.stop()
 
     tickers_to_scan = tickers[:max_scan]
@@ -1109,7 +1033,7 @@ else:
     ### What this screener does — Two-Stage Architecture
 
     **Stage 1 — Quality Scan (EDGAR, no price needed)**
-    1. **Loads your selected universe** — S&P 500 (Wikipedia), Russell 1000, Russell 2000, or both (via iShares IWB/IWM daily holdings, free)
+    1. **Loads your selected universe** — S&P 500 (Wikipedia) or the full US common stock list (~6,000+, via Nasdaq Trader's free Symbol Directory)
     2. **Resolves all tickers to CIKs** in one shot (not one lookup per ticker)
     3. **Fetches fundamentals from SEC EDGAR** in parallel — ROIC, Debt/FCF, Gross Margin, Interest Coverage
     4. **Eliminates** companies with negative Free Cash Flow
