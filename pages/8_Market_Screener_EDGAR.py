@@ -241,6 +241,129 @@ def safe_float(val):
 
 
 # ── Stage 1: Quality-only EDGAR fetch (no price needed) ────────────────
+# ── SIC industry name lookup ────────────────────────────────────────────
+# SEC's official SIC code reference table — fetched once and cached.
+# Used to power the industry / sub-industry filter dropdowns. SIC codes
+# are hierarchical: first 2 digits = major group (e.g. "28" = Chemicals),
+# full 4 digits = specific sub-industry (e.g. "2834" = Pharmaceutical
+# Preparations).
+SIC_LIST_URL = "https://www.sec.gov/search-filings/standard-industrial-classification-sic-code-list"
+
+# Static fallback for the major-group (2-digit) names — these are the
+# stable top-level SIC divisions and rarely change, so a hardcoded
+# fallback keeps the industry dropdown usable even if the live SEC page
+# fetch fails or its HTML structure changes.
+SIC_MAJOR_GROUP_FALLBACK = {
+    "01": "Agricultural Production - Crops",        "02": "Agricultural Production - Livestock",
+    "07": "Agricultural Services",                  "08": "Forestry",
+    "10": "Metal Mining",                            "12": "Coal Mining",
+    "13": "Oil & Gas Extraction",                    "14": "Mining & Quarrying (Nonmetallic)",
+    "15": "Building Construction",                   "16": "Heavy Construction",
+    "17": "Special Trade Contractors",
+    "20": "Food & Kindred Products",                 "21": "Tobacco Products",
+    "22": "Textile Mill Products",                   "23": "Apparel & Textile Products",
+    "24": "Lumber & Wood Products",                  "25": "Furniture & Fixtures",
+    "26": "Paper & Allied Products",                 "27": "Printing & Publishing",
+    "28": "Chemicals & Allied Products",             "29": "Petroleum Refining",
+    "30": "Rubber & Plastics Products",              "31": "Leather Products",
+    "32": "Stone, Clay, Glass, Concrete",            "33": "Primary Metal Industries",
+    "34": "Fabricated Metal Products",               "35": "Industrial Machinery & Equipment",
+    "36": "Electronic & Electrical Equipment",       "37": "Transportation Equipment",
+    "38": "Instruments & Measuring Devices",         "39": "Misc. Manufacturing",
+    "40": "Railroad Transportation",                 "41": "Local Transit",
+    "42": "Trucking & Warehousing",                  "44": "Water Transportation",
+    "45": "Air Transportation",                      "47": "Transportation Services",
+    "48": "Communications",                          "49": "Electric, Gas & Sanitary Services",
+    "50": "Wholesale Trade - Durable Goods",         "51": "Wholesale Trade - Nondurable Goods",
+    "52": "Building Materials & Garden Supplies",    "53": "General Merchandise Stores",
+    "54": "Food Stores",                             "55": "Auto Dealers & Gas Stations",
+    "56": "Apparel & Accessory Stores",              "57": "Home Furniture & Equipment Stores",
+    "58": "Eating & Drinking Places",                "59": "Miscellaneous Retail",
+    "60": "Depository Institutions (Banks)",         "61": "Non-Depository Credit Institutions",
+    "62": "Security & Commodity Brokers",            "63": "Insurance Carriers",
+    "64": "Insurance Agents & Brokers",               "65": "Real Estate",
+    "67": "Holding & Investment Offices",
+    "70": "Hotels & Lodging",                        "72": "Personal Services",
+    "73": "Business Services",                       "75": "Auto Repair Services",
+    "76": "Misc. Repair Services",                   "78": "Motion Pictures",
+    "79": "Amusement & Recreation",                  "80": "Health Services",
+    "81": "Legal Services",                          "82": "Educational Services",
+    "83": "Social Services",                         "84": "Museums & Botanical/Zoological Gardens",
+    "86": "Membership Organizations",                "87": "Engineering & Management Services",
+    "88": "Private Households",                      "89": "Services, NEC",
+    "91": "Executive & Legislative Government",      "92": "Justice, Public Order & Safety",
+    "93": "Public Finance, Taxation & Monetary Policy", "94": "Administration of Human Resources",
+    "95": "Environmental Quality & Housing",         "96": "Administration of Economic Programs",
+    "97": "National Security & International Affairs", "99": "Nonclassifiable Establishments",
+}
+
+
+@st.cache_data(ttl=604800)  # SIC codes are static — cache for a week
+def fetch_sic_industry_map() -> dict:
+    """
+    Fetch the SEC's official SIC code -> industry name table and parse
+    it into a structured lookup. Falls back to the hardcoded major-group
+    names above if the live fetch fails.
+
+    Returns:
+    {
+        "full":  {"2834": "PHARMACEUTICAL PREPARATIONS", ...},  # 4-digit
+        "major": {"28": "Chemicals & Allied Products", ...},     # 2-digit, title case
+    }
+    """
+    full_map = {}
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; VoskuilFP/1.0)"}
+        resp = requests.get(SIC_LIST_URL, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            # Table rows look like: | 2834 | Office of Life Sciences | PHARMACEUTICAL PREPARATIONS |
+            import re as _re
+            rows = _re.findall(
+                r'\|\s*(\d{2,4})\s*\|[^|]+\|\s*([A-Z0-9&,.\'\-\s()]+?)\s*\|',
+                resp.text
+            )
+            for code, title in rows:
+                code = code.zfill(4) if len(code) <= 4 else code
+                full_map[code] = title.strip()
+    except Exception:
+        pass
+
+    return {
+        "full":  full_map,
+        "major": SIC_MAJOR_GROUP_FALLBACK,
+    }
+
+
+def sic_major_name(sic: str, sic_map: dict) -> str:
+    """Get the major-group (2-digit) industry name for a SIC code."""
+    if not sic or len(sic) < 2:
+        return "Unclassified"
+    return sic_map.get("major", {}).get(sic[:2], f"SIC {sic[:2]}xx")
+
+
+def sic_full_name(sic: str, sic_map: dict) -> str:
+    """Get the full 4-digit sub-industry name for a SIC code, title-cased."""
+    if not sic:
+        return "Unclassified"
+    name = sic_map.get("full", {}).get(sic.zfill(4))
+    if name:
+        return name.title()
+    return f"SIC {sic}"
+
+
+def market_cap_tier(cap) -> str:
+    """Classify a market cap value into a size tier label."""
+    if cap is None:
+        return "Unknown"
+    if cap >= 10_000_000_000:
+        return "Large Cap (≥$10B)"
+    if cap >= 2_000_000_000:
+        return "Mid Cap ($2B–$10B)"
+    if cap >= 300_000_000:
+        return "Small Cap ($300M–$2B)"
+    return "Micro Cap (<$300M)"
+
+
 def fetch_quality_edgar(ticker: str, cik: str) -> dict:
     """
     Fetches fundamentals from EDGAR Company Facts using a pre-resolved CIK
@@ -281,12 +404,24 @@ def fetch_quality_edgar(ticker: str, cik: str) -> dict:
         if cash > total_debt:
             is_net_creditor = True
 
+    # Market cap — fetched upfront for every Stage 1 ticker so the
+    # market-cap-tier filter can apply before Stage 2 pricing/scoring.
+    # Uses yfinance's lightweight fast_info (no full .info call) to keep
+    # this as cheap as possible at full-universe scan scale.
+    market_cap = None
+    try:
+        import yfinance as yf
+        market_cap = getattr(yf.Ticker(ticker).fast_info, "market_cap", None)
+    except Exception:
+        market_cap = None
+
     return {
         "ticker":            ticker,
         "name":              meta.get("company_name", ticker),
         "sic":               meta.get("sic"),
         "is_financial":      meta.get("is_financial", False),
         "is_cyclical":       meta.get("is_cyclical", False),
+        "market_cap":        market_cap,
         "fcf":               fcf,
         "roic":              roic,
         "gross_margin":      gross_margin,
@@ -572,6 +707,69 @@ with col3:
     )
     min_div  = st.checkbox("Dividend payers only (Stage 2 filter)", value=False)
 
+# ── Stage 1 filters: industry, market cap, superinvestor coverage ──────
+st.markdown("#### Stage 1 Filters")
+st.caption(
+    "Applied after the quality scan, before Stage 2 pricing — narrowing here speeds up "
+    "Stage 2 since fewer survivors need a price lookup."
+)
+
+_sic_map = fetch_sic_industry_map()
+
+fcol1, fcol2, fcol3 = st.columns(3)
+with fcol1:
+    industry_filter = st.selectbox(
+        "Industry",
+        options=["All Industries"] + sorted(set(_sic_map.get("major", {}).values())),
+        help="Major SIC industry group. Companies are classified by their primary SIC code in SEC filings.",
+    )
+with fcol2:
+    # Sub-industry options narrow based on the selected major industry —
+    # populated after Stage 1 runs, since we need to know which 4-digit
+    # SIC codes actually appear among the scan results for this major
+    # group. Before a scan has run, show a placeholder.
+    _prior_results = st.session_state.get('ms_edgar_results_df')
+    sub_industry_options = ["All Sub-Industries"]
+    if _prior_results is not None and 'sic' in _prior_results.columns:
+        for sic in _prior_results['sic'].dropna().unique():
+            if industry_filter == "All Industries" or sic_major_name(str(sic), _sic_map) == industry_filter:
+                sub_industry_options.append(sic_full_name(str(sic), _sic_map))
+        sub_industry_options = ["All Sub-Industries"] + sorted(set(sub_industry_options[1:]))
+    sub_industry_filter = st.selectbox(
+        "Sub-Industry",
+        options=sub_industry_options,
+        help="Populated from the most recent scan's results. Run a scan first to see specific sub-industries.",
+    )
+with fcol3:
+    cap_filter = st.multiselect(
+        "Market Cap Tier",
+        options=["Large Cap (≥$10B)", "Mid Cap ($2B–$10B)", "Small Cap ($300M–$2B)", "Micro Cap (<$300M)"],
+        default=[],
+        help="Leave empty to include all sizes. Market cap is fetched for every Stage 1 candidate "
+             "(adds some time vs. deferring to Stage 2, but enables this filter).",
+    )
+
+# Superinvestor coverage filter — reuses the same load button pattern
+# used elsewhere in the app, but offered here so it can act as a Stage 1
+# filter rather than only a post-scan display enhancement.
+_si_loaded_pre = "_si_full_map" in st.session_state
+si_filt_col1, si_filt_col2 = st.columns([2, 4])
+with si_filt_col1:
+    if not _si_loaded_pre:
+        if st.button("🦁 Load Superinvestor Conviction", use_container_width=True,
+                     help="Fetches all 82 superinvestor portfolios from Dataroma (~30-60s, one-time per session). "
+                          "Required to use the SI coverage filter."):
+            st.session_state["_si_full_map"] = get_conviction_data()
+            st.rerun()
+        si_only_filter = False
+    else:
+        si_only_filter = st.checkbox("🦁 Only show companies with superinvestor coverage", value=False)
+with si_filt_col2:
+    if _si_loaded_pre:
+        st.caption("Superinvestor data loaded — filter available below, and results will show holder counts.")
+    else:
+        st.caption("Optional — load to filter Stage 1 results to only companies held by at least one of 82 tracked superinvestors.")
+
 _est_min = max(1, round(max_scan / 8 / 60 * 1.3))  # rough: 8 parallel workers, ~1 req/sec/worker, 30% overhead
 st.caption(f"⏱️ Estimated Stage 1 time for {max_scan} tickers: ~{_est_min} minute{'s' if _est_min != 1 else ''}. Stage 2 (price lookups on survivors) adds 10-60 seconds.")
 
@@ -649,6 +847,40 @@ if run_screen:
         st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
         st.stop()
 
+    # ── Apply Stage 1 filters: industry, sub-industry, market cap, SI ──
+    _pre_filter_count = len(stage1_results)
+
+    if industry_filter != "All Industries":
+        stage1_results = [
+            d for d in stage1_results
+            if sic_major_name(str(d.get("sic") or ""), _sic_map) == industry_filter
+        ]
+
+    if sub_industry_filter != "All Sub-Industries":
+        stage1_results = [
+            d for d in stage1_results
+            if sic_full_name(str(d.get("sic") or ""), _sic_map) == sub_industry_filter
+        ]
+
+    if cap_filter:
+        stage1_results = [
+            d for d in stage1_results
+            if market_cap_tier(d.get("market_cap")) in cap_filter
+        ]
+
+    if _si_loaded_pre and si_only_filter:
+        stage1_results = [
+            d for d in stage1_results
+            if get_superinvestor_conviction(d["ticker"]).get("holder_count", 0) > 0
+        ]
+
+    if len(stage1_results) != _pre_filter_count:
+        st.caption(f"🔍 Stage 1 filters applied: {_pre_filter_count} → {len(stage1_results)} companies.")
+
+    if not stage1_results:
+        st.warning("No companies survived the Stage 1 filters you selected. Try relaxing industry, market cap, or SI coverage filters.")
+        st.stop()
+
     # ── Stage 2: Price lookup for survivors only ────────────────────────
     st.markdown(f"### Stage 2 — Valuation Check ({len(stage1_results)} quality survivors, live pricing)")
     progress_bar2 = st.progress(0)
@@ -691,11 +923,13 @@ if run_screen:
             full_data = {
                 **qdata,
                 "price":            price,
-                "market_cap":       market_cap,
+                "market_cap":       market_cap or qdata.get("market_cap"),
                 "sector":           sector,
                 "fcf_yield":        fcf_yield,
                 "price_owner_earn": poe,
                 "dividend_yield":   div_yield,
+                "industry":         sic_major_name(str(qdata.get("sic") or ""), _sic_map),
+                "sub_industry":     sic_full_name(str(qdata.get("sic") or ""), _sic_map),
             }
             full_data["score"] = score_stock(full_data, weights)
             results.append(full_data)
@@ -736,25 +970,19 @@ if 'ms_edgar_results_df' in st.session_state:
         if fmt_type == "ratio": return f"{val:.1f}x"
         return str(val)
 
-    # ── Superinvestor data load button (only if not already cached) ────
+    # ── Superinvestor sort toggle (load button now lives in pre-scan filters) ──
     _si_loaded = "_si_full_map" in st.session_state
-    si_col1, si_col2, si_col3 = st.columns([2, 2, 4])
+    si_col1, si_col2 = st.columns([2, 4])
     with si_col1:
-        if not _si_loaded:
-            if st.button("🦁 Load Superinvestor Conviction", use_container_width=True,
-                         help="Fetches all 82 superinvestor portfolios from Dataroma (~30-60s, one-time per session)"):
-                st.session_state["_si_full_map"] = get_conviction_data()
-                st.rerun()
-        else:
-            st.success("🦁 Superinvestor data loaded", icon="✅")
-    with si_col2:
         sort_by_si = False
         if _si_loaded:
             sort_by_si = st.checkbox("Sort by SI Conviction", value=False,
                                       help="Re-rank results by superinvestor conviction instead of Owner's Framework score")
-    with si_col3:
-        if not _si_loaded:
-            st.caption("Optional — adds superinvestor holder counts and lets you re-rank by conviction.")
+        else:
+            st.caption("🦁 Superinvestor data not loaded — use the filter section above to load it.")
+    with si_col2:
+        if _si_loaded:
+            st.caption("Superinvestor holder counts are shown on each result below.")
 
     # ── Apply SI conviction data and optional re-sort ────────────────
     if _si_loaded:
@@ -817,7 +1045,7 @@ if 'ms_edgar_results_df' in st.session_state:
             with c2:
                 st.markdown(f"**{ticker}**")
                 st.caption(row.get('name', ''))
-                st.caption(row.get('sector', ''))
+                st.caption(row.get('sub_industry') or row.get('sector', ''))
             with c3: st.metric("Score",        f"{score}/100")
             with c4: st.metric("FCF Yield",    fmt(row.get('fcf_yield'),        "pct"))
             with c5: st.metric("ROIC",         fmt(row.get('roic'),             "pct"))
@@ -867,15 +1095,18 @@ if 'ms_edgar_results_df' in st.session_state:
     with s4: st.metric("Strong Buys (80+)", len(results_df[results_df['score'] >= 80]))
 
     st.markdown("### 💾 Export Results")
-    _export_cols = ['ticker','name','sector','score','fcf_yield','roic','gross_margin',
+    _export_cols = ['ticker','name','sector','industry','sub_industry','score','fcf_yield','roic','gross_margin',
                      'debt_to_fcf','interest_coverage','price_owner_earn','dividend_yield','price','market_cap']
-    _export_names = ['Ticker','Name','Sector','Score','FCF Yield','ROIC','Gross Margin',
+    _export_names = ['Ticker','Name','Sector','Industry','Sub-Industry','Score','FCF Yield','ROIC','Gross Margin',
                       'Debt/FCF','Interest Coverage','Price/Owner Earnings','Dividend Yield','Price','Market Cap']
     if 'si_holders' in results_df.columns:
         _export_cols  += ['si_holders', 'si_score']
         _export_names += ['SI Holders', 'SI Conviction Score']
-    export_df = results_df[_export_cols].copy()
-    export_df.columns = _export_names
+    # Guard against missing columns (e.g. if industry/sub_industry weren't populated)
+    _available = [c for c in _export_cols if c in results_df.columns]
+    _available_names = [n for c, n in zip(_export_cols, _export_names) if c in results_df.columns]
+    export_df = results_df[_available].copy()
+    export_df.columns = _available_names
     st.download_button(label="⬇️ Download Results as CSV", data=export_df.to_csv(index=False),
                         file_name="voskuil_screen_results.csv", mime="text/csv")
 
