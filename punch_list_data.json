@@ -530,6 +530,15 @@
       "priority": "Urgent",
       "done": false,
       "created": "2026-07-06"
+    },
+    {
+      "id": 61,
+      "title": "Add claude agent to Market Screen Compare page",
+      "note": "Add a claude agent to the new Market Screen Compare page so that I can ask more detailed questions about the companies presented.  Also want a direct link to read the full SEC filling for any presented.",
+      "phase": "Fund Deep Dive",
+      "priority": "Urgent",
+      "done": false,
+      "created": "2026-07-06"
     }
   ],
   "phases": [
