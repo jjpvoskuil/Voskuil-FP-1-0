@@ -384,7 +384,7 @@
       "note": "Checkbox accidentally marked item as done and it disappeared from view. Add confirmation dialog before marking done or deleting. Also consider basic access control for commercial version to prevent unauthorized edits.",
       "phase": "Punch List Page",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-04"
     },
     {
