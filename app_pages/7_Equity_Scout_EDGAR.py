@@ -5,6 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS
 from claude_utils import ask_claude_about_equity
+from ui_utils import force_scroll_to_top
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
 
 POLY_URL = "https://api.polygon.io"
@@ -1067,3 +1068,5 @@ else:
 
     
     """)
+
+force_scroll_to_top()

@@ -6,6 +6,7 @@ import time
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
+from ui_utils import force_scroll_to_top
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
@@ -1016,3 +1017,5 @@ if df_holdings_raw is not None:
         ):
             st.session_state["dive_ticker"] = selected_symbol
             st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")
+
+force_scroll_to_top()
