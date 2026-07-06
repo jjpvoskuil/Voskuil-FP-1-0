@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import os
+import time
 from datetime import datetime
 
 
@@ -186,23 +187,79 @@ DEFAULT_ITEMS = [
      "phase": "Commercial Product Track", "priority": "Low", "done": False, "created": "2026-05-01"},
 ]
 
-def load_items():
+def _github_get_current():
+    """GET the current punch_list_data.json + SHA from GitHub.
+    Returns (sha, content_str, ok, msg). SHA is None on 404 (file doesn't exist yet)."""
+    import base64, requests as _req
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
+    if not token:
+        return None, None, False, "GITHUB_TOKEN not found in Streamlit secrets."
+    try:
+        api   = f"https://api.github.com/repos/{repo}/contents/{DATA_FILE}"
+        heads = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+        }
+        r = _req.get(api, headers=heads, timeout=8)
+        if r.status_code == 404:
+            return None, None, True, "File does not exist on remote yet."
+        if r.status_code != 200:
+            return None, None, False, f"GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+        body = r.json()
+        sha  = body.get("sha")
+        content = base64.b64decode(body.get("content", "")).decode()
+        return sha, content, True, "OK"
+    except Exception as e:
+        return None, None, False, f"GET exception: {e}"
+
+
+def _parse_punch_list(content: str):
+    """Parse punch_list_data.json content string into (items, phases).
+    Handles both old list format and new dict format."""
+    parsed = json.loads(content)
+    if isinstance(parsed, list):
+        items  = parsed
+        phases = DEFAULT_PHASES.copy()
+    else:
+        items  = parsed.get("items",  DEFAULT_ITEMS)
+        phases = parsed.get("phases", DEFAULT_PHASES.copy())
+        for item in items:
+            if item["phase"] not in phases:
+                phases.append(item["phase"])
+    return items, phases
+
+
+def load_from_github():
+    """Load punch list from GitHub (bypasses local disk cache).
+    Sets session_state loaded_sha. Falls back to disk on error.
+    Returns (items, phases)."""
+    sha, content, ok, msg = _github_get_current()
+    if ok and content:
+        try:
+            items, phases = _parse_punch_list(content)
+            # Mirror to disk so other code paths stay consistent
+            with open(DATA_FILE, "w") as f:
+                f.write(content)
+            st.session_state.punch_list_backup     = content
+            st.session_state.punch_list_saved_at   = datetime.today().strftime("%b %d %Y %H:%M")
+            st.session_state.punch_list_loaded_sha = sha
+            st.session_state.punch_list_last_sha_check = time.time()
+            return items, phases
+        except Exception:
+            pass  # fall through to disk load
+    # Fallback: read from local disk
+    return load_items(_skip_github=True)
+
+
+def load_items(_skip_github: bool = False):
+    """Load punch list from disk (fallback path).
+    Normal callers should use load_from_github() instead."""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE) as f:
                 data = f.read()
-            parsed = json.loads(data)
-            # Support both old format (list) and new format (dict with items + phases)
-            if isinstance(parsed, list):
-                items  = parsed
-                phases = DEFAULT_PHASES.copy()
-            else:
-                items  = parsed.get("items",  DEFAULT_ITEMS)
-                phases = parsed.get("phases", DEFAULT_PHASES.copy())
-                # Ensure any item's phase exists in the phases list
-                for item in items:
-                    if item["phase"] not in phases:
-                        phases.append(item["phase"])
+            items, phases = _parse_punch_list(data)
             st.session_state.punch_list_backup   = data
             st.session_state.punch_list_saved_at = datetime.today().strftime("%b %d %Y %H:%M")
             return items, phases
@@ -211,14 +268,15 @@ def load_items():
     save_items(DEFAULT_ITEMS, DEFAULT_PHASES.copy())
     return DEFAULT_ITEMS, DEFAULT_PHASES.copy()
 
+
 def _github_backup(data: str):
     """Push punch_list_data.json to GitHub via API.
-    Returns (success: bool, message: str) — never fails silently."""
+    Returns (success: bool, message: str, new_sha: str|None) — never fails silently."""
     import base64, requests as _req
     token = st.secrets.get("GITHUB_TOKEN", "")
     repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
     if not token:
-        return False, "GITHUB_TOKEN not found in Streamlit secrets — edits are NOT syncing to GitHub."
+        return False, "GITHUB_TOKEN not found in Streamlit secrets — edits are NOT syncing to GitHub.", None
     try:
         api   = f"https://api.github.com/repos/{repo}/contents/{DATA_FILE}"
         heads = {
@@ -227,7 +285,7 @@ def _github_backup(data: str):
         }
         r = _req.get(api, headers=heads, timeout=8)
         if r.status_code not in (200, 404):
-            return False, f"GitHub GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+            return False, f"GitHub GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}", None
         sha = r.json().get("sha") if r.status_code == 200 else None
 
         payload = {
@@ -239,16 +297,48 @@ def _github_backup(data: str):
 
         put_r = _req.put(api, headers=heads, json=payload, timeout=8)
         if put_r.status_code not in (200, 201):
-            return False, f"GitHub PUSH failed: {put_r.status_code} {put_r.json().get('message', put_r.text)[:150]}"
-        return True, "Synced"
+            return False, f"GitHub PUSH failed: {put_r.status_code} {put_r.json().get('message', put_r.text)[:150]}", None
+        # Capture the new SHA so we can update loaded_sha and avoid false-positive
+        # staleness on our own write.
+        new_sha = None
+        try:
+            new_sha = put_r.json().get("content", {}).get("sha")
+        except Exception:
+            pass
+        return True, "Synced", new_sha
     except Exception as e:
-        return False, f"GitHub push exception: {e}"
+        return False, f"GitHub push exception: {e}", None
+
 
 def save_items(items, phases=None):
-    """Save items + phases to file, session state backup, and GitHub."""
+    """Save items + phases to disk, session state, and GitHub — with SHA guard
+    to prevent overwriting a newer remote version (e.g., Claude just pushed).
+    """
     try:
         if phases is None:
             phases = st.session_state.get("punch_phases", DEFAULT_PHASES.copy())
+
+        # ── SHA guard ───────────────────────────────────────────────────────
+        # If remote SHA doesn't match what we loaded, someone else (Claude,
+        # another tab) pushed since our page load. Refuse to write and force
+        # the user to reload before re-applying their edit.
+        expected_sha = st.session_state.get("punch_list_loaded_sha")
+        if expected_sha:
+            remote_sha, _, sha_ok, sha_msg = _github_get_current()
+            if sha_ok and remote_sha and remote_sha != expected_sha:
+                st.session_state.punch_list_stale = True
+                st.warning(
+                    "⚠️ **Punch list changed on GitHub since you opened this page** "
+                    "(likely a push from Claude or another browser tab). "
+                    "Your edit was **NOT saved** — saving it would overwrite the newer version. "
+                    "Click **🔄 Reload from GitHub** at the top of the page, then re-apply your change."
+                )
+                return
+            # If we couldn't check SHA (network hiccup), warn but proceed — better
+            # than blocking the user entirely.
+            if not sha_ok:
+                st.info(f"ℹ️ Could not verify remote version before saving ({sha_msg}). Proceeding anyway.")
+
         payload = {"items": items, "phases": phases}
         data    = json.dumps(payload, indent=2)
         with open(DATA_FILE, "w") as f:
@@ -256,9 +346,15 @@ def save_items(items, phases=None):
         st.session_state.punch_list_backup   = data
         st.session_state.punch_list_saved_at = datetime.today().strftime("%b %d %Y %H:%M")
 
-        ok, msg = _github_backup(data)
+        ok, msg, new_sha = _github_backup(data)
         st.session_state.punch_list_github_ok  = ok
         st.session_state.punch_list_github_msg = msg
+        if ok and new_sha:
+            # Track the SHA we just wrote so our next save doesn't false-positive
+            # against our own push.
+            st.session_state.punch_list_loaded_sha     = new_sha
+            st.session_state.punch_list_last_sha_check = time.time()
+            st.session_state.punch_list_stale          = False
         if not ok:
             st.error(f"⚠️ Local save OK, but GitHub sync FAILED: {msg}\n\n"
                      f"Your changes exist only in this session and WILL BE LOST on reboot/redeploy "
@@ -269,11 +365,32 @@ def save_items(items, phases=None):
 def next_id(items):
     return max((i["id"] for i in items), default=0) + 1
 
-# Load
+# Load — always try GitHub first, fall back to disk. This makes GitHub the
+# source of truth and captures the current SHA so save_items can detect
+# out-of-band writes (Claude pushing from the sandbox, another tab, etc).
 if "punch_items" not in st.session_state or "punch_phases" not in st.session_state:
-    _items, _phases = load_items()
+    _items, _phases = load_from_github()
     st.session_state.punch_items  = _items
     st.session_state.punch_phases = _phases
+
+# ── Auto-refresh watcher ──────────────────────────────────────────────────
+# On every rerun, check if the remote SHA changed since we last looked.
+# Throttled to at most 1 check per 20 seconds to stay well under GitHub's
+# 5000/hr rate limit even with active clicking. If remote is newer, silently
+# reload session state and show a small toast so the user knows.
+_now = time.time()
+_last_check = st.session_state.get("punch_list_last_sha_check", 0)
+if _now - _last_check > 20:
+    _remote_sha, _, _rc_ok, _ = _github_get_current()
+    st.session_state.punch_list_last_sha_check = _now
+    if _rc_ok and _remote_sha and _remote_sha != st.session_state.get("punch_list_loaded_sha"):
+        _items, _phases = load_from_github()
+        st.session_state.punch_items  = _items
+        st.session_state.punch_phases = _phases
+        try:
+            st.toast("🔄 Auto-refreshed from GitHub — remote changed", icon="🔄")
+        except Exception:
+            pass  # toast may not exist on older Streamlit versions
 
 items  = st.session_state.punch_items
 PHASES = st.session_state.punch_phases   # live list — may grow as user adds phases
@@ -316,12 +433,23 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Always-visible backup download ────────────────────────────────────────
-# Downloads the current punch list as JSON — save this after every editing
-# session as a backup. Streamlit Cloud's filesystem resets on redeploy.
+# ── Always-visible backup + reload controls ───────────────────────────────
+# Backup: Download current JSON — save this after every editing session as a
+#   local backup. Streamlit Cloud's filesystem resets on redeploy.
+# Reload: Force re-read from GitHub (bypasses session state) — use if you
+#   suspect the app is showing a stale copy after Claude or another tab
+#   pushed changes.
 backup_data = st.session_state.get("punch_list_backup", json.dumps(items, indent=2))
 saved_at    = st.session_state.get("punch_list_saved_at", "now")
-bcol1, bcol2 = st.columns([1, 6])
+
+# Stale warning: if last save was blocked by SHA guard, remind user to reload
+if st.session_state.get("punch_list_stale"):
+    st.warning(
+        "⚠️ **Session is out of sync with GitHub.** Your last edit was not saved. "
+        "Click **🔄 Reload from GitHub** below to pull the latest, then re-apply your change."
+    )
+
+bcol1, bcol2, bcol3 = st.columns([1, 1, 5])
 with bcol1:
     st.download_button(
         "💾 Backup JSON",
@@ -332,6 +460,15 @@ with bcol1:
         help="Download your punch list as JSON. Re-upload to restore after a Streamlit Cloud redeploy wipes the filesystem.",
     )
 with bcol2:
+    if st.button("🔄 Reload from GitHub", use_container_width=True,
+                 help="Force re-read punch_list_data.json from GitHub (bypasses session state). Use this if the app looks stale after Claude pushed changes."):
+        _items, _phases = load_from_github()
+        st.session_state.punch_items  = _items
+        st.session_state.punch_phases = _phases
+        st.session_state.punch_list_stale = False
+        st.success("Reloaded from GitHub.")
+        st.rerun()
+with bcol3:
     gh_ok  = st.session_state.get("punch_list_github_ok", None)
     gh_msg = st.session_state.get("punch_list_github_msg", "")
     if gh_ok is True:
