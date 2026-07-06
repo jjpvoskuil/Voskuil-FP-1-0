@@ -3,7 +3,7 @@ import requests
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar
+from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS
 from claude_utils import ask_claude_about_equity
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
 
@@ -446,6 +446,40 @@ if _cache_key and _cache_key in st.session_state:
     mktcap_str = f"Market Cap: ${(data.get('market_cap') or 0)/1e9:.1f}B" if data.get("market_cap") else ""
     fy_str     = f"FY{data.get('fiscal_year', '')}" if data.get("fiscal_year") else ""
     st.caption(f"{data.get('sector', '')}  ·  {price_str}  ·  {mktcap_str}  ·  {fy_str}")
+
+    with st.expander("⚙️ DCF Assumptions", expanded=False):
+        st.caption(
+            "Two-stage discounted cash flow: FCF is projected forward using a growth rate derived "
+            "from this company's own historical FCF trend (capped to keep extrapolation sane), then "
+            "a Gordon Growth terminal value. Simplification: FCF here already reflects post-interest "
+            "cash flow, so it's treated as cash flow to equity directly — no separate net-debt adjustment."
+        )
+        _dc1, _dc2, _dc3 = st.columns(3)
+        with _dc1:
+            _dr = st.number_input("Discount rate (%)", min_value=4.0, max_value=20.0,
+                                   value=DCF_DEFAULTS["discount_rate"] * 100, step=0.5,
+                                   key=f"dcf_dr_{ticker_input}") / 100
+        with _dc2:
+            _tg = st.number_input("Terminal growth (%)", min_value=0.0, max_value=5.0,
+                                   value=DCF_DEFAULTS["terminal_growth"] * 100, step=0.25,
+                                   key=f"dcf_tg_{ticker_input}") / 100
+        with _dc3:
+            _yrs = st.number_input("Projection years", min_value=5, max_value=20,
+                                    value=DCF_DEFAULTS["projection_years"], step=1,
+                                    key=f"dcf_yrs_{ticker_input}")
+    dcf = compute_dcf_value(data, {"discount_rate": _dr, "terminal_growth": _tg, "projection_years": _yrs})
+    if dcf["error"]:
+        st.caption(f"**💰 DCF Intrinsic Value:** — _{dcf['error']}_")
+    else:
+        _mos = dcf["margin_of_safety"]
+        _mos_color = "green" if (_mos or 0) > 0 else "red"
+        _mos_str = f" · :{_mos_color}[{_mos:+.0%} Margin of Safety]" if _mos is not None else ""
+        st.caption(
+            f"**💰 DCF Intrinsic Value:** ${dcf['intrinsic_value_per_share']:.2f}/share{_mos_str}  "
+            f"_(assumes {dcf['growth_rate']:.1%} FCF growth, {dcf['discount_rate']:.1%} discount, "
+            f"{dcf['terminal_growth']:.1%} terminal growth, {dcf['projection_years']}yr)_"
+        )
+
     if data.get("description"):
         st.markdown(f"*{data['description']}*")
 

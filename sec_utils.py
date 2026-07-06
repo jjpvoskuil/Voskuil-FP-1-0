@@ -936,3 +936,123 @@ def extract_tickers_from_text(text: str, valid_tickers: list) -> list:
     words   = re.findall(r'\b[A-Z]{1,5}\b', text)
     matches = [w for w in words if w in valid_tickers]
     return list(dict.fromkeys(matches))  # deduplicate preserving order
+
+
+# ── DCF intrinsic value ──────────────────────────────────────────────────────
+# Simple two-stage discounted cash flow: explicit projection of Free Cash Flow
+# for N years using a growth rate derived from the company's own historical
+# FCF trend (from fetch_fundamentals_edgar()'s "_history"), then a Gordon
+# Growth terminal value, both discounted to present and divided by diluted
+# shares outstanding. Shared so both Equity Scout EDGAR and Compare Stocks
+# EDGAR can show "DCF Intrinsic Value" directly under the live price.
+#
+# Simplifying assumption: FCF here (op_cf + inv_cf) already reflects
+# post-interest cash flow under GAAP's indirect method, so it's treated as
+# cash flow to equity — no separate net-debt adjustment is applied. This is
+# a standard simplification for a per-share DCF, not a rigorous FCFF/FCFE
+# build, and is disclosed in the UI caption wherever this is shown.
+
+DCF_DEFAULTS = {
+    "discount_rate":    0.09,   # ~9% hurdle rate, typical concentrated-value threshold
+    "terminal_growth":  0.025,  # roughly long-run GDP/inflation — never above discount_rate
+    "projection_years": 10,
+    "growth_cap":       0.15,   # cap extrapolated growth — avoid absurd hyper-growth projections
+    "growth_floor":     -0.05,  # floor — avoid a single bad year cratering the whole model
+    "default_growth":   0.04,   # fallback when too little FCF history to estimate a trend
+}
+
+
+def _estimate_fcf_growth_rate(fcf_history: list, cap: float, floor: float, default: float) -> float:
+    """Average year-over-year FCF growth from historical annual observations,
+    clipped to [floor, cap]. Falls back to `default` if there's insufficient
+    or unusable history (e.g., negative FCF in an early year breaks a clean
+    growth-rate calculation)."""
+    vals = [h["value"] for h in fcf_history if h.get("value") is not None]
+    if len(vals) < 3:
+        return default
+    # Use at most the last 6 years of data — recent trend, not ancient history
+    vals = vals[-7:]
+    yoy = []
+    for i in range(1, len(vals)):
+        prev, cur = vals[i - 1], vals[i]
+        if prev and prev > 0:
+            yoy.append((cur / prev) - 1)
+    if not yoy:
+        return default
+    g = sum(yoy) / len(yoy)
+    return max(floor, min(cap, g))
+
+
+def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
+    """
+    Two-stage DCF intrinsic value per share.
+
+    `data` is a fetch_fundamentals_edgar()-shaped dict (needs "fcf", "shares",
+    "price", and "_history").
+
+    Returns:
+    {
+        "intrinsic_value_per_share": float | None,
+        "margin_of_safety":          float | None,  # (intrinsic - price) / intrinsic
+        "base_fcf":                  float | None,
+        "growth_rate":               float,
+        "discount_rate":             float,
+        "terminal_growth":           float,
+        "projection_years":          int,
+        "error":                     str | None,
+    }
+    """
+    a = {**DCF_DEFAULTS, **(assumptions or {})}
+    base_fcf = data.get("fcf")
+    shares   = data.get("shares")
+    price    = data.get("price")
+
+    if base_fcf is None or base_fcf <= 0:
+        return {"intrinsic_value_per_share": None, "margin_of_safety": None,
+                "base_fcf": base_fcf, "growth_rate": None,
+                "discount_rate": a["discount_rate"], "terminal_growth": a["terminal_growth"],
+                "projection_years": a["projection_years"],
+                "error": "FCF is negative or unavailable — DCF not meaningful for this company."}
+
+    if not shares or shares <= 0:
+        return {"intrinsic_value_per_share": None, "margin_of_safety": None,
+                "base_fcf": base_fcf, "growth_rate": None,
+                "discount_rate": a["discount_rate"], "terminal_growth": a["terminal_growth"],
+                "projection_years": a["projection_years"],
+                "error": "Shares outstanding unavailable — cannot compute per-share value."}
+
+    r  = a["discount_rate"]
+    tg = a["terminal_growth"]
+    n  = a["projection_years"]
+    if tg >= r:
+        tg = r - 0.01  # guard against a nonsensical negative-denominator terminal value
+
+    fcf_history = data.get("_history", {}).get("fcf", [])
+    g = _estimate_fcf_growth_rate(fcf_history, a["growth_cap"], a["growth_floor"], a["default_growth"])
+
+    pv_sum   = 0.0
+    fcf_year = base_fcf
+    for year in range(1, n + 1):
+        fcf_year = fcf_year * (1 + g)
+        pv_sum  += fcf_year / ((1 + r) ** year)
+
+    terminal_value    = fcf_year * (1 + tg) / (r - tg)
+    pv_terminal_value = terminal_value / ((1 + r) ** n)
+
+    total_intrinsic_value = pv_sum + pv_terminal_value
+    intrinsic_per_share   = total_intrinsic_value / shares
+
+    margin_of_safety = None
+    if price and price > 0:
+        margin_of_safety = (intrinsic_per_share - price) / intrinsic_per_share
+
+    return {
+        "intrinsic_value_per_share": intrinsic_per_share,
+        "margin_of_safety":          margin_of_safety,
+        "base_fcf":                  base_fcf,
+        "growth_rate":               g,
+        "discount_rate":             r,
+        "terminal_growth":           tg,
+        "projection_years":          n,
+        "error":                     None,
+    }

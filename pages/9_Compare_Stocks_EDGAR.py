@@ -23,7 +23,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text
+from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS
 from claude_utils import ask_claude_about_equity, get_user_profile
 
 st.set_page_config(page_title="Compare Stocks — EDGAR", layout="wide")
@@ -196,10 +196,11 @@ def fmt_cell(val, kind):
     return f"{val:.2f}" if isinstance(val, (int, float)) else str(val)
 
 
-def build_compare_context(tickers, fundamentals, scores):
+def build_compare_context(tickers, fundamentals, scores, dcf_results=None):
     """Quantitative summary of the comparison set — analogous to
     build_ms_context() on Market Screener, but scoped to just the tickers
     being compared and including the score breakdown, not just the total."""
+    dcf_results = dcf_results or {}
     profile = get_user_profile()
     age     = profile.get('age', 57)
     sage    = profile.get('spouse_age', '')
@@ -219,6 +220,20 @@ def build_compare_context(tickers, fundamentals, scores):
         d = fundamentals.get(t, {})
         score, criteria = scores.get(t, (None, []))
         crit_str = " | ".join(f"{c['name']}: {c['points_earned']}/{c['points_max']}" for c in criteria)
+        dcf = dcf_results.get(t, {})
+        if dcf.get("error"):
+            dcf_str = f"DCF: unavailable ({dcf['error']})"
+        elif dcf.get("intrinsic_value_per_share") is not None:
+            _mos = dcf.get("margin_of_safety")
+            dcf_str = (
+                f"DCF Intrinsic Value: ${dcf['intrinsic_value_per_share']:.2f}/share "
+                f"(assumes {dcf['growth_rate']:.1%} FCF growth, {dcf['discount_rate']:.1%} discount rate, "
+                f"{dcf['terminal_growth']:.1%} terminal growth, {dcf['projection_years']}yr projection)"
+                + (f" | Margin of Safety: {_mos:+.0%}" if _mos is not None else "")
+            )
+        else:
+            dcf_str = "DCF: not computed"
+        _price_line = f"${d['price']:.2f}" if d.get("price") else "N/A"
         lines.append(
             f"\n{t} ({d.get('name','')}) — Score: {score}/100\n"
             f"  {crit_str}\n"
@@ -226,6 +241,7 @@ def build_compare_context(tickers, fundamentals, scores):
             f"Debt/FCF: {fmt_cell(d.get('debt_to_fcf'), 'ratio')} | Gross Margin: {fmt_cell(d.get('gross_margin'), 'pct')} | "
             f"Interest Coverage: {fmt_cell(d.get('interest_coverage'), 'ratio')} | "
             f"P/OE: {fmt_cell(d.get('price_owner_earn'), 'ratio')}\n"
+            f"  Price: {_price_line} | {dcf_str}\n"
             f"  Sector: {d.get('sector','N/A')}"
             f"{' | Financial firm' if d.get('is_financial') else ''}"
             f"{' | Cyclical' if d.get('is_cyclical') else ''}"
@@ -233,11 +249,11 @@ def build_compare_context(tickers, fundamentals, scores):
     return "\n".join(lines)
 
 
-def build_compare_deep_dive_context(tickers, fundamentals, scores, filings, question):
+def build_compare_deep_dive_context(tickers, fundamentals, scores, filings, question, dcf_results=None):
     """Combines the quant comparison summary with actual SEC 10-K filing
     excerpts for qualitative analysis — same pattern as the filings-based
     chat that used to live on Market Screener, scoped to the comparison set."""
-    lines = [build_compare_context(tickers, fundamentals, scores), "\n\n=== SEC 10-K FILING EXCERPTS ===\n"]
+    lines = [build_compare_context(tickers, fundamentals, scores, dcf_results), "\n\n=== SEC 10-K FILING EXCERPTS ===\n"]
     n_companies   = len(filings)
     section_limit = max(2500, 7500 // max(n_companies, 1))
     for t in tickers:
@@ -336,19 +352,53 @@ with col_change[1]:
 
 # ── 1. Summary strip ─────────────────────────────────────────────────────
 st.markdown("#### Summary")
+
+with st.expander("⚙️ DCF Assumptions", expanded=False):
+    st.caption(
+        "Two-stage discounted cash flow: FCF is projected forward using a growth rate derived "
+        "from each company's own historical FCF trend (capped to keep extrapolation sane), then "
+        "a Gordon Growth terminal value. Simplification: FCF here already reflects post-interest "
+        "cash flow, so it's treated as cash flow to equity directly — no separate net-debt adjustment."
+    )
+    dc1, dc2, dc3 = st.columns(3)
+    with dc1:
+        _dr = st.number_input("Discount rate (%)", min_value=4.0, max_value=20.0,
+                               value=DCF_DEFAULTS["discount_rate"] * 100, step=0.5) / 100
+    with dc2:
+        _tg = st.number_input("Terminal growth (%)", min_value=0.0, max_value=5.0,
+                               value=DCF_DEFAULTS["terminal_growth"] * 100, step=0.25) / 100
+    with dc3:
+        _yrs = st.number_input("Projection years", min_value=5, max_value=20,
+                                value=DCF_DEFAULTS["projection_years"], step=1)
+    dcf_assumptions = {"discount_rate": _dr, "terminal_growth": _tg, "projection_years": _yrs}
+
 summary_cols = st.columns(len(active_tickers))
 scores = {}
+dcf_results = {}
 for i, t in enumerate(active_tickers):
     d = fundamentals[t]
     score, criteria = score_stock_breakdown(d, weights)
     scores[t] = (score, criteria)
     label, emoji = score_to_label(score)
+    dcf = compute_dcf_value(d, dcf_assumptions)
+    dcf_results[t] = dcf
     with summary_cols[i]:
         st.markdown(f"### {t}")
         st.caption(d.get("name", t))
         st.metric("Score", f"{emoji} {score}/100", label)
         _price_str = f"${d['price']:.2f}" if d.get("price") else "N/A"
         st.caption(f"**Price:** {_price_str}")
+
+        if dcf["error"]:
+            st.caption(f"**DCF Value:** — _{dcf['error']}_")
+        else:
+            _mos = dcf["margin_of_safety"]
+            _mos_str = f"{_mos:+.0%} MoS" if _mos is not None else ""
+            _mos_color = "green" if (_mos or 0) > 0 else "red"
+            st.caption(f"**DCF Value:** ${dcf['intrinsic_value_per_share']:.2f}")
+            if _mos_str:
+                st.caption(f":{_mos_color}[{_mos_str}]")
+
         st.caption(f"**Mkt Cap:** {fmt_val(d.get('market_cap'))}")
         st.caption(f"**Sector:** {d.get('sector', 'N/A')}")
         if d.get("is_financial"):
@@ -498,7 +548,7 @@ if cmp_active_q:
         with st.spinner("Analyzing..."):
             if not st.session_state[cmp_context_key]:
                 context_str = build_compare_deep_dive_context(
-                    active_tickers, fundamentals, scores, filings_cache, cmp_active_q
+                    active_tickers, fundamentals, scores, filings_cache, cmp_active_q, dcf_results
                 )
                 response = ask_claude_about_equity(
                     ticker="COMPARE", data={}, scores={}, sections={},
