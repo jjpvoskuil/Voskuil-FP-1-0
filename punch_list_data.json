@@ -539,6 +539,15 @@
       "priority": "Urgent",
       "done": false,
       "created": "2026-07-06"
+    },
+    {
+      "id": 62,
+      "title": "Develop architecture visual",
+      "note": "Develop an editable project architecture  to better define the structure today and also allow me to visualize future development needs.  Ideally, I can edit and view as a page in my app, and also store in the context section of my Claude Project Page.",
+      "phase": "Architecture",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-07-06"
     }
   ],
   "phases": [
