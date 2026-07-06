@@ -24,7 +24,7 @@
       "note": "app.py, equity_scout.py, market_screener.py each have independent sliders. Same ticker can score differently. Store active weights in session state and read on all pages.",
       "phase": "Equity Scoring",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-05-01"
     },
     {
