@@ -429,7 +429,7 @@
       "note": "Define canonical field map: EDGAR US-GAAP concept \u2192 internal scoring field (e.g. NetCashProvidedByUsedInOperatingActivities \u2192 op_cf). Handle concept aliases (companies use different XBRL tags for same economic item). Store map in edgar_concept_map.py. Must be designed so historical pulls use same map \u2014 no one-off patches per company.",
       "phase": "API / Infrastructure",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-23"
     },
     {
