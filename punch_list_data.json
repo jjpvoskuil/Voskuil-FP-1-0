@@ -557,6 +557,15 @@
       "priority": "High",
       "done": false,
       "created": "2026-07-06"
+    },
+    {
+      "id": 64,
+      "title": "Market Screen Deep Dive",
+      "note": "On the compare page of market screening, I want to be able to click on any of the financial metrics and see the historical trend of that metric across all companies in the compare.",
+      "phase": "Fund Deep Dive",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-07-06"
     }
   ],
   "phases": [
