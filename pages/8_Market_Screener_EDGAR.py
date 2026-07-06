@@ -7,7 +7,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import get_ticker_cik_map, fetch_company_facts_with_cik
+from sec_utils import get_ticker_cik_map, fetch_company_facts_with_cik, fetch_10k_sections
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 import concurrent.futures
 
