@@ -456,7 +456,7 @@
       "note": "Stage 1: Pull fundamentals for ~500 tickers via EDGAR bulk company_facts.zip. Score on 65 quality points (ROIC, Debt/FCF, Gross Margin, Interest Coverage) \u2014 no price data needed. Filter to 42+ pt survivors (~40-80 tickers). Stage 2: Fetch price/market cap for survivors only via yfinance. Complete full 100-pt score. Design bulk ZIP download to cache within session. Rate limit: 10 req/sec for per-ticker fallback.",
       "phase": "API / Infrastructure",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-23"
     },
     {
