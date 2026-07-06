@@ -447,7 +447,7 @@
       "note": "Same swap as #49 but for Dashboard holdings fetch. ~15-20 tickers. Confirm performance is acceptable (sequential or light parallel). Remove Polygon dependency for fundamentals on this page entirely.",
       "phase": "API / Infrastructure",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-23"
     },
     {
