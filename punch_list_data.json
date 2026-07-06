@@ -514,15 +514,6 @@
       "created": "2026-06-23"
     },
     {
-      "id": 58,
-      "title": "Automatic Code Transfer",
-      "note": "Remove the code txt copy and paste step from Claude to my github repo.  I want claude to push and commit changes directly to github to speed the development process",
-      "phase": "Development Effiency",
-      "priority": "Urgent",
-      "done": false,
-      "created": "2026-07-06"
-    },
-    {
       "id": 59,
       "title": "Automatic Code Transfer",
       "note": "Remove the code txt copy and paste step from Claude to my github repo.  I want claude to push and commit changes directly to github to speed the development process",
