@@ -23,108 +23,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS
+from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown
 from claude_utils import ask_claude_about_equity, get_user_profile
 from ui_utils import force_scroll_to_top
 
 st.set_page_config(page_title="Compare Stocks — EDGAR", layout="wide")
 
-DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
-    "ROIC":                   20,
-    "Debt / FCF":             25,
-    "Gross Margin":           15,
-    "Interest Coverage":      10,
-}
-
-THRESHOLDS = {
-    "fcf_yield_good":           0.04,
-    "fcf_yield_great":          0.06,
-    "roic_good":                0.12,
-    "roic_great":               0.20,
-    "debt_fcf_safe":            3.0,
-    "debt_fcf_warning":         5.0,
-    "interest_coverage_safe":   5.0,
-    "gross_margin_good":        0.40,
-    "gross_margin_great":       0.60,
-}
-
 MAX_COMPARE = 5
-
-
-def score_stock_breakdown(data, weights):
-    """Identical scoring logic to Market Screener / Equity Scout EDGAR.
-    Kept as a local copy rather than a cross-page import — pages/ modules
-    execute top-level Streamlit calls (st.set_page_config, etc.) on import,
-    which makes importing directly from another page unsafe in a
-    multi-page app. See punch list architecture item for a possible future
-    consolidation into a shared scoring module."""
-    criteria = []
-
-    max_pts   = weights["FCF Yield"]
-    fcf_yield = data.get('fcf_yield')
-    if fcf_yield is not None:
-        if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts = max_pts
-        elif fcf_yield >= THRESHOLDS['fcf_yield_good']:  pts = round(max_pts * 0.60)
-        elif fcf_yield > 0:                              pts = round(max_pts * 0.15)
-        else:                                            pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "FCF Yield", "points_earned": pts, "points_max": max_pts, "missing": fcf_yield is None})
-
-    max_pts = weights["ROIC"]
-    roic    = data.get('roic')
-    if roic is not None:
-        if roic >= THRESHOLDS['roic_great']:   pts = max_pts
-        elif roic >= THRESHOLDS['roic_good']:  pts = round(max_pts * 0.60)
-        elif roic > 0:                         pts = round(max_pts * 0.20)
-        else:                                  pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "ROIC", "points_earned": pts, "points_max": max_pts, "missing": roic is None})
-
-    max_pts  = weights["Debt / FCF"]
-    debt_fcf = data.get('debt_to_fcf')
-    ic       = data.get('interest_coverage') or 0
-    is_nc    = data.get('is_net_creditor', False)
-    if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS['debt_fcf_safe']:        pts = max_pts
-        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:   pts = round(max_pts * 0.50)
-        elif ic >= THRESHOLDS['interest_coverage_safe'] or is_nc: pts = round(max_pts * 0.50)
-        else:                                              pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "Debt/FCF", "points_earned": pts, "points_max": max_pts, "missing": debt_fcf is None})
-
-    max_pts = weights["Gross Margin"]
-    gm      = data.get('gross_margin')
-    if gm is not None:
-        if gm >= THRESHOLDS['gross_margin_great']:  pts = max_pts
-        elif gm >= THRESHOLDS['gross_margin_good']: pts = round(max_pts * 0.67)
-        else:                                       pts = round(max_pts * 0.20)
-    else:
-        pts = 0
-    criteria.append({"name": "Gross Margin", "points_earned": pts, "points_max": max_pts, "missing": gm is None})
-
-    max_pts = weights["Interest Coverage"]
-    ic_val  = data.get('interest_coverage')
-    if is_nc:
-        pts = max_pts
-    elif ic_val is not None:
-        if ic_val >= THRESHOLDS['interest_coverage_safe']: pts = max_pts
-        elif ic_val >= 2.5:                                pts = round(max_pts * 0.50)
-        elif ic_val > 0:                                   pts = round(max_pts * 0.15)
-        else:                                              pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "Interest Coverage", "points_earned": pts, "points_max": max_pts,
-                     "missing": (not is_nc and ic_val is None)})
-
-    raw_score     = sum(c['points_earned'] for c in criteria)
-    missing_pts   = sum(c['points_max'] for c in criteria if c.get('missing'))
-    available_pts = 100 - missing_pts
-    rebalanced    = round(raw_score / available_pts * 100) if available_pts > 0 else raw_score
-    return rebalanced, criteria
 
 
 def score_to_label(score):

@@ -9,7 +9,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import get_ticker_cik_map, fetch_company_facts_with_cik
+from sec_utils import get_ticker_cik_map, fetch_company_facts_with_cik, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_stock_breakdown
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
 from ui_utils import force_scroll_to_top
@@ -20,29 +20,6 @@ st.set_page_config(page_title="Market Screener — EDGAR", layout="wide")
 SCAN_CACHE_PATH = "market_screener_scan_cache.json"
 
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
-
-DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
-    "ROIC":                   20,
-    "Debt / FCF":             25,
-    "Gross Margin":           15,
-    "Interest Coverage":      10,
-}
-
-THRESHOLDS = {
-    "fcf_yield_good":           0.04,
-    "fcf_yield_great":          0.06,
-    "roic_good":                0.12,
-    "roic_great":               0.20,
-    "debt_fcf_safe":            3.0,
-    "debt_fcf_warning":         5.0,
-    "interest_coverage_safe":   5.0,
-    "gross_margin_good":        0.40,
-    "gross_margin_great":       0.60,
-    "poe_bargain":              15.0,
-    "poe_fair":                 25.0,
-    "poe_stretched":            35.0,
-}
 
 # Quality-floor for Stage 1 — companies must clear this on the
 # price-independent 65 points (ROIC + Debt/FCF + Gross Margin + Interest
@@ -485,91 +462,6 @@ def fetch_price_data(ticker: str) -> dict:
         return {"price": None, "market_cap": None, "shares": None,
                 "dividend_yield": None, "sector": "N/A"}
 
-
-def score_stock_breakdown(data, weights):
-    """
-    Same 5-criteria scoring as score_stock(), but returns the full breakdown
-    (per-criterion points earned/max) alongside the rebalanced total — needed
-    for the Compare Stocks page (#60) score-breakdown panel. score_stock()
-    delegates here and just discards the breakdown for its existing callers.
-    """
-    criteria = []
-
-    max_pts   = weights["FCF Yield"]
-    fcf_yield = data.get('fcf_yield')
-    if fcf_yield is not None:
-        if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts = max_pts
-        elif fcf_yield >= THRESHOLDS['fcf_yield_good']:  pts = round(max_pts * 0.60)
-        elif fcf_yield > 0:                              pts = round(max_pts * 0.15)
-        else:                                            pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "FCF Yield", "points_earned": pts, "points_max": max_pts, "missing": fcf_yield is None})
-
-    max_pts = weights["ROIC"]
-    roic    = data.get('roic')
-    if roic is not None:
-        if roic >= THRESHOLDS['roic_great']:   pts = max_pts
-        elif roic >= THRESHOLDS['roic_good']:  pts = round(max_pts * 0.60)
-        elif roic > 0:                         pts = round(max_pts * 0.20)
-        else:                                  pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "ROIC", "points_earned": pts, "points_max": max_pts, "missing": roic is None})
-
-    max_pts  = weights["Debt / FCF"]
-    debt_fcf = data.get('debt_to_fcf')
-    ic       = data.get('interest_coverage') or 0
-    is_nc    = data.get('is_net_creditor', False)
-    if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS['debt_fcf_safe']:        pts = max_pts
-        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:   pts = round(max_pts * 0.50)
-        elif ic >= THRESHOLDS['interest_coverage_safe'] or is_nc: pts = round(max_pts * 0.50)
-        else:                                              pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "Debt/FCF", "points_earned": pts, "points_max": max_pts, "missing": debt_fcf is None})
-
-    max_pts = weights["Gross Margin"]
-    gm      = data.get('gross_margin')
-    if gm is not None:
-        if gm >= THRESHOLDS['gross_margin_great']:  pts = max_pts
-        elif gm >= THRESHOLDS['gross_margin_good']: pts = round(max_pts * 0.67)
-        else:                                       pts = round(max_pts * 0.20)
-    else:
-        pts = 0
-    criteria.append({"name": "Gross Margin", "points_earned": pts, "points_max": max_pts, "missing": gm is None})
-
-    max_pts = weights["Interest Coverage"]
-    ic_val  = data.get('interest_coverage')
-    if is_nc:
-        pts = max_pts
-    elif ic_val is not None:
-        if ic_val >= THRESHOLDS['interest_coverage_safe']: pts = max_pts
-        elif ic_val >= 2.5:                                pts = round(max_pts * 0.50)
-        elif ic_val > 0:                                   pts = round(max_pts * 0.15)
-        else:                                              pts = 0
-    else:
-        pts = 0
-    criteria.append({"name": "Interest Coverage", "points_earned": pts, "points_max": max_pts,
-                     "missing": (not is_nc and ic_val is None)})
-
-    raw_score     = sum(c['points_earned'] for c in criteria)
-    missing_pts   = sum(c['points_max'] for c in criteria if c.get('missing'))
-    available_pts = 100 - missing_pts
-    rebalanced    = round(raw_score / available_pts * 100) if available_pts > 0 else raw_score
-    return rebalanced, criteria
-
-
-def score_stock(data, weights):
-    """
-    5-criteria scoring (FCF Yield, ROIC, Debt/FCF, Gross Margin, Interest
-    Coverage). Price/Owner Earnings is intentionally excluded from scoring
-    — it's still computed and shown on result cards/CSV export as a
-    valuation reference, but doesn't factor into the conviction score.
-    """
-    rebalanced, _criteria = score_stock_breakdown(data, weights)
-    return rebalanced
 
 
 def score_to_label(score):
