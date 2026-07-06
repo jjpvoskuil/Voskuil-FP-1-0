@@ -222,7 +222,7 @@
       "note": "Need to figure out a solution to API directly to Morgn Stanley down load files",
       "phase": "API / Infrastructure",
       "priority": "Medium",
-      "done": false,
+      "done": true,
       "created": "2026-06-03"
     },
     {
