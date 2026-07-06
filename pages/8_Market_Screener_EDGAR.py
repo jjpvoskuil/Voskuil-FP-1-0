@@ -4,15 +4,19 @@ import pandas as pd
 from io import StringIO
 import time
 import random
+from datetime import datetime, timezone
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
 from sec_utils import get_ticker_cik_map, fetch_company_facts_with_cik
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
+from github_store import github_get_json, github_put_json
 import concurrent.futures
 
 st.set_page_config(page_title="Market Screener — EDGAR", layout="wide")
+
+SCAN_CACHE_PATH = "market_screener_scan_cache.json"
 
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 
@@ -657,6 +661,7 @@ st.markdown("#### Ticker Universe")
 universe_choice = st.radio(
     "Select the universe to scan",
     options=["S&P 500 (~500)", "All US Common Stocks (~6,000+)"],
+    index=1,
     horizontal=True,
     help=(
         "S&P 500 sourced from Wikipedia. 'All US Common Stocks' is sourced free from "
@@ -665,8 +670,8 @@ universe_choice = st.radio(
         "issues). This is a much broader universe than the S&P 500 and a practical free "
         "proxy for Russell 1000/2000-scale coverage — FTSE Russell's own official "
         "constituent files are commercial-license-only, so there's no free exact match. "
-        "Within this scan, you control how many tickers to actually screen via "
-        "'Max stocks to scan' below."
+        "Defaults to the full universe since a completed scan is now cached persistently "
+        "(survives reboots) — you rarely need to re-scan from scratch."
     ),
 )
 
@@ -682,10 +687,11 @@ with col3:
     _default_max = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)": 1000}[universe_choice]
     scan_all = st.checkbox(
         "Scan ALL tickers in universe",
-        value=False,
+        value=True,
         help="Bypasses the max-scan limit entirely and screens every ticker in the selected "
              "universe. For 'All US Common Stocks' this is 6,000-8,000+ tickers and will take "
-             "significantly longer (see time estimate below)."
+             "significantly longer (see time estimate below) — but the result is cached "
+             "persistently afterward, so this cost is paid once, not on every reboot."
     )
     max_scan = st.number_input(
         "Max stocks to scan (Stage 1)", min_value=10, max_value=8000,
@@ -942,8 +948,29 @@ def apply_weights_and_rank(priced_pool: list):
     st.session_state.pop('ms_filings', None)
 
 
+# ── Persistent scan cache — survives Streamlit Cloud reboots/redeploys ──────
+# Stage 1's survivor pool (post quality-floor, pre-price — the same thing
+# cached in session_state as 'ms_edgar_stage1_raw_pool') is small enough to
+# store in the GitHub repo, unlike the full per-ticker scan which can take
+# 10+ minutes for the whole US universe. Loaded once per session; a full
+# scan (the button below) re-saves it after completing.
+if 'ms_edgar_cache_load_attempted' not in st.session_state:
+    st.session_state['ms_edgar_cache_load_attempted'] = True
+    if 'ms_edgar_stage1_raw_pool' not in st.session_state:
+        _cached, _sha, _err = github_get_json(SCAN_CACHE_PATH)
+        if _cached and not _err:
+            st.session_state['ms_edgar_stage1_raw_pool']    = _cached.get('stage1_survivors', [])
+            st.session_state['ms_edgar_stage1_raw_total']   = _cached.get('total_tickers_scanned', 0)
+            st.session_state['ms_edgar_scan_timestamp']     = _cached.get('scan_timestamp')
+            st.session_state['ms_edgar_scan_universe']      = _cached.get('universe')
+        elif _err:
+            st.session_state['ms_edgar_cache_load_error'] = _err
+
 _has_cached_pool  = 'ms_edgar_stage1_raw_pool' in st.session_state
 _has_priced_pool  = 'ms_edgar_stage2_priced_pool' in st.session_state
+
+if st.session_state.get('ms_edgar_cache_load_error'):
+    st.caption(f"⚠️ Couldn't load persistent scan cache: {st.session_state['ms_edgar_cache_load_error']}")
 
 action_col1, action_col2, action_col3 = st.columns([2, 2, 4])
 with action_col1:
@@ -966,14 +993,23 @@ with action_col2:
              "Run a scan first to enable instant weight re-scoring.",
     )
 with action_col3:
+    _scan_ts    = st.session_state.get('ms_edgar_scan_timestamp')
+    _scan_univ  = st.session_state.get('ms_edgar_scan_universe', '')
+    _last_scan_str = ""
+    if _scan_ts:
+        try:
+            _dt = datetime.fromisoformat(_scan_ts)
+            _last_scan_str = f" · Last full scan: {_dt.strftime('%b %d, %Y %H:%M UTC')} ({_scan_univ})"
+        except Exception:
+            _last_scan_str = f" · Last full scan: {_scan_ts} ({_scan_univ})"
     if _has_priced_pool:
         _priced_n = len(st.session_state['ms_edgar_stage2_priced_pool'])
-        st.caption(f"💾 {_priced_n} priced companies cached — change weights above (Apply Weights first) then click Re-score for instant re-ranking.")
+        st.caption(f"💾 {_priced_n} priced companies cached{_last_scan_str} — change weights above (Apply Weights first) then click Re-score for instant re-ranking.")
     elif _has_cached_pool:
         _cached_n = len(st.session_state['ms_edgar_stage1_raw_pool'])
-        st.caption(f"💾 {_cached_n} companies cached from last scan — change filters above and click Re-apply to cycle through combinations instantly.")
+        st.caption(f"💾 {_cached_n} companies cached{_last_scan_str} — click Re-apply Filters to price and see results, or change filters first.")
     else:
-        st.caption("No cached scan yet — run a full scan below first.")
+        st.caption("No cached scan yet — run a full scan below first. Once complete, it's saved persistently and survives reboots.")
 
 if refilter_clicked and _has_cached_pool:
     if total_weight != 100:
@@ -989,6 +1025,8 @@ if rescore_clicked and _has_priced_pool:
         st.error(f"Weights must add up to 100. Currently at {total_weight}.")
         st.stop()
     apply_weights_and_rank(st.session_state['ms_edgar_stage2_priced_pool'])
+
+
 
 if run_screen:
     if total_weight != 100:
@@ -1076,6 +1114,30 @@ if run_screen:
     # without re-running the slow EDGAR fetch.
     st.session_state['ms_edgar_stage1_raw_pool']  = stage1_results
     st.session_state['ms_edgar_stage1_raw_total'] = total_tickers
+
+    # Persist to GitHub so this survives a Streamlit Cloud reboot/redeploy —
+    # the whole point of a full-universe scan being expensive (minutes) is
+    # to not have to pay that cost again every time the app restarts.
+    _scan_timestamp = datetime.now(timezone.utc).isoformat()
+    with st.spinner("💾 Saving scan results persistently (survives reboots)..."):
+        _ok, _msg = github_put_json(
+            SCAN_CACHE_PATH,
+            {
+                "universe":              universe_choice,
+                "scan_timestamp":        _scan_timestamp,
+                "total_tickers_scanned": total_tickers,
+                "stage1_survivors":      stage1_results,
+            },
+            commit_message=f"Market screener scan cache — {universe_choice} — {len(stage1_results)} survivors",
+        )
+    if _ok:
+        st.session_state['ms_edgar_scan_timestamp'] = _scan_timestamp
+        st.session_state['ms_edgar_scan_universe']  = universe_choice
+        st.caption("✅ Scan cached persistently — will still be here after a reboot.")
+    else:
+        st.warning(f"⚠️ Scan completed but persistent save failed: {_msg}\n\n"
+                   f"Results are available for this session, but a reboot/redeploy will lose them "
+                   f"until you re-run the scan.")
 
     run_filters_and_stage2(stage1_results, total_tickers)
 
