@@ -519,7 +519,16 @@
       "note": "Remove the code txt copy and paste step from Claude to my github repo.  I want claude to push and commit changes directly to github to speed the development process",
       "phase": "Development Efficiency",
       "priority": "Urgent",
-      "done": true,
+      "done": false,
+      "created": "2026-07-06"
+    },
+    {
+      "id": 60,
+      "title": "Build stock comparison page from Market Screen",
+      "note": "After the market screen runs and presents the top xxx picks.  I'd like to add a feature that if I select several of these picks, I have the option to open a new page to show the full financials from EDGAR side by side so I can better compare potential targets.",
+      "phase": "Fund Deep Dive",
+      "priority": "Urgent",
+      "done": false,
       "created": "2026-07-06"
     }
   ],
