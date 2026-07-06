@@ -96,7 +96,7 @@
       "note": "vX endpoint sunsets June 22. v1 migration is built with vX fallback. Blocker: add Financials & Ratios Expansion ($29/mo) at massive.com dashboard. Once added, v1 activates automatically.",
       "phase": "API / Infrastructure",
       "priority": "Urgent",
-      "done": false,
+      "done": true,
       "created": "2026-05-01"
     },
     {
