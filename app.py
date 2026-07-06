@@ -28,6 +28,7 @@ pg = st.navigation([
     st.Page("pages/0_Dashboard.py",          title="Dashboard",            icon="🛡️"),
     st.Page("pages/7_Equity_Scout_EDGAR.py",  title="Equity Scout",         icon="🔍"),
     st.Page("pages/8_Market_Screener_EDGAR.py", title="Market Screener",    icon="📡"),
+    st.Page("pages/9_Compare_Stocks_EDGAR.py",  title="Compare Stocks",     icon="⚖️"),
     st.Page("pages/3_Financial_Modeler.py",   title="Financial Modeler",    icon="🏔️"),
     st.Page("pages/4_MS_Financial_Modeler.py",title="MS Financial Modeler", icon="🏦"),
     st.Page("pages/5_Downloads.py",           title="Downloads",            icon="⬇️"),

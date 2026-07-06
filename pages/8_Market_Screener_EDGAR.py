@@ -535,12 +535,12 @@ def fetch_price_data(ticker: str) -> dict:
                 "dividend_yield": None, "sector": "N/A"}
 
 
-def score_stock(data, weights):
+def score_stock_breakdown(data, weights):
     """
-    5-criteria scoring (FCF Yield, ROIC, Debt/FCF, Gross Margin, Interest
-    Coverage). Price/Owner Earnings is intentionally excluded from scoring
-    — it's still computed and shown on result cards/CSV export as a
-    valuation reference, but doesn't factor into the conviction score.
+    Same 5-criteria scoring as score_stock(), but returns the full breakdown
+    (per-criterion points earned/max) alongside the rebalanced total — needed
+    for the Compare Stocks page (#60) score-breakdown panel. score_stock()
+    delegates here and just discards the breakdown for its existing callers.
     """
     criteria = []
 
@@ -607,6 +607,17 @@ def score_stock(data, weights):
     missing_pts   = sum(c['points_max'] for c in criteria if c.get('missing'))
     available_pts = 100 - missing_pts
     rebalanced    = round(raw_score / available_pts * 100) if available_pts > 0 else raw_score
+    return rebalanced, criteria
+
+
+def score_stock(data, weights):
+    """
+    5-criteria scoring (FCF Yield, ROIC, Debt/FCF, Gross Margin, Interest
+    Coverage). Price/Owner Earnings is intentionally excluded from scoring
+    — it's still computed and shown on result cards/CSV export as a
+    valuation reference, but doesn't factor into the conviction score.
+    """
+    rebalanced, _criteria = score_stock_breakdown(data, weights)
     return rebalanced
 
 
@@ -1292,7 +1303,7 @@ if 'ms_edgar_results_df' in st.session_state:
     top3_tickers     = results_df['ticker'].head(3).tolist()
     selected_tickers = st.session_state.get('ms_selected_tickers', [])
 
-    dd_col1, dd_col2, dd_col3 = st.columns([2, 2, 3])
+    dd_col1, dd_col2, dd_col3, dd_col4 = st.columns([2, 2, 2, 3])
     with dd_col1:
         _top3_disabled = 'ms_pending_deep_dive' in st.session_state
         if st.button("🔬 Deep Dive Top 3", type="primary", use_container_width=True,
@@ -1315,10 +1326,23 @@ if 'ms_edgar_results_df' in st.session_state:
             st.session_state['ms_selected_tickers']  = []
             st.rerun()
     with dd_col3:
+        n_sel_cmp = len(selected_tickers)
+        _cmp_disabled = n_sel_cmp < 2
+        if st.button(
+            f"⚖️ Compare Selected ({n_sel_cmp})",
+            type="primary" if n_sel_cmp >= 2 else "secondary",
+            use_container_width=True,
+            disabled=_cmp_disabled,
+            help=f"Side-by-side comparison for: {', '.join(selected_tickers)}" if selected_tickers else "Check at least 2 boxes to compare",
+        ):
+            st.session_state['compare_tickers'] = selected_tickers.copy()
+            st.session_state['compare_weights']  = weights.copy()
+            st.switch_page("pages/9_Compare_Stocks_EDGAR.py")
+    with dd_col4:
         if selected_tickers:
             st.caption(f"✅ Selected: {', '.join(selected_tickers)}")
         else:
-            st.caption("☑️ Check boxes next to any result to select for deep dive (max 5)")
+            st.caption("☑️ Check boxes next to any result to select for deep dive or comparison (max 5)")
 
     # Show which tickers are loaded
     loaded_filings = st.session_state.get('ms_filings', {})
