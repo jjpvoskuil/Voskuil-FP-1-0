@@ -438,7 +438,7 @@
       "note": "Wire fetch_company_facts() into fetch_fundamentals() in Equity Scout as primary source. Polygon becomes fallback only. Validate scoring output matches or improves on Polygon for 5 core holdings. Retain two-year history for YoY metrics. Verify interest expense, debt, and capex are sourced from correct XBRL concepts \u2014 these are the most likely to have multi-tag ambiguity.",
       "phase": "API / Infrastructure",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-23"
     },
     {
