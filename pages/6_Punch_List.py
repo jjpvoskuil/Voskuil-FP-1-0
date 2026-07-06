@@ -490,9 +490,9 @@ f_col1, f_col2, f_col3, add_col = st.columns([2, 2, 1, 1])
 with f_col1:
     filter_phase = st.selectbox("Phase", ["All Phases"] + PHASES, label_visibility="collapsed")
 with f_col2:
-    filter_priority = st.selectbox("Priority", ["All Priorities"] + PRIORITIES + ["Done"], label_visibility="collapsed")
+    filter_priority = st.selectbox("Priority", ["All Priorities"] + PRIORITIES, label_visibility="collapsed")
 with f_col3:
-    show_done = st.toggle("Show Done", value=False)
+    show_done_only = st.toggle("Show Done Only", value=False)
 with add_col:
     add_clicked = st.button("➕ Add Item", type="primary", use_container_width=True)
 
@@ -573,12 +573,12 @@ PRIORITY_COLORS = {
 }
 
 # Filter
+# Filter — show_done_only is the single switch between "open items" and
+# "done items"; phase and priority filters apply independently in either mode.
 visible = [i for i in items if (
     (filter_phase    == "All Phases"     or i["phase"]    == filter_phase) and
-    (filter_priority == "All Priorities" or
-     (filter_priority == "Done" and i["done"]) or
-     (filter_priority != "Done" and i["priority"] == filter_priority and not i["done"])) and
-    (show_done or filter_priority == "Done" or not i["done"])
+    (filter_priority == "All Priorities" or i["priority"] == filter_priority) and
+    (i["done"] if show_done_only else not i["done"])
 )]
 
 # Group by phase
