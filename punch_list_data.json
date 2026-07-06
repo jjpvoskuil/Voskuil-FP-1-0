@@ -267,7 +267,7 @@
       "note": "Changing weight sliders on Equity Scout and Market Screener required 2 clicks to rescore.  Let's have it rescore after the new weights are confirmed",
       "phase": "Equity Scoring",
       "priority": "Urgent",
-      "done": false,
+      "done": true,
       "created": "2026-06-04"
     },
     {
