@@ -25,15 +25,15 @@ for _k, _v in _fp_defaults.items():
         st.session_state[_k] = _v
 
 pg = st.navigation([
-    st.Page("pages/0_Dashboard.py",          title="Dashboard",            icon="🛡️"),
-    st.Page("pages/7_Equity_Scout_EDGAR.py",  title="Equity Scout",         icon="🔍"),
-    st.Page("pages/8_Market_Screener_EDGAR.py", title="Market Screener",    icon="📡"),
-    st.Page("pages/9_Compare_Stocks_EDGAR.py",  title="Compare Stocks",     icon="⚖️"),
-    st.Page("pages/3_Financial_Modeler.py",   title="Financial Modeler",    icon="🏔️"),
-    st.Page("pages/4_MS_Financial_Modeler.py",title="MS Financial Modeler", icon="🏦"),
-    st.Page("pages/5_Downloads.py",           title="Downloads",            icon="⬇️"),
-    st.Page("pages/6_Punch_List.py",          title="Punch List",           icon="✅"),
-    # st.Page("pages/1_Equity_Scout.py",      title="Equity Scout",         icon="🔍"),   # retired — code kept for reference
-    # st.Page("pages/2_Market_Screener.py",   title="Market Screener",      icon="📡"),   # retired — code kept for reference
+    st.Page("app_pages/0_Dashboard.py",          title="Dashboard",            icon="🛡️"),
+    st.Page("app_pages/7_Equity_Scout_EDGAR.py",  title="Equity Scout",         icon="🔍"),
+    st.Page("app_pages/8_Market_Screener_EDGAR.py", title="Market Screener",    icon="📡"),
+    st.Page("app_pages/9_Compare_Stocks_EDGAR.py",  title="Compare Stocks",     icon="⚖️"),
+    st.Page("app_pages/3_Financial_Modeler.py",   title="Financial Modeler",    icon="🏔️"),
+    st.Page("app_pages/4_MS_Financial_Modeler.py",title="MS Financial Modeler", icon="🏦"),
+    st.Page("app_pages/5_Downloads.py",           title="Downloads",            icon="⬇️"),
+    st.Page("app_pages/6_Punch_List.py",          title="Punch List",           icon="✅"),
+    # st.Page("app_pages/1_Equity_Scout.py",      title="Equity Scout",         icon="🔍"),   # retired — code kept for reference
+    # st.Page("app_pages/2_Market_Screener.py",   title="Market Screener",      icon="📡"),   # retired — code kept for reference
 ])
 pg.run()

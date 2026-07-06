@@ -348,7 +348,7 @@ col_change = st.columns([4, 1])
 with col_change[1]:
     if st.button("🔄 Change Selection", use_container_width=True):
         st.session_state["compare_tickers"] = []
-        st.switch_page("pages/8_Market_Screener_EDGAR.py")
+        st.switch_page("app_pages/8_Market_Screener_EDGAR.py")
 
 # ── 1. Summary strip ─────────────────────────────────────────────────────
 st.markdown("#### Summary")

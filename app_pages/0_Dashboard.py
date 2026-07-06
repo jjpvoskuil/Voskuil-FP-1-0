@@ -859,7 +859,7 @@ if df_holdings_raw is not None:
         with c9:
             if st.button("🔍 Deep Dive", key=f"dive_{row['Symbol']}", use_container_width=True, type="primary"):
                 st.session_state["dive_ticker"] = row['Symbol']
-                st.switch_page("pages/1_Equity_Scout.py")
+                st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")
 
     st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database)")
     st.divider()
@@ -1015,4 +1015,4 @@ if df_holdings_raw is not None:
             type="primary"
         ):
             st.session_state["dive_ticker"] = selected_symbol
-            st.switch_page("pages/1_Equity_Scout.py")
+            st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")

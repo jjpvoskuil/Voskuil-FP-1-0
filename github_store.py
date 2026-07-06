@@ -6,7 +6,7 @@ Streamlit Cloud's filesystem resets on every reboot/redeploy, so anything
 that needs to survive that (the punch list, and now the Market Screener's
 persistent scan cache) has to live in GitHub instead of local disk. This
 module is a generic, reusable version of the read/write-with-SHA pattern
-originally built for pages/6_Punch_List.py — any page needing "save this
+originally built for app_pages/6_Punch_List.py — any page needing "save this
 JSON blob to the repo and read it back later" can use it instead of
 writing a third copy of the GitHub API calls.
 """

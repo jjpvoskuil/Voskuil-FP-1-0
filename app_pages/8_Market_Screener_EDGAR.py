@@ -1320,7 +1320,7 @@ if 'ms_edgar_results_df' in st.session_state:
             st.session_state['compare_tickers'] = top3_tickers
             st.session_state['compare_weights']  = weights.copy()
             st.session_state['ms_selected_tickers'] = []
-            st.switch_page("pages/9_Compare_Stocks_EDGAR.py")
+            st.switch_page("app_pages/9_Compare_Stocks_EDGAR.py")
     with dd_col2:
         n_sel_cmp = len(selected_tickers)
         _cmp_disabled = n_sel_cmp < 2
@@ -1333,7 +1333,7 @@ if 'ms_edgar_results_df' in st.session_state:
         ):
             st.session_state['compare_tickers'] = selected_tickers.copy()
             st.session_state['compare_weights']  = weights.copy()
-            st.switch_page("pages/9_Compare_Stocks_EDGAR.py")
+            st.switch_page("app_pages/9_Compare_Stocks_EDGAR.py")
     with dd_col3:
         if selected_tickers:
             st.caption(f"✅ Selected: {', '.join(selected_tickers)}")

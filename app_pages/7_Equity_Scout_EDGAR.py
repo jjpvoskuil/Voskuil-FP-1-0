@@ -267,7 +267,7 @@ if url_ticker:
     col_back, _ = st.columns([1, 4])
     with col_back:
         if st.button("← Back to Dashboard"):
-            st.switch_page("pages/0_Dashboard.py")
+            st.switch_page("app_pages/0_Dashboard.py")
     st.info(f"📌 Analyzing **{url_ticker}** — arrived from Holdings Explorer.")
 
 st.divider()

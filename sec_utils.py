@@ -714,7 +714,7 @@ def fetch_10k_sections(ticker: str) -> dict:
 
 
 # ── Shared helpers: value formatting + fundamentals fetch ────────────────────
-# Moved here from pages/7_Equity_Scout_EDGAR.py (originally page-local) so that
+# Moved here from app_pages/7_Equity_Scout_EDGAR.py (originally page-local) so that
 # any page needing full fundamentals — Equity Scout, Market Screener deep-dive,
 # and the Compare Stocks page (#60) — can call one canonical implementation
 # instead of drifting copies.
@@ -908,7 +908,7 @@ def fetch_fundamentals_edgar(ticker):
 
 
 # ── Shared helpers: parallel filing fetch + ticker mention detection ────────
-# Moved here from pages/8_Market_Screener_EDGAR.py so the Compare Stocks page
+# Moved here from app_pages/8_Market_Screener_EDGAR.py so the Compare Stocks page
 # (#60/#61) can reuse the same filings-fetch mechanism for its own Claude
 # agent instead of duplicating it.
 

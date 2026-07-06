@@ -18,7 +18,7 @@ MGP_URL = "https://ms.moneyguidepro.com/morganstanley-darst/Guests.aspx"
 col1, col2, col3 = st.columns([1, 6, 1])
 with col1:
     if st.button("← Dashboard", type="secondary"):
-        st.switch_page("pages/0_Dashboard.py")
+        st.switch_page("app_pages/0_Dashboard.py")
 with col2:
     st.markdown(
         "<div style='text-align:center; padding:6px 0; font-size:0.9em; color:#888;'>"
