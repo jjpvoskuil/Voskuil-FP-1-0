@@ -123,7 +123,7 @@
       "note": "Full Plaid flow built (connect.py, plaid_data.py). Blocker: MS refusing connection despite third-party sharing enabled. Try: wait 24-48hrs, call MS 1-800-869-3326, toggle from mobile app. Financial planner contacted. Sandbox works: user_good/pass_good, PLAID_ENV=sandbox.",
       "phase": "Commercial Product Track",
       "priority": "Medium",
-      "done": false,
+      "done": true,
       "created": "2026-05-01"
     },
     {
