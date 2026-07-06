@@ -284,6 +284,21 @@ PHASES = st.session_state.punch_phases   # live list — may grow as user adds p
 st.title("🗂️ Voskuil FP — Dev Punch List")
 st.caption("Internal development tracker · Not visible in production · Remove this page before commercial launch")
 
+# ── Persistent GitHub sync error banner ─────────────────────────────────────
+# Survives st.rerun() by reading from session state. Prevents the flash-and-vanish
+# error that used to happen when a checkbox toggle triggered save → rerun.
+if st.session_state.get("punch_list_github_ok") is False:
+    st.error(
+        f"⚠️ **GitHub sync FAILED on last save.** Your changes exist ONLY in this session "
+        f"and WILL BE LOST on reboot/redeploy.\n\n"
+        f"**Error:** {st.session_state.get('punch_list_github_msg', '(no message)')}\n\n"
+        f"**Action:** Download a backup with the 💾 button below, then fix the sync "
+        f"(most likely: GITHUB_TOKEN expired or missing repo scope in Streamlit secrets)."
+    )
+    if st.button("Dismiss banner (until next failure)"):
+        st.session_state.punch_list_github_ok = None
+        st.rerun()
+
 # Stats bar
 total   = len(items)
 done    = sum(1 for i in items if i["done"])
