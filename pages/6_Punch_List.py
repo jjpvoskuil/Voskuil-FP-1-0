@@ -212,29 +212,37 @@ def load_items():
     return DEFAULT_ITEMS, DEFAULT_PHASES.copy()
 
 def _github_backup(data: str):
-    """Push punch_list_data.json to GitHub via API. Silent on failure."""
+    """Push punch_list_data.json to GitHub via API.
+    Returns (success: bool, message: str) — never fails silently."""
+    import base64, requests as _req
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
+    if not token:
+        return False, "GITHUB_TOKEN not found in Streamlit secrets — edits are NOT syncing to GitHub."
     try:
-        import base64, requests as _req
-        token = st.secrets.get("GITHUB_TOKEN", "")
-        repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
-        if not token:
-            return
         api   = f"https://api.github.com/repos/{repo}/contents/{DATA_FILE}"
         heads = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github+json",
         }
-        r   = _req.get(api, headers=heads, timeout=8)
+        r = _req.get(api, headers=heads, timeout=8)
+        if r.status_code not in (200, 404):
+            return False, f"GitHub GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
         sha = r.json().get("sha") if r.status_code == 200 else None
+
         payload = {
             "message": f"Auto-backup punch list {datetime.today().strftime('%Y-%m-%d %H:%M')}",
             "content": base64.b64encode(data.encode()).decode(),
         }
         if sha:
             payload["sha"] = sha
-        _req.put(api, headers=heads, json=payload, timeout=8)
-    except Exception:
-        pass
+
+        put_r = _req.put(api, headers=heads, json=payload, timeout=8)
+        if put_r.status_code not in (200, 201):
+            return False, f"GitHub PUSH failed: {put_r.status_code} {put_r.json().get('message', put_r.text)[:150]}"
+        return True, "Synced"
+    except Exception as e:
+        return False, f"GitHub push exception: {e}"
 
 def save_items(items, phases=None):
     """Save items + phases to file, session state backup, and GitHub."""
@@ -247,7 +255,14 @@ def save_items(items, phases=None):
             f.write(data)
         st.session_state.punch_list_backup   = data
         st.session_state.punch_list_saved_at = datetime.today().strftime("%b %d %Y %H:%M")
-        _github_backup(data)
+
+        ok, msg = _github_backup(data)
+        st.session_state.punch_list_github_ok  = ok
+        st.session_state.punch_list_github_msg = msg
+        if not ok:
+            st.error(f"⚠️ Local save OK, but GitHub sync FAILED: {msg}\n\n"
+                     f"Your changes exist only in this session and WILL BE LOST on reboot/redeploy "
+                     f"unless you download a backup (💾 Backup JSON) or fix the sync.")
     except Exception as e:
         st.error(f"Could not save: {e}")
 
@@ -302,11 +317,19 @@ with bcol1:
         help="Download your punch list as JSON. Re-upload to restore after a Streamlit Cloud redeploy wipes the filesystem.",
     )
 with bcol2:
-    st.caption(
-        f"✅ **Auto-synced to GitHub** on every change. "
-        f"The 💾 button is a manual backup if you want a local copy too. "
-        f"Last saved: {saved_at}"
-    )
+    gh_ok  = st.session_state.get("punch_list_github_ok", None)
+    gh_msg = st.session_state.get("punch_list_github_msg", "")
+    if gh_ok is True:
+        st.caption(f"✅ **Synced to GitHub.** Last saved: {saved_at}")
+    elif gh_ok is False:
+        st.caption(f"❌ **GitHub sync FAILED** — {gh_msg}  "
+                   f"Changes only live in this session. Download a backup now. Last local save: {saved_at}")
+    else:
+        st.caption(
+            f"ℹ️ GitHub sync status unknown until your next edit. "
+            f"The 💾 button is a manual backup if you want a local copy too. "
+            f"Last saved: {saved_at}"
+        )
 
 # ─────────────────────────────────────────────
 # FILTERS + ADD FORM
