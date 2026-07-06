@@ -528,7 +528,7 @@
       "note": "After the market screen runs and presents the top xxx picks.  I'd like to add a feature that if I select several of these picks, I have the option to open a new page to show the full financials from EDGAR side by side so I can better compare potential targets.",
       "phase": "Fund Deep Dive",
       "priority": "Urgent",
-      "done": false,
+      "done": true,
       "created": "2026-07-06"
     },
     {
@@ -537,7 +537,7 @@
       "note": "Add a claude agent to the new Market Screen Compare page so that I can ask more detailed questions about the companies presented.  Also want a direct link to read the full SEC filling for any presented.",
       "phase": "Fund Deep Dive",
       "priority": "Urgent",
-      "done": false,
+      "done": true,
       "created": "2026-07-06"
     },
     {
