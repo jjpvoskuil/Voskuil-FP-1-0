@@ -16,6 +16,7 @@ analysis (#37), and the historical normalization layer (#52).
 
 import re
 import requests
+import concurrent.futures
 import streamlit as st
 from edgar_concept_map import CONCEPT_MAP, FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 
@@ -904,3 +905,34 @@ def fetch_fundamentals_edgar(ticker):
         "_history":         history,
         "_latest":          latest,
     }
+
+
+# ── Shared helpers: parallel filing fetch + ticker mention detection ────────
+# Moved here from pages/8_Market_Screener_EDGAR.py so the Compare Stocks page
+# (#60/#61) can reuse the same filings-fetch mechanism for its own Claude
+# agent instead of duplicating it.
+
+def fetch_filings_parallel(tickers: list, max_workers: int = 3) -> dict:
+    """Fetch 10-K filing sections for multiple tickers concurrently.
+    Returns {ticker: filing_result} — see fetch_10k_sections() for the
+    per-ticker return shape ({"sections", "filing_url", "doc_url",
+    "filing_date", "error"})."""
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {executor.submit(fetch_10k_sections, t): t for t in tickers}
+        for future in concurrent.futures.as_completed(future_map):
+            ticker = future_map[future]
+            try:
+                results[ticker] = future.result()
+            except Exception as e:
+                results[ticker] = {"sections": {}, "error": str(e)}
+    return results
+
+
+def extract_tickers_from_text(text: str, valid_tickers: list) -> list:
+    """Find uppercase 1-5 letter words in text that match valid tickers.
+    Used so a Claude chat can detect when a user mentions a specific ticker
+    by name and fetch its filing on demand."""
+    words   = re.findall(r'\b[A-Z]{1,5}\b', text)
+    matches = [w for w in words if w in valid_tickers]
+    return list(dict.fromkeys(matches))  # deduplicate preserving order

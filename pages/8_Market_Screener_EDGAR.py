@@ -8,7 +8,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import get_ticker_cik_map, fetch_company_facts_with_cik, fetch_10k_sections
+from sec_utils import get_ticker_cik_map, fetch_company_facts_with_cik
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 import concurrent.futures
 
@@ -44,9 +44,6 @@ THRESHOLDS = {
 # Coverage) before they're worth a price lookup in Stage 2.
 STAGE1_QUALITY_FLOOR = 0.55  # 55% of available quality points
 
-
-import re
-
 # ── Helper: build context string from results dataframe ──────────────
 def build_ms_context(df):
     from claude_utils import get_user_profile as _gup
@@ -81,57 +78,6 @@ def build_ms_context(df):
         )
     return "\n".join(lines)
 
-
-# ── Helper: fetch 10-K sections for a list of tickers in parallel ─────
-def fetch_filings_parallel(tickers: list) -> dict:
-    """Returns {ticker: filing_result} fetched concurrently."""
-    results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        future_map = {executor.submit(fetch_10k_sections, t): t for t in tickers}
-        for future in concurrent.futures.as_completed(future_map):
-            ticker = future_map[future]
-            try:
-                results[ticker] = future.result()
-            except Exception as e:
-                results[ticker] = {"sections": {}, "error": str(e)}
-    return results
-
-
-# ── Helper: build deep-dive context with filing sections ──────────────
-def build_deep_dive_context(df, filings: dict, question: str) -> str:
-    lines = [build_ms_context(df), "\n\n=== SEC 10-K FILING EXCERPTS ===\n"]
-    # Scale section size down as company count increases to stay within token limits
-    n_companies  = len(filings)
-    # Minimum 2500 chars/section for 3-5 companies; more for 1-2
-    section_limit = max(2500, 7500 // max(n_companies, 1))
-    for ticker, filing in filings.items():
-        sections = filing.get("sections", {})
-        err      = filing.get("error")
-        lines.append(f"\n--- {ticker} ---")
-        if err:
-            lines.append(f"[Filing unavailable: {err}]")
-            continue
-        for key, label in [
-            ("business",     "BUSINESS"),
-            ("risk_factors", "RISK FACTORS"),
-            ("mda",          "MD&A"),
-        ]:
-            text = sections.get(key, "")
-            if text:
-                lines.append(f"[{label}]: {text[:section_limit]}")
-    lines.append(f"\n\nQUESTION: {question}")
-    return "\n".join(lines)
-
-
-# ── Helper: extract ticker mentions from a message ────────────────────
-def extract_tickers_from_text(text: str, valid_tickers: list) -> list:
-    """Find uppercase 1-5 letter words in text that match valid tickers."""
-    words   = re.findall(r'\b[A-Z]{1,5}\b', text)
-    matches = [w for w in words if w in valid_tickers]
-    return list(dict.fromkeys(matches))  # deduplicate preserving order
-
-
-import re
 
 
 
@@ -1295,37 +1241,25 @@ if 'ms_edgar_results_df' in st.session_state:
     st.divider()
     st.markdown("### 🤖 Ask Claude — Analyze These Results")
     st.caption(
-        "Claude reasons over the full screen results. Ask it to compare, rank by thesis fit, "
-        "or flag risks. Use **Deep Dive Top 3** to pull the actual 10-K filings for the top scorers."
+        "Claude reasons over the full screen results (scores, ratios, sectors) to help you "
+        "narrow down candidates before you commit to a deeper look. For actual SEC filing "
+        "text and qualitative analysis, select tickers below and use Compare — that page has "
+        "its own Claude agent with 10-K access."
     )
 
-    # ── Deep Dive buttons ────────────────────────────────────────────
+    # ── Compare buttons ────────────────────────────────────────────
     top3_tickers     = results_df['ticker'].head(3).tolist()
     selected_tickers = st.session_state.get('ms_selected_tickers', [])
 
-    dd_col1, dd_col2, dd_col3, dd_col4 = st.columns([2, 2, 2, 3])
+    dd_col1, dd_col2, dd_col3 = st.columns([2, 2, 3])
     with dd_col1:
-        _top3_disabled = 'ms_pending_deep_dive' in st.session_state
-        if st.button("🔬 Deep Dive Top 3", type="primary", use_container_width=True,
-                     disabled=_top3_disabled,
-                     help="Fetch SEC 10-K filings for the top 3 scored tickers"):
-            st.session_state['ms_pending_deep_dive'] = top3_tickers
-            st.session_state['ms_selected_tickers']  = []
-            st.rerun()
+        if st.button("⚖️ Compare Top 3", type="primary", use_container_width=True,
+                     help="Open the Compare page for the top 3 scored tickers"):
+            st.session_state['compare_tickers'] = top3_tickers
+            st.session_state['compare_weights']  = weights.copy()
+            st.session_state['ms_selected_tickers'] = []
+            st.switch_page("pages/9_Compare_Stocks_EDGAR.py")
     with dd_col2:
-        n_sel = len(selected_tickers)
-        _sel_disabled = n_sel == 0 or 'ms_pending_deep_dive' in st.session_state
-        if st.button(
-            f"🔬 Deep Dive Selected ({n_sel})",
-            type="primary" if n_sel > 0 else "secondary",
-            use_container_width=True,
-            disabled=_sel_disabled,
-            help=f"Fetch SEC filings for: {', '.join(selected_tickers)}" if selected_tickers else "Check boxes next to results to select",
-        ):
-            st.session_state['ms_pending_deep_dive'] = selected_tickers.copy()
-            st.session_state['ms_selected_tickers']  = []
-            st.rerun()
-    with dd_col3:
         n_sel_cmp = len(selected_tickers)
         _cmp_disabled = n_sel_cmp < 2
         if st.button(
@@ -1338,47 +1272,11 @@ if 'ms_edgar_results_df' in st.session_state:
             st.session_state['compare_tickers'] = selected_tickers.copy()
             st.session_state['compare_weights']  = weights.copy()
             st.switch_page("pages/9_Compare_Stocks_EDGAR.py")
-    with dd_col4:
+    with dd_col3:
         if selected_tickers:
             st.caption(f"✅ Selected: {', '.join(selected_tickers)}")
         else:
-            st.caption("☑️ Check boxes next to any result to select for deep dive or comparison (max 5)")
-
-    # Show which tickers are loaded
-    loaded_filings = st.session_state.get('ms_filings', {})
-    if loaded_filings:
-        loaded_str = ", ".join(
-            f"{'✅' if not v.get('error') else '⚠️'} {k}"
-            for k, v in loaded_filings.items()
-        )
-        with dd_col2:
-            st.caption(f"Filings loaded: {loaded_str}")
-
-    # Handle deep dive trigger — capture the tickers from session state
-    _dive_tickers = st.session_state.pop('ms_pending_deep_dive', None)
-    if _dive_tickers:
-        with st.spinner(f"📄 Fetching 10-K filings for {', '.join(_dive_tickers)} in parallel..."):
-            st.session_state['ms_filings'] = fetch_filings_parallel(_dive_tickers)
-        from claude_utils import get_user_profile
-        _p       = get_user_profile()
-        _age     = _p.get('age', 57)
-        _wd      = _p.get('monthly_withdrawal', 8000)
-        _pv      = _p.get('portfolio_val', 3_790_000)
-        _sage    = _p.get('spouse_age', '')
-        _age_str = f"{_age}-year-old" + (f" and spouse age {_sage}" if _sage else "")
-        n_co     = len(_dive_tickers)
-        _comparison = "three companies" if n_co == 3 else f"{n_co} companies"
-        st.session_state['ms_pending_claude_q'] = (
-            f"I've now loaded the SEC 10-K filings for {', '.join(_dive_tickers)}. "
-            f"Please do a full qualitative comparison of these {_comparison} using both "
-            f"the quantitative scores and the actual filing text. Apply both Buffett and "
-            f"Munger lenses — use Munger's inversion first (what could permanently destroy "
-            f"value?), then assess moat durability, management quality, and pricing power. "
-            f"Rank them for a {_age_str} household with a ${_pv/1e6:.1f}M portfolio "
-            f"targeting ${_wd:,.0f}/month in retirement income. "
-            f"Which one would you concentrate in and why?"
-        )
-        st.rerun()
+            st.caption("☑️ Check boxes next to any result to select for comparison (2-5), or use Compare Top 3")
 
     # ── Conversation state ────────────────────────────────────────────
     ms_convo_key   = "ms_claude_convo"
@@ -1409,9 +1307,9 @@ if 'ms_edgar_results_df' in st.session_state:
         _wd2 = _sp.get('monthly_withdrawal', 8000)
         ms_starters = [
             f"Which fits best for our ${_wd2:,.0f}/month retirement income target?",
-            "Apply Munger's inversion — what could permanently destroy value in each?",
-            "Compare the top 3 on moat durability using Buffett + Munger criteria.",
-            "Which would Buffett most likely hold for 10 years and why?",
+            "Which of these look like they'd survive Munger's inversion test?",
+            "Group these by sector — where's the overlap and where's the diversification?",
+            "Which 3-5 would you shortlist for a closer look, and why?",
         ]
         for i, q in enumerate(ms_starters):
             with sq_cols[i % 2]:
@@ -1424,30 +1322,16 @@ if 'ms_edgar_results_df' in st.session_state:
     ms_active_q  = ms_pending_q or ms_user_q
 
     if ms_active_q:
-        # Check if user is requesting a filing for a specific ticker
-        all_tickers   = results_df['ticker'].tolist()
-        filings_cache = st.session_state.get('ms_filings', {})
-        mentioned     = extract_tickers_from_text(ms_active_q, all_tickers)
-        new_tickers   = [t for t in mentioned if t not in filings_cache]
-
-        if new_tickers:
-            with st.spinner(f"📄 Fetching 10-K filings for {', '.join(new_tickers)}..."):
-                new_filings = fetch_filings_parallel(new_tickers)
-                filings_cache.update(new_filings)
-                st.session_state['ms_filings'] = filings_cache
-
         with st.chat_message("user"):
             st.markdown(ms_active_q)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Analyzing..."):
-                # Build context — include filing sections if available
-                if filings_cache:
-                    context_str = build_deep_dive_context(results_df, filings_cache, ms_active_q)
-                else:
-                    context_str = build_ms_context(results_df) + f"\n\n---\nQUESTION: {ms_active_q}"
-
+                # Quant-only context — no filing text. This chat is for narrowing
+                # down candidates pre-selection; the Compare page has its own
+                # Claude agent with actual 10-K access for the shortlist.
                 if not st.session_state[ms_context_key]:
+                    context_str = build_ms_context(results_df) + f"\n\n---\nQUESTION: {ms_active_q}"
                     response = ask_claude_about_equity(
                         ticker="SCREEN", data={}, scores={}, sections={},
                         user_question=context_str,
@@ -1470,7 +1354,6 @@ if 'ms_edgar_results_df' in st.session_state:
         if st.button("🗑️ Clear conversation", key="ms_clear_convo"):
             st.session_state[ms_convo_key]   = []
             st.session_state[ms_context_key] = False
-            st.session_state.pop('ms_filings', None)
             st.rerun()
 
 else:
@@ -1493,8 +1376,9 @@ else:
     cheap — it has to earn its way to Stage 2 on business quality first.
 
     ### Features
-    - 🤖 **Ask Claude** — compare results, rank by thesis fit, or pull SEC 10-K filings for any ticker
-    - 🔬 **Deep Dive Top 3** — fetches actual 10-K filings for the top 3 scorers in parallel
+    - 🤖 **Ask Claude** — reasons over the full screen results to help narrow down candidates
+    - ⚖️ **Compare Top 3 / Compare Selected** — opens the Compare Stocks page for a side-by-side
+      breakdown (score, financials, historical trends) and its own Claude agent with SEC 10-K access
     - 🦁 **Superinvestor Conviction** — see how many of 82 tracked value investors hold each result
     - **Net Creditor detection** — companies earning more interest than they pay score full points
     - **Financial firm filtering** — banks/insurers excluded by default (different statement structure)

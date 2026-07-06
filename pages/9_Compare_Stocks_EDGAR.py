@@ -1,9 +1,9 @@
 """
-pages/9_Compare_Stocks_EDGAR.py — Side-by-side stock comparison (punch list #60)
+pages/9_Compare_Stocks_EDGAR.py — Side-by-side stock comparison (punch list #60/#61)
 
-Entry point: the "⚖️ Compare Selected" button on Market Screener EDGAR, which
-sets st.session_state['compare_tickers'] (2-5 tickers) and
-st.session_state['compare_weights'] before calling st.switch_page() here.
+Entry point: the "⚖️ Compare Top 3" / "⚖️ Compare Selected" buttons on Market
+Screener EDGAR, which set st.session_state['compare_tickers'] (2-5 tickers)
+and st.session_state['compare_weights'] before calling st.switch_page() here.
 
 Layout:
   1. Summary strip — name, price, market cap, sector, total score per ticker
@@ -12,9 +12,10 @@ Layout:
      Derived Metrics, one row per line item, one column per ticker
   4. Historical trend charts — pick any line item, see all compared tickers
      plotted together on one combined chart (st.dialog popup)
-
-A right-hand notes area is intentionally left light on this first pass —
-punch list #61 (Claude agent on this page) will use that space next.
+  5. Claude agent — qualitative comparison with actual SEC 10-K filing text,
+     moved here from Market Screener EDGAR so it's scoped to the specific
+     shortlist rather than the whole screen. Filings are fetched lazily
+     (only once you ask a question), for just the 2-5 compared tickers.
 """
 
 import streamlit as st
@@ -22,7 +23,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_fundamentals_edgar, fmt_val
+from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text
+from claude_utils import ask_claude_about_equity, get_user_profile
 
 st.set_page_config(page_title="Compare Stocks — EDGAR", layout="wide")
 
@@ -194,6 +196,70 @@ def fmt_cell(val, kind):
     return f"{val:.2f}" if isinstance(val, (int, float)) else str(val)
 
 
+def build_compare_context(tickers, fundamentals, scores):
+    """Quantitative summary of the comparison set — analogous to
+    build_ms_context() on Market Screener, but scoped to just the tickers
+    being compared and including the score breakdown, not just the total."""
+    profile = get_user_profile()
+    age     = profile.get('age', 57)
+    sage    = profile.get('spouse_age', '')
+    wd      = profile.get('monthly_withdrawal', 8000)
+    pv      = profile.get('portfolio_val', 3_790_000)
+    inf     = profile.get('inflation', 4.0)
+    age_str = f"{age}-year-old" + (f" and spouse age {sage}" if sage else "")
+
+    lines = [
+        "STOCK COMPARISON — Voskuil Owner's Framework\n",
+        "Investment context: Buffett + Munger concentrated value philosophy.",
+        f"Investor: {age_str} | Portfolio: ${pv/1e6:.1f}M | Monthly target: ${wd:,.0f} | "
+        f"Inflation assumption: {inf:.1f}%. Hold horizon 5-10 years.\n",
+        f"Comparing {len(tickers)} companies:\n",
+    ]
+    for t in tickers:
+        d = fundamentals.get(t, {})
+        score, criteria = scores.get(t, (None, []))
+        crit_str = " | ".join(f"{c['name']}: {c['points_earned']}/{c['points_max']}" for c in criteria)
+        lines.append(
+            f"\n{t} ({d.get('name','')}) — Score: {score}/100\n"
+            f"  {crit_str}\n"
+            f"  FCF Yield: {fmt_cell(d.get('fcf_yield'), 'pct')} | ROIC: {fmt_cell(d.get('roic'), 'pct')} | "
+            f"Debt/FCF: {fmt_cell(d.get('debt_to_fcf'), 'ratio')} | Gross Margin: {fmt_cell(d.get('gross_margin'), 'pct')} | "
+            f"Interest Coverage: {fmt_cell(d.get('interest_coverage'), 'ratio')} | "
+            f"P/OE: {fmt_cell(d.get('price_owner_earn'), 'ratio')}\n"
+            f"  Sector: {d.get('sector','N/A')}"
+            f"{' | Financial firm' if d.get('is_financial') else ''}"
+            f"{' | Cyclical' if d.get('is_cyclical') else ''}"
+        )
+    return "\n".join(lines)
+
+
+def build_compare_deep_dive_context(tickers, fundamentals, scores, filings, question):
+    """Combines the quant comparison summary with actual SEC 10-K filing
+    excerpts for qualitative analysis — same pattern as the filings-based
+    chat that used to live on Market Screener, scoped to the comparison set."""
+    lines = [build_compare_context(tickers, fundamentals, scores), "\n\n=== SEC 10-K FILING EXCERPTS ===\n"]
+    n_companies   = len(filings)
+    section_limit = max(2500, 7500 // max(n_companies, 1))
+    for t in tickers:
+        filing = filings.get(t, {})
+        sections = filing.get("sections", {})
+        err      = filing.get("error")
+        lines.append(f"\n--- {t} ---")
+        if err:
+            lines.append(f"[Filing unavailable: {err}]")
+            continue
+        for key, label in [
+            ("business",     "BUSINESS"),
+            ("risk_factors", "RISK FACTORS"),
+            ("mda",          "MD&A"),
+        ]:
+            text = sections.get(key, "")
+            if text:
+                lines.append(f"[{label}]: {text[:section_limit]}")
+    lines.append(f"\n\nQUESTION: {question}")
+    return "\n".join(lines)
+
+
 @st.dialog("📈 Historical Trend Comparison", width="large")
 def show_trend_dialog(field_key, field_label, tickers, fundamentals):
     st.caption(f"**{field_label}** — annual values from SEC EDGAR, all compared tickers on one chart.")
@@ -357,3 +423,106 @@ with tc1:
 with tc2:
     if st.button("📈 Show Trend", type="primary", use_container_width=True):
         show_trend_dialog(_choice[1], _choice[2], active_tickers, fundamentals)
+
+st.divider()
+
+# ── 5. Claude agent — qualitative comparison with SEC 10-K access ────────
+st.markdown("#### 🤖 Ask Claude — Qualitative Comparison")
+st.caption(
+    "Claude reasons over both the quantitative comparison above and actual SEC 10-K filing "
+    "text (fetched on your first question, for just these tickers) — moat durability, "
+    "management quality, risk factors, competitive position."
+)
+
+# Reset the conversation if the comparison set changed since last chat message —
+# otherwise old messages about different tickers would linger in context.
+_tickers_sig = tuple(sorted(active_tickers))
+if st.session_state.get("cmp_tickers_sig") != _tickers_sig:
+    st.session_state["cmp_tickers_sig"]   = _tickers_sig
+    st.session_state["cmp_claude_convo"]  = []
+    st.session_state["cmp_context_key"]   = False
+    st.session_state["cmp_filings"]       = {}
+
+cmp_convo_key   = "cmp_claude_convo"
+cmp_context_key = "cmp_context_key"
+if cmp_convo_key not in st.session_state:
+    st.session_state[cmp_convo_key]   = []
+    st.session_state[cmp_context_key] = False
+
+# Display history
+for msg in st.session_state[cmp_convo_key]:
+    role, content = msg["role"], msg["content"]
+    if role == "user":
+        if "\n---\nQUESTION: " in content:
+            content = content.split("\n---\nQUESTION: ", 1)[-1]
+        elif "\n\nQUESTION: " in content:
+            content = content.rsplit("\n\nQUESTION: ", 1)[-1]
+        with st.chat_message("user"):
+            st.markdown(content)
+    else:
+        with st.chat_message("assistant", avatar="🤖"):
+            st.markdown(content)
+
+# Suggested starters (only before first message)
+if not st.session_state[cmp_convo_key]:
+    st.markdown("**Suggested questions:**")
+    sc1, sc2 = st.columns(2)
+    _profile = get_user_profile()
+    _wd = _profile.get('monthly_withdrawal', 8000)
+    cmp_starters = [
+        "Which of these has the most durable moat, and why?",
+        "Apply Munger's inversion to each — what could permanently destroy value?",
+        f"Which would fit best for our ${_wd:,.0f}/month retirement income target?",
+        "Rank these for a 10-year hold and explain the biggest risk for each.",
+    ]
+    for i, q in enumerate(cmp_starters):
+        with (sc1 if i % 2 == 0 else sc2):
+            if st.button(q, key=f"cmp_starter_{i}", use_container_width=True):
+                st.session_state["cmp_pending_q"] = q
+                st.rerun()
+
+cmp_pending_q = st.session_state.pop("cmp_pending_q", None)
+cmp_user_q    = st.chat_input("Ask Claude about these companies...", key="cmp_claude_input")
+cmp_active_q  = cmp_pending_q or cmp_user_q
+
+if cmp_active_q:
+    filings_cache = st.session_state.get("cmp_filings", {})
+    missing_filings = [t for t in active_tickers if t not in filings_cache]
+    if missing_filings:
+        with st.spinner(f"📄 Fetching 10-K filings for {', '.join(missing_filings)}..."):
+            filings_cache.update(fetch_filings_parallel(missing_filings))
+            st.session_state["cmp_filings"] = filings_cache
+
+    with st.chat_message("user"):
+        st.markdown(cmp_active_q)
+
+    with st.chat_message("assistant", avatar="🤖"):
+        with st.spinner("Analyzing..."):
+            if not st.session_state[cmp_context_key]:
+                context_str = build_compare_deep_dive_context(
+                    active_tickers, fundamentals, scores, filings_cache, cmp_active_q
+                )
+                response = ask_claude_about_equity(
+                    ticker="COMPARE", data={}, scores={}, sections={},
+                    user_question=context_str,
+                    conversation_history=None,
+                )
+                st.session_state[cmp_convo_key].append({"role": "user", "content": context_str})
+                st.session_state[cmp_context_key] = True
+            else:
+                response = ask_claude_about_equity(
+                    ticker="COMPARE", data={}, scores={}, sections={},
+                    user_question=cmp_active_q,
+                    conversation_history=st.session_state[cmp_convo_key],
+                )
+                st.session_state[cmp_convo_key].append({"role": "user", "content": cmp_active_q})
+
+            st.session_state[cmp_convo_key].append({"role": "assistant", "content": response})
+            st.markdown(response)
+
+if st.session_state.get(cmp_convo_key):
+    if st.button("🗑️ Clear conversation", key="cmp_clear_convo"):
+        st.session_state[cmp_convo_key]   = []
+        st.session_state[cmp_context_key] = False
+        st.session_state["cmp_filings"]   = {}
+        st.rerun()
