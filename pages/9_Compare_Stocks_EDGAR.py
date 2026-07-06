@@ -342,9 +342,11 @@ st.markdown("#### 📈 Historical Trend — Combined Chart")
 st.caption("Pick any financial statement line item to see all compared tickers plotted together, year over year.")
 
 _all_fields = []
+NO_TREND_FIELDS = {"fcf_yield", "price_owner_earn"}  # need historical price data — not available from EDGAR alone
 for section_title, fields in STATEMENT_SECTIONS.items():
     for field_key, field_label, kind in fields:
-        _all_fields.append((f"{section_title} — {field_label}", field_key, field_label))
+        _suffix = " (no trend — needs price history)" if field_key in NO_TREND_FIELDS else ""
+        _all_fields.append((f"{section_title} — {field_label}{_suffix}", field_key, field_label))
 
 tc1, tc2 = st.columns([4, 1])
 with tc1:

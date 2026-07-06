@@ -340,6 +340,108 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
         if capex_val is not None:
             latest["owner_earnings"] = net_inc + dna_proxy - abs(capex_val)
 
+    # 8. Compute the SAME derived metrics for every historical year, not just
+    # the latest — this is what powers Compare Stocks' historical trend
+    # charts (#60) for derived fields. Without this, history[] only ever
+    # contains raw XBRL line items and the trend chart has nothing to plot
+    # for FCF, ROIC, Gross Margin, Debt/FCF, Interest Coverage, or Owner
+    # Earnings. Mirrors the latest-only logic above exactly, year by year,
+    # matched by period end date across the underlying raw series.
+    #
+    # Not included here: FCF Yield and Price/Owner Earnings. Both need a
+    # historical share price/market cap per fiscal year end, which EDGAR
+    # doesn't provide (yfinance only gives current price in this app today).
+    # Trending those would require a separate historical price fetch — worth
+    # a future punch list item if wanted.
+    def _hist_map(field):
+        return {h["end"]: h["value"] for h in history.get(field, []) if h.get("value") is not None}
+
+    op_cf_h  = _hist_map("op_cf")
+    inv_cf_h = _hist_map("inv_cf")
+    capex_h  = _hist_map("capex")
+    net_inc_h = _hist_map("net_income")
+    dna_h    = _hist_map("dna")
+    eq_h     = _hist_map("total_equity")
+    ltd_h    = _hist_map("long_term_debt")
+    std_h    = _hist_map("short_term_debt")
+    op_inc_h = _hist_map("op_income")
+    int_pd_h  = _hist_map("interest_paid")
+    int_exp_h = _hist_map("interest_expense")
+    rev_h    = _hist_map("revenue")
+    gp_h     = _hist_map("gross_profit")
+    cor_h    = _hist_map("cost_of_revenue")
+
+    all_ends = sorted(set(op_cf_h) | set(net_inc_h) | set(rev_h))
+
+    fcf_hist, gm_hist, roic_hist, dtf_hist, ic_hist, oe_hist = [], [], [], [], [], []
+
+    for end in all_ends:
+        period = end[:4]
+        ocf = op_cf_h.get(end)
+        icf = inv_cf_h.get(end)
+        cpx = capex_h.get(end)
+
+        # FCF
+        fcf_val = None
+        if ocf is not None and icf is not None:
+            fcf_val = ocf + icf
+        elif ocf is not None and cpx is not None:
+            fcf_val = ocf - abs(cpx)
+        if fcf_val is not None:
+            fcf_hist.append({"period": period, "end": end, "value": fcf_val})
+
+        # Gross margin (same sanity-check + COGS fallback as latest-period)
+        rev = rev_h.get(end)
+        gp  = gp_h.get(end)
+        cor = cor_h.get(end)
+        if gp is not None and rev and rev > 0:
+            gm_check = gp / rev
+            if gm_check > 1.0 or gm_check < -0.5:
+                gp = (rev - cor) if cor is not None else None
+        elif gp is None and rev is not None and cor is not None:
+            gp = rev - cor
+        if rev and rev > 0 and gp is not None:
+            gm = gp / rev
+            if 0.0 <= gm <= 1.0:
+                gm_hist.append({"period": period, "end": end, "value": gm})
+
+        # ROIC
+        ni  = net_inc_h.get(end)
+        eq  = eq_h.get(end)
+        ltd = ltd_h.get(end, 0) or 0
+        std = std_h.get(end, 0) or 0
+        if eq is not None:
+            inv_cap = eq + ltd + std
+            if ni is not None and inv_cap:
+                roic_hist.append({"period": period, "end": end, "value": ni / inv_cap})
+
+        # Debt / FCF
+        if fcf_val and fcf_val > 0 and (ltd + std) > 0:
+            dtf_hist.append({"period": period, "end": end, "value": (ltd + std) / fcf_val})
+
+        # Interest coverage — cash-basis preferred, same as latest-period
+        op_inc = op_inc_h.get(end)
+        int_pd = int_pd_h.get(end) or int_exp_h.get(end)
+        if op_inc is not None and int_pd and int_pd > 0:
+            ic_hist.append({"period": period, "end": end, "value": op_inc / int_pd})
+
+        # Owner earnings
+        capex_val_y = cpx if cpx is not None else icf
+        if ni is not None and dna_h.get(end) is not None and capex_val_y is not None:
+            oe_hist.append({"period": period, "end": end,
+                             "value": ni + dna_h.get(end) - abs(capex_val_y)})
+        elif ni is not None and ocf is not None and capex_val_y is not None:
+            dna_proxy_y = ocf - ni
+            oe_hist.append({"period": period, "end": end,
+                             "value": ni + dna_proxy_y - abs(capex_val_y)})
+
+    if fcf_hist:  history["fcf"]                 = fcf_hist
+    if gm_hist:   history["gross_margin"]        = gm_hist
+    if roic_hist: history["roic"]                = roic_hist
+    if dtf_hist:  history["debt_to_fcf"]         = dtf_hist
+    if ic_hist:   history["interest_coverage"]   = ic_hist
+    if oe_hist:   history["owner_earnings"]      = oe_hist
+
     return {
         "latest":  latest,
         "history": history,
@@ -347,6 +449,7 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
         "missing": missing,
         "error":   None,
     }
+
 
 
 def get_latest_10k_accession(cik: str):
