@@ -420,7 +420,7 @@
       "note": "Add fetch_company_facts(ticker) to sec_utils.py using data.sec.gov/api/xbrl/companyfacts/. Returns structured dict of all XBRL concepts for a company. Must filter to most recent annual period per concept. Design data model to support full historical series (all years available), not just latest \u2014 this is the foundation for historical score trending (#9) and normalization. CIK lookup already exists in sec_utils.py.",
       "phase": "API / Infrastructure",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-23"
     },
     {
