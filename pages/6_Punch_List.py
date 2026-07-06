@@ -578,7 +578,7 @@ visible = [i for i in items if (
     (filter_priority == "All Priorities" or
      (filter_priority == "Done" and i["done"]) or
      (filter_priority != "Done" and i["priority"] == filter_priority and not i["done"])) and
-    (show_done or not i["done"])
+    (show_done or filter_priority == "Done" or not i["done"])
 )]
 
 # Group by phase
