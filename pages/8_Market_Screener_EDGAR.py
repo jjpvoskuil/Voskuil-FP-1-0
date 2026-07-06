@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 from io import StringIO
 import time
+import random
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity
@@ -722,11 +723,20 @@ with col2:
                                    help="Cyclicals aren't excluded, just labeled for full-cycle context.")
 with col3:
     _default_max = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)": 1000}[universe_choice]
+    scan_all = st.checkbox(
+        "Scan ALL tickers in universe",
+        value=False,
+        help="Bypasses the max-scan limit entirely and screens every ticker in the selected "
+             "universe. For 'All US Common Stocks' this is 6,000-8,000+ tickers and will take "
+             "significantly longer (see time estimate below)."
+    )
     max_scan = st.number_input(
         "Max stocks to scan (Stage 1)", min_value=10, max_value=8000,
-        value=_default_max, step=50,
+        value=_default_max, step=50, disabled=scan_all,
         help="Larger universes take longer on Stage 1. EDGAR has no hard rate limit at this scale, "
-             "but expect several minutes for 1,000+ tickers."
+             "but expect several minutes for 1,000+ tickers. When below the full universe size, "
+             "a random sample is scanned (not an alphabetical slice) so results aren't biased "
+             "toward tickers starting with 'A'."
     )
     min_div  = st.checkbox("Dividend payers only (Stage 2 filter)", value=False)
 
@@ -814,8 +824,13 @@ with si_filt_col2:
     else:
         st.caption("Optional — load to filter Stage 1 results to only companies held by at least one of 82 tracked superinvestors.")
 
-_est_min = max(1, round(max_scan / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
-st.caption(f"⏱️ Estimated Stage 1 time for {max_scan} tickers: ~{_est_min} minute{'s' if _est_min != 1 else ''}. Stage 2 (price lookups on survivors) adds 10-60 seconds.")
+_approx_universe_size = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)": 7000}[universe_choice]
+_effective_scan = _approx_universe_size if scan_all else max_scan
+_est_min = max(1, round(_effective_scan / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
+if scan_all:
+    st.caption(f"⏱️ Estimated Stage 1 time for ALL ~{_approx_universe_size:,} tickers: ~{_est_min} minutes. Stage 2 (price lookups on survivors) adds 10-60 seconds.")
+else:
+    st.caption(f"⏱️ Estimated Stage 1 time for {max_scan} tickers: ~{_est_min} minute{'s' if _est_min != 1 else ''}. Stage 2 (price lookups on survivors) adds 10-60 seconds.")
 
 st.divider()
 run_screen = st.button("🚀 Run Two-Stage Screen", type="primary", use_container_width=True)
@@ -1033,9 +1048,18 @@ if run_screen:
         st.error(f"Could not load the {universe_choice} ticker list. Try again — Nasdaq Trader/Wikipedia data sources occasionally have transient issues.")
         st.stop()
 
-    st.caption(f"📋 {len(tickers):,} tickers loaded — scanning up to {max_scan:,}.")
+    st.caption(f"📋 {len(tickers):,} tickers loaded — {'scanning ALL of them' if scan_all else f'scanning a random sample of up to {max_scan:,}'}.")
 
-    tickers_to_scan = tickers[:max_scan]
+    if scan_all or max_scan >= len(tickers):
+        tickers_to_scan = tickers
+    else:
+        # Random sample, not an alphabetical slice — fetch_full_us_equity_universe()
+        # returns tickers sorted alphabetically, so tickers[:max_scan] would always
+        # scan the same 'A'-through-'D'-ish subset and never see the rest of the
+        # alphabet. Seeded for reproducibility within a session/day (cache TTL is
+        # 24h), so re-running the same scan gives consistent results.
+        _rng = random.Random(f"{universe_choice}-{max_scan}-{time.strftime('%Y-%m-%d')}")
+        tickers_to_scan = _rng.sample(tickers, max_scan)
     total_tickers   = len(tickers_to_scan)
 
     # ── Build ticker -> CIK map ONCE (the key bulk-scan optimization) ──
