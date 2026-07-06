@@ -467,12 +467,10 @@ for msg in st.session_state[cmp_convo_key]:
 if not st.session_state[cmp_convo_key]:
     st.markdown("**Suggested questions:**")
     sc1, sc2 = st.columns(2)
-    _profile = get_user_profile()
-    _wd = _profile.get('monthly_withdrawal', 8000)
     cmp_starters = [
         "Which of these has the most durable moat, and why?",
         "Apply Munger's inversion to each — what could permanently destroy value?",
-        f"Which would fit best for our ${_wd:,.0f}/month retirement income target?",
+        "Run these through a Munger and Buffett assessment and give me a better sense of what is the best selection and why.",
         "Rank these for a 10-year hold and explain the biggest risk for each.",
     ]
     for i, q in enumerate(cmp_starters):
