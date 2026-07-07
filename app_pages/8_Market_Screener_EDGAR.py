@@ -9,7 +9,10 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import get_ticker_cik_map, fetch_company_facts_with_cik, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_stock_breakdown
+from sec_utils import (
+    get_ticker_cik_map, fetch_company_facts_with_cik, DEFAULT_WEIGHTS,
+    evaluate_buffett_funnel, FUNNEL_THRESHOLDS,
+)
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
 from ui_utils import force_scroll_to_top
@@ -20,11 +23,6 @@ st.set_page_config(page_title="Market Screener — EDGAR", layout="wide")
 SCAN_CACHE_PATH = "market_screener_scan_cache.json"
 
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
-
-# Quality-floor for Stage 1 — companies must clear this on the
-# price-independent 65 points (ROIC + Debt/FCF + Gross Margin + Interest
-# Coverage) before they're worth a price lookup in Stage 2.
-STAGE1_QUALITY_FLOOR = 0.55  # 55% of available quality points
 
 # ── Helper: build context string from results dataframe ──────────────
 def build_ms_context(df):
@@ -37,10 +35,12 @@ def build_ms_context(df):
     _inf  = _prof.get('inflation', 4.0)
     _age_str = f"{_age}-year-old" + (f" and spouse age {_sage}" if _sage else "")
     lines = [
-        "MARKET SCREEN RESULTS — Voskuil Owner's Framework\n",
-        f"Investment context: Buffett + Munger concentrated value philosophy.",
+        "MARKET SCREEN RESULTS — Voskuil Buffett/Munger Funnel\n",
+        f"Investment context: Buffett + Munger concentrated value philosophy. All companies below "
+        f"already PASSED a pass/fail checklist (10-yr avg ROIC, 10-yr avg FCF margin, a debt hurdle, "
+        f"no share dilution) — this is not a weighted composite score, and there is no forced ranking.",
         f"Investor: {_age_str} | Portfolio: ${_pv/1e6:.1f}M | Monthly target: ${_wd:,.0f} | Inflation assumption: {_inf:.1f}%. Hold horizon 5-10 years.\n",
-        f"Top {len(df)} results from S&P 500 screen:\n",
+        f"{len(df)} checklist survivors:\n",
     ]
     for _, row in df.iterrows():
         def f(v, t="pct"):
@@ -51,12 +51,18 @@ def build_ms_context(df):
         si_str = ""
         if 'si_holders' in row.index:
             si_str = f" | Superinvestors: {int(row.get('si_holders',0))} holding (conviction {int(row.get('si_score',0))}/100)"
+        flags = []
+        if row.get('is_cyclical'):     flags.append("CYCLICAL")
+        if row.get('limited_history'): flags.append(f"limited history ({row.get('funnel_years_used','?')}y)")
+        flag_str = f" | Flags: {', '.join(flags)}" if flags else ""
         lines.append(
-            f"{row['ticker']} ({row.get('name','')}) | Score: {int(row['score'])}/100 | "
-            f"FCF Yield: {f(row.get('fcf_yield'))} | ROIC: {f(row.get('roic'))} | "
-            f"Debt/FCF: {f(row.get('debt_to_fcf'),'ratio')} | Gross Margin: {f(row.get('gross_margin'))} | "
-            f"P/OE: {f(row.get('price_owner_earn'),'ratio')} | Div: {f(row.get('dividend_yield'))} | "
-            f"Sector: {row.get('sector','N/A')}{si_str}"
+            f"{row['ticker']} ({row.get('name','')}) | 10yr Avg ROIC: {f(row.get('roic_avg'))} | "
+            f"10yr Avg FCF Margin: {f(row.get('fcf_margin_avg'))} | "
+            f"Debt hurdle cleared: {row.get('debt_hurdle_cleared','?')} "
+            f"(Debt/NI {f(row.get('debt_to_ni'),'ratio')}, Debt/CADS {f(row.get('debt_to_cads'),'ratio')}) | "
+            f"Dilution check: {'passed' if row.get('dilution_passed') else 'failed'} | "
+            f"FCF Yield: {f(row.get('fcf_yield'))} | P/OE: {f(row.get('price_owner_earn'),'ratio')} | "
+            f"Div: {f(row.get('dividend_yield'))} | Sector: {row.get('sector','N/A')}{flag_str}{si_str}"
         )
     return "\n".join(lines)
 
@@ -314,12 +320,16 @@ def market_cap_tier(cap) -> str:
     return "Micro Cap (<$300M)"
 
 
-def fetch_quality_edgar(ticker: str, cik: str) -> dict:
+def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -> dict:
     """
     Fetches fundamentals from EDGAR Company Facts using a pre-resolved CIK
     (no redundant ticker->CIK lookup per call — see get_ticker_cik_map()).
-    Returns only the price-independent fields: ROIC, Debt/FCF, Gross Margin,
-    Interest Coverage, plus identity/sector/financial/cyclical flags.
+    Returns the price-independent fields plus the Buffett/Munger funnel
+    checklist breakdown (evaluate_buffett_funnel — 10-yr avg ROIC, 10-yr
+    avg FCF margin, dual debt-hurdle check, dilution check). Legacy
+    single-period fields (roic, gross_margin, debt_to_fcf, interest_
+    coverage) are still returned for reference/export — they are not
+    part of the funnel gate itself (#31, #33, #35).
     Does NOT fetch price — that happens only for Stage 1 survivors.
     """
     facts = fetch_company_facts_with_cik(ticker, cik)
@@ -331,7 +341,13 @@ def fetch_quality_edgar(ticker: str, cik: str) -> dict:
 
     fcf            = latest.get("fcf")
     if fcf is None or fcf <= 0:
-        return None  # negative/no FCF — same hard filter as the original screener
+        return None  # negative/no FCF in the latest year — hard pre-filter,
+        # applied before the funnel checklist even runs. Note: this can
+        # exclude a business with a genuinely strong 10-year average that
+        # simply had one weak year — worth revisiting if it starts
+        # dropping companies you'd expect the checklist to catch instead.
+
+    funnel = evaluate_buffett_funnel(facts, funnel_thresholds or FUNNEL_THRESHOLDS)
 
     roic           = latest.get("roic")
     gross_margin   = latest.get("gross_margin")
@@ -393,56 +409,25 @@ def fetch_quality_edgar(ticker: str, cik: str) -> dict:
         "revenues":          revenues,
         "long_term_debt":    long_term_debt,
         "total_debt":        total_debt,
+        "fcf_margin":        latest.get("fcf_margin"),
+        "cash_available_debt_service": latest.get("cash_available_debt_service"),
+        "debt_to_ni":        latest.get("debt_to_ni"),
+        "debt_to_cads":      latest.get("debt_to_cads"),
+        "interest_margin_cads": latest.get("interest_margin_cads"),
+        # ── Buffett/Munger funnel checklist (#63) ──────────────────────
+        "funnel":               funnel,
+        "funnel_passed":        funnel["overall_passed"],
+        "roic_avg":             funnel["roic_avg"]["avg"],
+        "roic_avg_years":       funnel["roic_avg"]["years_used"],
+        "fcf_margin_avg":       funnel["fcf_margin_avg"]["avg"],
+        "fcf_margin_avg_years": funnel["fcf_margin_avg"]["years_used"],
+        "debt_hurdle_cleared":  funnel["debt_hurdle_cleared"],
+        "dilution_passed":      funnel["dilution_pass"],
+        "dilution_pct_change":  funnel["dilution"]["pct_change"],
+        "limited_history":      funnel["limited_history"],
+        "funnel_years_used":    funnel["years_used"],
         "_latest":           latest,
     }
-
-
-def score_quality_only(data, weights):
-    """
-    Stage 1 scoring — only the 4 price-independent criteria.
-    Returns (points_earned, points_max) for ranking/filtering purposes.
-    """
-    pts_earned = 0
-    pts_max    = 0
-
-    roic = data.get("roic")
-    max_pts = weights["ROIC"]
-    pts_max += max_pts
-    if roic is not None:
-        if roic >= THRESHOLDS["roic_great"]:   pts_earned += max_pts
-        elif roic >= THRESHOLDS["roic_good"]:  pts_earned += round(max_pts * 0.60)
-        elif roic > 0:                         pts_earned += round(max_pts * 0.20)
-
-    debt_fcf = data.get("debt_to_fcf")
-    ic       = data.get("interest_coverage") or 0
-    is_nc    = data.get("is_net_creditor", False)
-    max_pts  = weights["Debt / FCF"]
-    pts_max += max_pts
-    if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS["debt_fcf_safe"]:      pts_earned += max_pts
-        elif debt_fcf < THRESHOLDS["debt_fcf_warning"]: pts_earned += round(max_pts * 0.50)
-        elif ic >= THRESHOLDS["interest_coverage_safe"] or is_nc:
-                                                         pts_earned += round(max_pts * 0.50)
-
-    gm = data.get("gross_margin")
-    max_pts = weights["Gross Margin"]
-    pts_max += max_pts
-    if gm is not None:
-        if gm >= THRESHOLDS["gross_margin_great"]:  pts_earned += max_pts
-        elif gm >= THRESHOLDS["gross_margin_good"]: pts_earned += round(max_pts * 0.67)
-        else:                                       pts_earned += round(max_pts * 0.20)
-
-    ic_val = data.get("interest_coverage")
-    max_pts = weights["Interest Coverage"]
-    pts_max += max_pts
-    if is_nc:
-        pts_earned += max_pts
-    elif ic_val is not None:
-        if ic_val >= THRESHOLDS["interest_coverage_safe"]: pts_earned += max_pts
-        elif ic_val >= 2.5:                                pts_earned += round(max_pts * 0.50)
-        elif ic_val > 0:                                   pts_earned += round(max_pts * 0.15)
-
-    return pts_earned, pts_max
 
 
 # ── Stage 2: Price + final full scoring for survivors only ─────────────
@@ -464,91 +449,109 @@ def fetch_price_data(ticker: str) -> dict:
 
 
 
-def score_to_label(score):
-    if score >= 80:   return "Strong Buy", "🟢"
-    elif score >= 65: return "Watch", "🟡"
-    elif score >= 45: return "Caution", "🟠"
-    else:             return "Avoid", "🔴"
+def hurdle_badge(cleared: str):
+    """Icon + label for which debt hurdle(s) a funnel survivor cleared."""
+    return {
+        "both":    ("💪", "Both debt hurdles"),
+        "simple":  ("✓",  "Simple debt hurdle only"),
+        "refined": ("✓",  "Refined debt hurdle only"),
+    }.get(cleared, ("?", "Debt hurdle unclear"))
 
 
 # ── Page UI ──────────────────────────────────────────────────────────
-st.title("📡 Market Screener — EDGAR")
-st.caption("Two-stage screen: quality first via SEC EDGAR (free, no rate limits at this scale), valuation second via live pricing.")
+_title_col, _info_col = st.columns([8, 1])
+with _title_col:
+    st.title("📡 Market Screener — EDGAR")
+    st.caption("Two-stage screen: a Buffett/Munger quality checklist first via SEC EDGAR (free, no rate limits at this scale), valuation second via live pricing.")
+with _info_col:
+    with st.popover("❓ How this works", use_container_width=True):
+        st.markdown("""
+**Stage 1 — Buffett/Munger Checklist (pass/fail, not a weighted score)**
+
+A company must clear all four of these to survive Stage 1. This is a
+checklist, not a composite score — there's no partial credit for being
+strong on one leg and weak on another.
+
+| Check | Rule | Why |
+|---|---|---|
+| **ROIC** | 10-yr avg > 15% | Sustained high returns on capital are the clearest signal of a durable moat |
+| **FCF Margin** | 10-yr avg > 10% | Quality-of-revenue check — is the business actually converting sales to cash |
+| **Debt** | Debt/Net Income < 3.0x **OR** Debt/CADS < 3.0x | Two independent solvency checks run in parallel; passing *either* clears the gate — see below |
+| **Dilution** | Shares outstanding today ≤ shares 5 years ago | Buybacks or a flat share count — management isn't funding itself by diluting you |
+
+**The two debt hurdles, explained:**
+- *Simple:* Total Debt (LT + ST) ÷ Net Income — cheap to compute, accrual-basis.
+- *Refined:* Total Debt ÷ **CADS** (Cash Available for Debt Service = Operating Income + D&A − Capex) — a cash-basis, pre-interest measure that doesn't unfairly penalize businesses (like insurers) that responsibly leverage negative working-capital float.
+
+A survivor's card shows which hurdle it cleared: 💪 *both*, or ✓ *one*.
+
+**Minimum history:** needs at least 5 annual observations to compute an
+average at all. Companies with less than the full 10 years are flagged
+**"Limited History (Xy)"** with the actual year count shown, rather than
+excluded outright or silently blended in with true 10-year track records.
+
+**Explicitly excluded from Stage 1** (by design, not oversight):
+- *Gross Margin* — too context-dependent to be a universal moat signal (a 90%-margin business with no moat and a 13%-margin business with a deep one can both mislead a GM-based filter).
+- *FCF Yield / Price-Owner-Earnings* — these are valuation metrics, not quality metrics. They're computed in **Stage 2** once a live price is available, as a secondary check — quality first, then "is the price reasonable."
+- *Financial firms* (banks, insurers, brokers) — excluded by default (toggle below); standard FCF/debt metrics don't mean the same thing for their balance sheets.
+- *Cyclicals* — not excluded, just flagged ⚠️; a single-period or even a 10-year average can still be mid-cycle-influenced.
+
+**Ranking:** Stage 1 survivors aren't force-ranked by a composite score.
+Use the "Sort results by" control below the results to sort manually —
+by ROIC average, FCF margin average, ticker, or years of history.
+        """)
 st.info(
-    "**🏛️ EDGAR Validation Page** — Quality fundamentals (ROIC, Debt/FCF, Gross Margin, "
-    "Interest Coverage) come directly from SEC Company Facts API. Only companies that clear "
-    "the quality bar get a live price lookup for FCF Yield (scored) and Price/Owner Earnings "
-    "(shown as reference, not scored) — this is what makes a full-market scan practical without Polygon."
+    "**🏛️ EDGAR Validation Page** — the Stage 1 checklist (ROIC, FCF Margin, Debt, Dilution) "
+    "comes directly from SEC Company Facts API, no price needed. Only checklist survivors get "
+    "a live price lookup in Stage 2 for FCF Yield and Price/Owner Earnings, shown as a secondary "
+    "valuation reference — this is what makes a full-market scan practical."
 )
 st.divider()
 
-# ── Weight reset handler ────────────────────────────────────────────
-_weight_map = [("w_fcf_e","FCF Yield"),("w_roic_e","ROIC"),("w_debt_e","Debt / FCF"),
-               ("w_gm_e","Gross Margin"),("w_ic_e","Interest Coverage")]
-for _wkey, _mkey in _weight_map:
-    if st.session_state.pop(f"pending_reset_{_wkey}", False):
-        st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
+# ── Funnel threshold reset/apply handling ───────────────────────────
+if "committed_funnel_thresholds" not in st.session_state:
+    st.session_state.committed_funnel_thresholds = FUNNEL_THRESHOLDS.copy()
 
-with st.expander("⚙️ Customize Scoring Weights", expanded=False):
-    st.caption("Same weights as the main screener — shared via session state where possible.")
-    if "scoring_weights" not in st.session_state:
-        st.session_state.scoring_weights = DEFAULT_WEIGHTS.copy()
-    if "committed_weights" not in st.session_state:
-        st.session_state.committed_weights = DEFAULT_WEIGHTS.copy()
-    sw = st.session_state.scoring_weights
-
-    rc1, rc2, rc3 = st.columns([1.2, 1.2, 4])
-    if rc1.button("↺ Reset to Defaults", key="ms_edgar_reset_weights"):
-        st.session_state.scoring_weights   = DEFAULT_WEIGHTS.copy()
-        st.session_state.committed_weights = DEFAULT_WEIGHTS.copy()
-        for _wkey, _mkey in _weight_map:
-            st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
-        st.rerun()
-
-    draft_weights = {
-        "FCF Yield":              st.session_state.get("w_fcf_e",  sw["FCF Yield"]),
-        "ROIC":                   st.session_state.get("w_roic_e", sw["ROIC"]),
-        "Debt / FCF":             st.session_state.get("w_debt_e", sw["Debt / FCF"]),
-        "Gross Margin":           st.session_state.get("w_gm_e",   sw["Gross Margin"]),
-        "Interest Coverage":      st.session_state.get("w_ic_e",   sw["Interest Coverage"]),
-    }
-    draft_total = sum(draft_weights.values())
-    apply_ok    = draft_total == 100
-    if rc2.button("✅ Apply Weights", key="ms_edgar_apply_weights", type="primary", disabled=not apply_ok,
-                  help="Activates weights for scoring." if apply_ok else f"Total must equal 100 (currently {draft_total})."):
-        st.session_state.committed_weights = draft_weights.copy()
-        st.session_state.scoring_weights   = draft_weights.copy()
-        st.rerun()
-
-    cw = st.session_state.committed_weights
-    rc3.caption(
-        f"**Active:** FCF {cw['FCF Yield']} · ROIC {cw['ROIC']} · Debt {cw['Debt / FCF']} · "
-        f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']}"
+with st.expander("⚙️ Customize Funnel Thresholds", expanded=False):
+    st.caption(
+        "These are the Stage 1 checklist hurdles themselves (not a weighted score) — "
+        "tune them and re-run Stage 1 to change who survives the funnel."
     )
+    ft = st.session_state.committed_funnel_thresholds
 
-    w_col1, w_col2 = st.columns(2)
-    with w_col1:
-        w_fcf  = st.slider("FCF Yield",  0, 100, sw["FCF Yield"],  step=5, key="w_fcf_e")
-        w_roic = st.slider("ROIC",       0, 100, sw["ROIC"],       step=5, key="w_roic_e")
-        w_debt = st.slider("Debt / FCF", 0, 100, sw["Debt / FCF"], step=5, key="w_debt_e")
-    with w_col2:
-        w_gm  = st.slider("Gross Margin",      0, 100, sw["Gross Margin"],      step=5, key="w_gm_e")
-        w_ic  = st.slider("Interest Coverage", 0, 100, sw["Interest Coverage"], step=5, key="w_ic_e")
+    tc1, tc2 = st.columns(2)
+    with tc1:
+        t_roic = st.number_input("Min 10-yr avg ROIC (%)", min_value=0.0, max_value=100.0,
+                                  value=ft["roic_avg_min"] * 100, step=1.0, key="ft_roic") / 100
+        t_fcfm = st.number_input("Min 10-yr avg FCF Margin (%)", min_value=0.0, max_value=100.0,
+                                  value=ft["fcf_margin_avg_min"] * 100, step=1.0, key="ft_fcfm") / 100
+        t_dni  = st.number_input("Max Debt / Net Income (simple hurdle)", min_value=0.0, max_value=20.0,
+                                  value=ft["debt_to_ni_max"], step=0.5, key="ft_dni")
+    with tc2:
+        t_dcads = st.number_input("Max Debt / CADS (refined hurdle)", min_value=0.0, max_value=20.0,
+                                   value=ft["debt_to_cads_max"], step=0.5, key="ft_dcads")
+        t_minyr = st.number_input("Min years of history required", min_value=1, max_value=10,
+                                   value=ft["min_history_years"], step=1, key="ft_minyr")
+        t_dilyr = st.number_input("Dilution lookback (years)", min_value=1, max_value=10,
+                                   value=ft["dilution_lookback_years"], step=1, key="ft_dilyr")
 
-    active_weights = {
-        "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
-        "Gross Margin": w_gm, "Interest Coverage": w_ic,
-    }
-    st.session_state.scoring_weights = active_weights
-    total_weight = sum(active_weights.values())
-    if total_weight == 100:
-        st.success(f"✅ Total: {total_weight} / 100 — click Apply Weights to activate")
-    elif total_weight < 100:
-        st.warning(f"⚠️ Total: {total_weight} / 100 — {100 - total_weight} pts unallocated")
-    else:
-        st.error(f"❌ Total: {total_weight} / 100 — over by {total_weight - 100} pts")
+    fc1, fc2 = st.columns([1.3, 4])
+    if fc1.button("↺ Reset to Defaults", key="ms_edgar_reset_thresholds"):
+        st.session_state.committed_funnel_thresholds = FUNNEL_THRESHOLDS.copy()
+        st.rerun()
+    if fc2.button("✅ Apply Thresholds", key="ms_edgar_apply_thresholds", type="primary"):
+        st.session_state.committed_funnel_thresholds = {
+            "lookback_years":          10,
+            "min_history_years":       int(t_minyr),
+            "roic_avg_min":            t_roic,
+            "fcf_margin_avg_min":      t_fcfm,
+            "debt_to_ni_max":          t_dni,
+            "debt_to_cads_max":        t_dcads,
+            "dilution_lookback_years": int(t_dilyr),
+        }
+        st.success("Thresholds updated — re-run Stage 1 to apply.")
 
-weights = st.session_state.get("committed_weights", DEFAULT_WEIGHTS.copy())
+funnel_thresholds = st.session_state.get("committed_funnel_thresholds", FUNNEL_THRESHOLDS.copy())
 
 st.markdown("#### Ticker Universe")
 universe_choice = st.radio(
@@ -574,8 +577,9 @@ with col1:
 with col2:
     skip_financials = st.checkbox("Skip financial firms (banks/insurers)", value=True,
                                    help="Financial firms use different balance sheet structures — flagged via SIC code.")
-    skip_cyclicals  = st.checkbox("Flag cyclical firms", value=False,
-                                   help="Cyclicals aren't excluded, just labeled for full-cycle context.")
+    flag_cyclicals  = st.checkbox("Flag cyclical firms", value=True,
+                                   help="Cyclicals aren't excluded, just badged ⚠️ on their result card — a "
+                                        "10-yr average still leans on wherever the cycle currently sits.")
 with col3:
     _default_max = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)": 1000}[universe_choice]
     scan_all = st.checkbox(
@@ -796,8 +800,8 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
                 "industry":         sic_major_name(str(qdata.get("sic") or ""), _sic_map),
                 "sub_industry":     sic_full_name(str(qdata.get("sic") or ""), _sic_map),
             }
-            # Score is NOT computed here — it's applied in apply_weights_and_rank()
-            # below, so weight changes can be re-applied without re-pricing.
+            # Score is NOT computed here — funnel pass/fail already happened in
+            # Stage 1; this just attaches price-dependent reference fields.
             results.append(full_data)
 
     progress_bar2.progress(1.0)
@@ -807,31 +811,36 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
         st.warning("No results survived Stage 2. Try removing the dividend filter.")
         st.stop()
 
-    # Cache the full PRICED pool (before scoring/truncation) so weights
-    # can be changed and re-applied later via "Re-score with New
-    # Weights" without re-running Stage 2 pricing again.
+    # Cache the full PRICED pool (before truncation) so the display can
+    # be rebuilt (re-sorted, re-truncated) without re-running Stage 2
+    # pricing again.
     st.session_state['ms_edgar_stage2_priced_pool'] = results
     st.session_state['ms_edgar_total_tickers']      = total_tickers
 
-    apply_weights_and_rank(results)
+    build_results_table(results)
 
 
-def apply_weights_and_rank(priced_pool: list):
+def build_results_table(priced_pool: list):
     """
-    Applies score_stock() with the CURRENT weights to an already-priced
-    pool (from Stage 2), sorts by score, truncates to top_n, and updates
-    the displayed results. This is the cheapest re-run path — no EDGAR
-    fetch, no price fetch, just re-doing the scoring arithmetic — so
-    changing weights and clicking "Re-score" is near-instant.
+    Builds the displayed results table from an already-priced Stage 2
+    pool. Deliberately does NOT force-rank survivors by a composite
+    score — Stage 1 is a pass/fail checklist, not a weighted scorer, so
+    there's no single "best" ordering to impose. Default order is
+    ticker (A-Z); the results panel below offers a manual "Sort results
+    by" control (ROIC avg, FCF margin avg, ticker, years of history).
+    Truncates to top_n so a huge survivor pool stays browsable.
     """
-    scored = []
-    for d in priced_pool:
-        d = dict(d)  # don't mutate the cached pool
-        d["score"] = score_stock(d, weights)
-        scored.append(d)
+    scored = [dict(d) for d in priced_pool]  # don't mutate the cached pool
 
     results_df = pd.DataFrame(scored)
-    results_df = results_df.sort_values('score', ascending=False).head(top_n).reset_index(drop=True)
+    if not results_df.empty:
+        results_df = results_df.sort_values('ticker', ascending=True).head(top_n).reset_index(drop=True)
+
+    st.session_state['ms_edgar_results_df']    = results_df
+    st.session_state['ms_edgar_results_count'] = len(scored)
+    st.session_state['ms_claude_convo']        = []
+    st.session_state['ms_claude_context_sent'] = False
+    st.session_state['ms_selected_tickers']    = []
 
     st.session_state['ms_edgar_results_df']    = results_df
     st.session_state['ms_edgar_results_count'] = len(scored)
@@ -865,7 +874,7 @@ _has_priced_pool  = 'ms_edgar_stage2_priced_pool' in st.session_state
 if st.session_state.get('ms_edgar_cache_load_error'):
     st.caption(f"⚠️ Couldn't load persistent scan cache: {st.session_state['ms_edgar_cache_load_error']}")
 
-action_col1, action_col2, action_col3 = st.columns([2, 2, 4])
+action_col1, action_col3 = st.columns([2, 6])
 with action_col1:
     refilter_clicked = st.button(
         "🔁 Re-apply Filters (no rescan)", use_container_width=True,
@@ -874,16 +883,6 @@ with action_col1:
              "scan — change Sector/Industry/Cap/SI filters above and click this to see new results "
              "in seconds, without re-fetching EDGAR data." if _has_cached_pool else
              "Run a full scan first (below) to enable fast re-filtering.",
-    )
-with action_col2:
-    rescore_clicked = st.button(
-        "⚡ Re-score with New Weights", use_container_width=True,
-        disabled=not _has_priced_pool,
-        help="Re-applies the current scoring weights to your last priced results — no EDGAR fetch, "
-             "no price fetch, just the scoring math. Nearly instant. Note: this re-scores the same "
-             "set of companies from your last filter/scan; it does NOT re-apply Sector/Industry/Cap "
-             "filters — use Re-apply Filters for that." if _has_priced_pool else
-             "Run a scan first to enable instant weight re-scoring.",
     )
 with action_col3:
     _scan_ts    = st.session_state.get('ms_edgar_scan_timestamp')
@@ -897,7 +896,9 @@ with action_col3:
             _last_scan_str = f" · Last full scan: {_scan_ts} ({_scan_univ})"
     if _has_priced_pool:
         _priced_n = len(st.session_state['ms_edgar_stage2_priced_pool'])
-        st.caption(f"💾 {_priced_n} priced companies cached{_last_scan_str} — change weights above (Apply Weights first) then click Re-score for instant re-ranking.")
+        st.caption(f"💾 {_priced_n} priced companies cached{_last_scan_str}. Note: changing Funnel "
+                   f"Thresholds above only affects a fresh scan — Re-apply Filters re-uses the "
+                   f"pass/fail already computed at scan time.")
     elif _has_cached_pool:
         _cached_n = len(st.session_state['ms_edgar_stage1_raw_pool'])
         st.caption(f"💾 {_cached_n} companies cached{_last_scan_str} — click Re-apply Filters to price and see results, or change filters first.")
@@ -905,27 +906,14 @@ with action_col3:
         st.caption("No cached scan yet — run a full scan below first. Once complete, it's saved persistently and survives reboots.")
 
 if refilter_clicked and _has_cached_pool:
-    if total_weight != 100:
-        st.error(f"Weights must add up to 100. Currently at {total_weight}.")
-        st.stop()
     run_filters_and_stage2(
         st.session_state['ms_edgar_stage1_raw_pool'],
         st.session_state.get('ms_edgar_stage1_raw_total', len(st.session_state['ms_edgar_stage1_raw_pool'])),
     )
 
-if rescore_clicked and _has_priced_pool:
-    if total_weight != 100:
-        st.error(f"Weights must add up to 100. Currently at {total_weight}.")
-        st.stop()
-    apply_weights_and_rank(st.session_state['ms_edgar_stage2_priced_pool'])
-
 
 
 if run_screen:
-    if total_weight != 100:
-        st.error(f"Weights must add up to 100. Currently at {total_weight}.")
-        st.stop()
-
     with st.spinner(f"Loading {universe_choice} ticker list..."):
         if universe_choice == "S&P 500 (~500)":
             tickers = get_sp500_tickers()
@@ -958,8 +946,8 @@ if run_screen:
         st.error("Could not load EDGAR ticker-to-CIK map. Try again in a moment.")
         st.stop()
 
-    # ── Stage 1: Quality scan (EDGAR, parallel, no price) ──────────────
-    st.markdown(f"### Stage 1 — Quality Scan ({total_tickers} companies, EDGAR fundamentals)")
+    # ── Stage 1: Buffett/Munger checklist scan (EDGAR, parallel, no price) ──
+    st.markdown(f"### Stage 1 — Checklist Scan ({total_tickers} companies, EDGAR fundamentals)")
     progress_bar = st.progress(0)
     status_text  = st.empty()
     stage1_results = []
@@ -969,7 +957,7 @@ if run_screen:
         cik = ticker_cik_map.get(ticker.upper())
         if not cik:
             return None
-        return fetch_quality_edgar(ticker, cik)
+        return fetch_quality_edgar(ticker, cik, funnel_thresholds)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(_stage1_worker, t): t for t in tickers_to_scan}
@@ -986,16 +974,13 @@ if run_screen:
                 continue
             if skip_financials and data.get("is_financial"):
                 continue
-            q_earned, q_max = score_quality_only(data, weights)
-            if q_max > 0 and (q_earned / q_max) >= STAGE1_QUALITY_FLOOR:
-                data["_quality_score"] = q_earned
-                data["_quality_max"]   = q_max
+            if data.get("funnel_passed"):
                 stage1_results.append(data)
 
     progress_bar.progress(1.0)
     status_text.markdown(
         f"✅ Stage 1 complete — {len(stage1_results)} of {total_tickers} companies cleared the "
-        f"quality floor ({int(STAGE1_QUALITY_FLOOR*100)}% of price-independent points)."
+        f"Buffett/Munger checklist (10-yr avg ROIC, 10-yr avg FCF margin, a debt hurdle, no dilution)."
     )
 
     if not stage1_results:
@@ -1043,8 +1028,9 @@ if 'ms_edgar_results_df' in st.session_state:
         st.info("💡 Showing results from last screen run. Click **Run Screen** to refresh.")
 
     st.divider()
-    st.markdown(f"## 🏆 Top {len(results_df)} Concentrated Opportunities")
-    st.caption("Ranked by Voskuil Owner's Framework score.")
+    st.markdown(f"## 🏆 {len(results_df)} Checklist Survivors")
+    st.caption("Cleared the Buffett/Munger funnel (10-yr avg ROIC > threshold, 10-yr avg FCF margin > threshold, "
+               "a debt hurdle, no dilution). Not ranked by a composite score — sort manually below.")
 
     def fmt(val, fmt_type):
         if val is None or (isinstance(val, float) and pd.isna(val)): return "N/A"
@@ -1052,21 +1038,22 @@ if 'ms_edgar_results_df' in st.session_state:
         if fmt_type == "ratio": return f"{val:.1f}x"
         return str(val)
 
-    # ── Superinvestor sort toggle (load button now lives in pre-scan filters) ──
+    # ── Manual sort control (no forced composite ranking) ──────────────
     _si_loaded = "_si_full_map" in st.session_state
-    si_col1, si_col2 = st.columns([2, 4])
-    with si_col1:
-        sort_by_si = False
+    sort_col1, sort_col2 = st.columns([2, 4])
+    with sort_col1:
+        _sort_options = ["Ticker (A-Z)", "10yr Avg ROIC (High-Low)", "10yr Avg FCF Margin (High-Low)",
+                          "Years of History (High-Low)"]
         if _si_loaded:
-            sort_by_si = st.checkbox("Sort by SI Conviction", value=False,
-                                      help="Re-rank results by superinvestor conviction instead of Owner's Framework score")
-        else:
-            st.caption("🦁 Superinvestor data not loaded — use the filter section above to load it.")
-    with si_col2:
+            _sort_options.append("Superinvestor Conviction (High-Low)")
+        sort_choice = st.selectbox("Sort results by", _sort_options, index=0)
+    with sort_col2:
         if _si_loaded:
             st.caption("Superinvestor holder counts are shown on each result below.")
+        else:
+            st.caption("🦁 Superinvestor data not loaded — use the filter section above to load it.")
 
-    # ── Apply SI conviction data and optional re-sort ────────────────
+    # ── Apply superinvestor conviction data if loaded ───────────────────
     if _si_loaded:
         si_scores = []
         for _, row in results_df.iterrows():
@@ -1079,8 +1066,16 @@ if 'ms_edgar_results_df' in st.session_state:
         results_df['si_holders'] = [s['si_holders'] for s in si_scores]
         results_df['si_score']   = [s['si_score']   for s in si_scores]
 
-        if sort_by_si:
-            results_df = results_df.sort_values('si_score', ascending=False).reset_index(drop=True)
+    _sort_map = {
+        "Ticker (A-Z)":                          ("ticker", True),
+        "10yr Avg ROIC (High-Low)":              ("roic_avg", False),
+        "10yr Avg FCF Margin (High-Low)":        ("fcf_margin_avg", False),
+        "Years of History (High-Low)":           ("funnel_years_used", False),
+        "Superinvestor Conviction (High-Low)":   ("si_score", False),
+    }
+    _sort_col, _sort_asc = _sort_map[sort_choice]
+    if _sort_col in results_df.columns:
+        results_df = results_df.sort_values(_sort_col, ascending=_sort_asc, na_position='last').reset_index(drop=True)
 
     # ── Init checkbox selection state ───────────────────────────────
     if 'ms_selected_tickers' not in st.session_state:
@@ -1109,10 +1104,9 @@ if 'ms_edgar_results_df' in st.session_state:
     """, unsafe_allow_html=True)
 
     for rank, row in results_df.iterrows():
-        score       = int(row['score'])
-        label, icon = score_to_label(score)
         ticker      = row['ticker']
         is_checked  = ticker in _selected
+        hurdle_icon, hurdle_label = hurdle_badge(row.get('debt_hurdle_cleared'))
 
         with st.container():
             _has_si = 'si_holders' in row.index
@@ -1122,18 +1116,28 @@ if 'ms_edgar_results_df' in st.session_state:
                 c1, c2, c3, c4, c5, c6, c7, c8, c10 = st.columns([1, 3, 2, 2, 2, 2, 2, 2, 1.5])
                 c9 = None
             with c1:
-                st.markdown(f"### {icon}")
+                st.markdown(f"### {hurdle_icon}")
                 st.markdown(f"**#{rank+1}**")
             with c2:
                 st.markdown(f"**{ticker}**")
                 st.caption(row.get('name', ''))
                 st.caption(row.get('sub_industry') or row.get('sector', ''))
-            with c3: st.metric("Score",        f"{score}/100")
-            with c4: st.metric("FCF Yield",    fmt(row.get('fcf_yield'),        "pct"))
-            with c5: st.metric("ROIC",         fmt(row.get('roic'),             "pct"))
-            with c6: st.metric("Gross Margin", fmt(row.get('gross_margin'),     "pct"))
-            with c7: st.metric("Debt/FCF",     fmt(row.get('debt_to_fcf'),      "ratio"))
-            with c8: st.metric("P/OE",         fmt(row.get('price_owner_earn'), "ratio"))
+                _badges = []
+                if row.get('is_cyclical') and flag_cyclicals: _badges.append("⚠️ Cyclical")
+                if row.get('limited_history'):
+                    _badges.append(f"📏 Limited History ({row.get('funnel_years_used','?')}y)")
+                if _badges:
+                    st.caption(" · ".join(_badges))
+            with c3: st.metric("ROIC (10yr avg)",      fmt(row.get('roic_avg'), "pct"),
+                                help=f"{row.get('roic_avg_years','?')} years of history used")
+            with c4: st.metric("FCF Margin (10yr avg)", fmt(row.get('fcf_margin_avg'), "pct"),
+                                help=f"{row.get('fcf_margin_avg_years','?')} years of history used")
+            with c5: st.metric("Debt Hurdle",           hurdle_label,
+                                help=f"Debt/NI {fmt(row.get('debt_to_ni'),'ratio')} · Debt/CADS {fmt(row.get('debt_to_cads'),'ratio')}")
+            with c6: st.metric("Dilution",              "✅ Passed" if row.get('dilution_passed') else "❌ Failed",
+                                help=f"Shares chg: {fmt(row.get('dilution_pct_change'),'pct')}")
+            with c7: st.metric("FCF Yield",             fmt(row.get('fcf_yield'), "pct"), help="Secondary valuation reference")
+            with c8: st.metric("P/OE",                  fmt(row.get('price_owner_earn'), "ratio"), help="Secondary valuation reference")
             if _has_si and c9 is not None:
                 with c9:
                     si_n     = int(row.get('si_holders', 0))
@@ -1171,16 +1175,22 @@ if 'ms_edgar_results_df' in st.session_state:
 
     st.markdown("### 📊 Screen Summary")
     s1, s2, s3, s4 = st.columns(4)
-    with s1: st.metric("Scanned",           total_tickers)
-    with s2: st.metric("Passed FCF Filter", st.session_state.get('ms_edgar_results_count', len(results_df)))
-    with s3: st.metric("Avg Score",         f"{results_df['score'].mean():.0f}")
-    with s4: st.metric("Strong Buys (80+)", len(results_df[results_df['score'] >= 80]))
+    with s1: st.metric("Scanned",                total_tickers)
+    with s2: st.metric("Checklist Survivors",    st.session_state.get('ms_edgar_results_count', len(results_df)))
+    with s3: st.metric("Avg 10yr ROIC",          fmt(results_df['roic_avg'].mean() if 'roic_avg' in results_df else None, "pct"))
+    with s4: st.metric("Cleared Both Hurdles",   len(results_df[results_df.get('debt_hurdle_cleared') == 'both']) if 'debt_hurdle_cleared' in results_df else 0)
 
     st.markdown("### 💾 Export Results")
-    _export_cols = ['ticker','name','sector','industry','sub_industry','score','fcf_yield','roic','gross_margin',
-                     'debt_to_fcf','interest_coverage','price_owner_earn','dividend_yield','price','market_cap']
-    _export_names = ['Ticker','Name','Sector','Industry','Sub-Industry','Score','FCF Yield','ROIC','Gross Margin',
-                      'Debt/FCF','Interest Coverage','Price/Owner Earnings','Dividend Yield','Price','Market Cap']
+    _export_cols = ['ticker','name','sector','industry','sub_industry',
+                     'roic_avg','roic_avg_years','fcf_margin_avg','fcf_margin_avg_years',
+                     'debt_to_ni','debt_to_cads','debt_hurdle_cleared',
+                     'dilution_passed','dilution_pct_change','limited_history','funnel_years_used',
+                     'is_cyclical','fcf_yield','price_owner_earn','dividend_yield','price','market_cap']
+    _export_names = ['Ticker','Name','Sector','Industry','Sub-Industry',
+                      'ROIC (10yr avg)','ROIC Years Used','FCF Margin (10yr avg)','FCF Margin Years Used',
+                      'Debt/Net Income','Debt/CADS','Debt Hurdle Cleared',
+                      'Dilution Passed','Shares Chg (5yr)','Limited History','Funnel Years Used',
+                      'Cyclical','FCF Yield','Price/Owner Earnings','Dividend Yield','Price','Market Cap']
     if 'si_holders' in results_df.columns:
         _export_cols  += ['si_holders', 'si_score']
         _export_names += ['SI Holders', 'SI Conviction Score']
@@ -1211,7 +1221,7 @@ if 'ms_edgar_results_df' in st.session_state:
         if st.button("⚖️ Compare Top 3", type="primary", use_container_width=True,
                      help="Open the Compare page for the top 3 scored tickers"):
             st.session_state['compare_tickers'] = top3_tickers
-            st.session_state['compare_weights']  = weights.copy()
+            st.session_state['compare_weights']  = DEFAULT_WEIGHTS.copy()
             st.session_state['ms_selected_tickers'] = []
             st.switch_page("app_pages/9_Compare_Stocks_EDGAR.py")
     with dd_col2:
@@ -1225,7 +1235,7 @@ if 'ms_edgar_results_df' in st.session_state:
             help=f"Side-by-side comparison for: {', '.join(selected_tickers)}" if selected_tickers else "Check at least 2 boxes to compare",
         ):
             st.session_state['compare_tickers'] = selected_tickers.copy()
-            st.session_state['compare_weights']  = weights.copy()
+            st.session_state['compare_weights']  = DEFAULT_WEIGHTS.copy()
             st.switch_page("app_pages/9_Compare_Stocks_EDGAR.py")
     with dd_col3:
         if selected_tickers:
