@@ -27,3 +27,4 @@ ms_download.py
 *.html
 *.md
 !README.md
+!ARCHITECTURE.md
