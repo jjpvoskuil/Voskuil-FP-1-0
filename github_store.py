@@ -45,6 +45,64 @@ def github_get_json(path: str):
         return None, None, f"GET exception: {e}"
 
 
+def github_get_text(path: str):
+    """
+    Fetch a raw text file (e.g. a markdown doc) from the repo — same as
+    github_get_json() but skips JSON parsing. Returns (text, sha, error).
+    """
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo  = st.secrets.get("GITHUB_REPO", "jjpvoskuil/Voskuil-FP-1-0")
+    if not token:
+        return None, None, "GITHUB_TOKEN not found in Streamlit secrets."
+    try:
+        api   = f"https://api.github.com/repos/{repo}/contents/{path}"
+        heads = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+        r = requests.get(api, headers=heads, timeout=20)
+        if r.status_code == 404:
+            return None, None, None
+        if r.status_code != 200:
+            return None, None, f"GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+        body    = r.json()
+        sha     = body.get("sha")
+        content = base64.b64decode(body.get("content", "")).decode()
+        return content, sha, None
+    except Exception as e:
+        return None, None, f"GET exception: {e}"
+
+
+def github_put_text(path: str, text: str, commit_message: str, size_warn_mb: float = 20.0):
+    """Write a raw text file to the repo. Same SHA-checked pattern as
+    github_put_json(). Returns (success: bool, message: str)."""
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo  = st.secrets.get("GITHUB_REPO", "jjpvoskuil/Voskuil-FP-1-0")
+    if not token:
+        return False, "GITHUB_TOKEN not found in Streamlit secrets."
+    try:
+        size_mb = len(text.encode()) / 1e6
+        if size_mb > size_warn_mb:
+            return False, f"Payload is {size_mb:.1f}MB — larger than the {size_warn_mb:.0f}MB soft limit."
+
+        api   = f"https://api.github.com/repos/{repo}/contents/{path}"
+        heads = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+
+        r = requests.get(api, headers=heads, timeout=20)
+        if r.status_code not in (200, 404):
+            return False, f"GitHub GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+        sha = r.json().get("sha") if r.status_code == 200 else None
+
+        payload = {
+            "message": commit_message,
+            "content": base64.b64encode(text.encode()).decode(),
+        }
+        if sha:
+            payload["sha"] = sha
+
+        put_r = requests.put(api, headers=heads, json=payload, timeout=60)
+        if put_r.status_code not in (200, 201):
+            return False, f"GitHub PUSH failed: {put_r.status_code} {put_r.json().get('message', put_r.text)[:200]}"
+        return True, "Synced"
+    except Exception as e:
+        return False, f"PUSH exception: {e}"
 def github_put_json(path: str, data, commit_message: str, size_warn_mb: float = 20.0):
     """
     Write a JSON-serializable object to the repo, creating or updating the

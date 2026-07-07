@@ -216,7 +216,7 @@ can't drift out of sync the way a hand-maintained roadmap would.
 - #39 Operating metrics panel on Equity Scout
 
 ### Data Quality (12)
-- #63 Redo stock scoring metrics *(High — likely overlaps significantly with the Equity Scoring items above; worth deciding whether these are the same effort before starting either)*
+- #63 Redo stock scoring metrics *(High — kept alongside the Equity Scoring items above deliberately: scope isn't finalized yet, this is a placeholder for "the metrics need work" so the thinking isn't lost before it's fully formed)*
 - #18/#19/#20 Bank of America dashboard/transactions/API integration (High)
 - #21 Quicken-like transaction categorization page
 - #7 Separate maintenance vs. growth capex

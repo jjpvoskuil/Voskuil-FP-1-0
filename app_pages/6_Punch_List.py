@@ -2,7 +2,11 @@ import streamlit as st
 import json
 import os
 import time
+import sys
 from datetime import datetime
+import streamlit.components.v1 as components
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from github_store import github_get_text, github_put_text
 
 
 # ─────────────────────────────────────────────
@@ -398,318 +402,479 @@ PHASES = st.session_state.punch_phases   # live list — may grow as user adds p
 # ─────────────────────────────────────────────
 # HEADER
 # ─────────────────────────────────────────────
-st.title("🗂️ Voskuil FP — Dev Punch List")
-st.caption("Internal development tracker · Not visible in production · Remove this page before commercial launch")
 
-# ── Persistent GitHub sync error banner ─────────────────────────────────────
-# Survives st.rerun() by reading from session state. Prevents the flash-and-vanish
-# error that used to happen when a checkbox toggle triggered save → rerun.
-if st.session_state.get("punch_list_github_ok") is False:
-    st.error(
-        f"⚠️ **GitHub sync FAILED on last save.** Your changes exist ONLY in this session "
-        f"and WILL BE LOST on reboot/redeploy.\n\n"
-        f"**Error:** {st.session_state.get('punch_list_github_msg', '(no message)')}\n\n"
-        f"**Action:** Download a backup with the 💾 button below, then fix the sync "
-        f"(most likely: GITHUB_TOKEN expired or missing repo scope in Streamlit secrets)."
-    )
-    if st.button("Dismiss banner (until next failure)"):
-        st.session_state.punch_list_github_ok = None
-        st.rerun()
+# ─────────────────────────────────────────────
+# ARCHITECTURE TAB
+# ─────────────────────────────────────────────
+ARCHITECTURE_FILE = "ARCHITECTURE.md"
 
-# Stats bar
-total   = len(items)
-done    = sum(1 for i in items if i["done"])
-open_   = total - done
-urgent  = sum(1 for i in items if not i["done"] and i["priority"] == "Urgent")
-high    = sum(1 for i in items if not i["done"] and i["priority"] == "High")
+_ARCH_DIAGRAM_HTML = """
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; width: 100%;">
+<svg viewBox="0 0 920 620" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:auto;">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
 
-st.markdown(f"""
-<div class="stats-bar">
-  <div class="stat-item"><div class="stat-num">{open_}</div><div class="stat-lbl">Open</div></div>
-  <div class="stat-item"><div class="stat-num" style="color:#dc2626">{urgent}</div><div class="stat-lbl">Urgent</div></div>
-  <div class="stat-item"><div class="stat-num" style="color:#c2410c">{high}</div><div class="stat-lbl">High</div></div>
-  <div class="stat-item"><div class="stat-num" style="color:#15803d">{done}</div><div class="stat-lbl">Done</div></div>
-  <div class="stat-item"><div class="stat-num" style="color:#6b7280">{total}</div><div class="stat-lbl">Total</div></div>
+  <!-- Row 1: Data sources -->
+  <rect x="30"  y="20" width="190" height="60" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="125" y="45" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">SEC EDGAR</text>
+  <text x="125" y="63" text-anchor="middle" font-size="11" fill="#3b5a8a">Financial statements</text>
+
+  <rect x="245" y="20" width="190" height="60" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="340" y="45" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">yfinance</text>
+  <text x="340" y="63" text-anchor="middle" font-size="11" fill="#3b5a8a">Price, cap, sector, div yield</text>
+
+  <rect x="700" y="20" width="190" height="60" rx="8" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="795" y="45" text-anchor="middle" font-size="14" font-weight="700" fill="#14532d">Morgan Stanley CSV</text>
+  <text x="795" y="63" text-anchor="middle" font-size="11" fill="#3a6a3a">Manual export → GitHub</text>
+
+  <!-- Arrows: EDGAR + yfinance -> sec_utils.py -->
+  <path d="M125,80 L280,150" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M340,80 L340,150" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Row 2: shared engine -->
+  <rect x="230" y="150" width="220" height="70" rx="8" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="340" y="180" text-anchor="middle" font-size="14" font-weight="700" fill="#713f12">sec_utils.py</text>
+  <text x="340" y="198" text-anchor="middle" font-size="11" fill="#854d0e">Scoring engine + DCF</text>
+  <text x="340" y="212" text-anchor="middle" font-size="10" fill="#854d0e">(canonical, shared)</text>
+
+  <!-- Arrows: sec_utils.py -> 4 consuming pages -->
+  <path d="M290,220 L100,300" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M320,220 L280,300" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M360,220 L470,300" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M400,220 L660,300" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- MS CSV -> Dashboard directly -->
+  <path d="M760,80 L100,300" stroke="#86efac" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Row 3: 4 consuming pages -->
+  <rect x="20"  y="300" width="170" height="60" rx="8" fill="#ffffff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="105" y="325" text-anchor="middle" font-size="13" font-weight="700" fill="#1e293b">🛡️ Dashboard</text>
+  <text x="105" y="343" text-anchor="middle" font-size="10" fill="#64748b">Holdings + agent</text>
+
+  <rect x="210" y="300" width="170" height="60" rx="8" fill="#ffffff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="295" y="325" text-anchor="middle" font-size="13" font-weight="700" fill="#1e293b">🔍 Equity Scout</text>
+  <text x="295" y="343" text-anchor="middle" font-size="10" fill="#64748b">Single-ticker + 10-K agent</text>
+
+  <rect x="400" y="300" width="170" height="60" rx="8" fill="#ffffff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="485" y="325" text-anchor="middle" font-size="13" font-weight="700" fill="#1e293b">📡 Market Screener</text>
+  <text x="485" y="343" text-anchor="middle" font-size="10" fill="#64748b">Broad scan, cached</text>
+
+  <rect x="590" y="300" width="170" height="60" rx="8" fill="#ffffff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="675" y="325" text-anchor="middle" font-size="13" font-weight="700" fill="#1e293b">⚖️ Compare Stocks</text>
+  <text x="675" y="343" text-anchor="middle" font-size="10" fill="#64748b">2-5 tickers + 10-K agent</text>
+
+  <!-- Persistence layer -->
+  <rect x="230" y="410" width="460" height="55" rx="8" fill="#fdf2f8" stroke="#db2777" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="460" y="433" text-anchor="middle" font-size="13" font-weight="700" fill="#831843">github_store.py</text>
+  <text x="460" y="450" text-anchor="middle" font-size="10" fill="#9d174d">Punch list + scan cache + this doc — survives reboots</text>
+
+  <path d="M105,360 L400,410" stroke="#f0abfc" stroke-width="1.5" fill="none" stroke-dasharray="3,3"/>
+  <path d="M485,360 L460,410" stroke="#f0abfc" stroke-width="1.5" fill="none" stroke-dasharray="3,3"/>
+
+  <!-- Row 4: supporting pages -->
+  <text x="30" y="510" font-size="12" font-weight="700" fill="#94a3b8">SUPPORTING PAGES</text>
+  <rect x="30"  y="520" width="150" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="105" y="550" text-anchor="middle" font-size="12" fill="#475569">🏔️ Financial Modeler</text>
+
+  <rect x="200" y="520" width="150" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="275" y="550" text-anchor="middle" font-size="12" fill="#475569">🏦 MS Financial Modeler</text>
+
+  <rect x="370" y="520" width="150" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="445" y="550" text-anchor="middle" font-size="12" fill="#475569">⬇️ Downloads</text>
+
+  <rect x="540" y="520" width="150" height="50" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="615" y="550" text-anchor="middle" font-size="12" fill="#475569">✅ Punch List</text>
+
+  <rect x="710" y="520" width="180" height="50" rx="8" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="800" y="545" text-anchor="middle" font-size="11" fill="#64748b">Retired (Polygon)</text>
+  <text x="800" y="558" text-anchor="middle" font-size="9" fill="#94a3b8">not in nav</text>
+</svg>
 </div>
-""", unsafe_allow_html=True)
+"""
 
-# ── Always-visible backup + reload controls ───────────────────────────────
-# Backup: Download current JSON — save this after every editing session as a
-#   local backup. Streamlit Cloud's filesystem resets on redeploy.
-# Reload: Force re-read from GitHub (bypasses session state) — use if you
-#   suspect the app is showing a stale copy after Claude or another tab
-#   pushed changes.
-backup_data = st.session_state.get("punch_list_backup", json.dumps(items, indent=2))
-saved_at    = st.session_state.get("punch_list_saved_at", "now")
 
-# Stale warning: if last save was blocked by SHA guard, remind user to reload
-if st.session_state.get("punch_list_stale"):
-    st.warning(
-        "⚠️ **Session is out of sync with GitHub.** Your last edit was not saved. "
-        "Click **🔄 Reload from GitHub** below to pull the latest, then re-apply your change."
+def render_architecture_tab():
+    """Architecture tab (punch list #62) — living document + a real visual
+    flow diagram, editable in-app and persisted to GitHub via github_store.py
+    (same SHA-checked pattern as the punch list itself)."""
+    st.markdown("### 🏗️ Architecture")
+    st.caption(
+        "Current app structure and where it's headed. The repo copy of `ARCHITECTURE.md` is the "
+        "source of truth — same principle as the punch list. Claude's Project Knowledge is a manual, "
+        "lagging backup, not the live reference."
     )
 
-bcol1, bcol2, bcol3 = st.columns([1, 1, 5])
-with bcol1:
-    st.download_button(
-        "💾 Backup JSON",
-        data=backup_data,
-        file_name=f"punch_list_data.json",
-        mime="application/json",
-        use_container_width=True,
-        help="Download your punch list as JSON. Re-upload to restore after a Streamlit Cloud redeploy wipes the filesystem.",
-    )
-with bcol2:
-    if st.button("🔄 Reload from GitHub", use_container_width=True,
-                 help="Force re-read punch_list_data.json from GitHub (bypasses session state). Use this if the app looks stale after Claude pushed changes."):
-        _items, _phases = load_from_github()
-        st.session_state.punch_items  = _items
-        st.session_state.punch_phases = _phases
-        st.session_state.punch_list_stale = False
-        st.success("Reloaded from GitHub.")
-        st.rerun()
-with bcol3:
-    gh_ok  = st.session_state.get("punch_list_github_ok", None)
-    gh_msg = st.session_state.get("punch_list_github_msg", "")
-    if gh_ok is True:
-        st.caption(f"✅ **Synced to GitHub.** Last saved: {saved_at}")
-    elif gh_ok is False:
-        st.caption(f"❌ **GitHub sync FAILED** — {gh_msg}  "
-                   f"Changes only live in this session. Download a backup now. Last local save: {saved_at}")
-    else:
+    components.html(_ARCH_DIAGRAM_HTML, height=600, scrolling=False)
+
+    st.markdown("")
+
+    # ── Load current doc content (session-cached to avoid refetching every rerun) ──
+    if "arch_doc_content" not in st.session_state:
+        _text, _sha, _err = github_get_text(ARCHITECTURE_FILE)
+        if _err:
+            st.session_state["arch_doc_error"] = _err
+            st.session_state["arch_doc_content"] = ""
+        else:
+            st.session_state["arch_doc_content"] = _text or ""
+            st.session_state["arch_doc_error"] = None
+
+    if st.session_state.get("arch_doc_error"):
+        st.warning(f"⚠️ Couldn't load {ARCHITECTURE_FILE} from GitHub: {st.session_state['arch_doc_error']}")
+
+    rc1, rc2 = st.columns([1, 5])
+    with rc1:
+        if st.button("🔄 Reload", use_container_width=True,
+                     help="Re-fetch ARCHITECTURE.md from GitHub, discarding any unsaved edits below."):
+            _text, _sha, _err = github_get_text(ARCHITECTURE_FILE)
+            st.session_state["arch_doc_content"] = _text or ""
+            st.session_state["arch_doc_error"] = _err
+            st.rerun()
+
+    with st.expander("📄 Full document (rendered)", expanded=False):
+        st.markdown(st.session_state["arch_doc_content"])
+
+    with st.expander("✏️ Edit ARCHITECTURE.md", expanded=False):
         st.caption(
-            f"ℹ️ GitHub sync status unknown until your next edit. "
-            f"The 💾 button is a manual backup if you want a local copy too. "
-            f"Last saved: {saved_at}"
+            "Edits save directly to GitHub — Claude reads this same file at the start of each "
+            "session, so keeping it current here is exactly as valuable as keeping the punch list current."
+        )
+        edited = st.text_area(
+            "Document content", value=st.session_state["arch_doc_content"],
+            height=400, key="arch_doc_editor", label_visibility="collapsed",
+        )
+        if st.button("💾 Save to GitHub", type="primary", key="arch_save"):
+            ok, msg = github_put_text(
+                ARCHITECTURE_FILE, edited,
+                commit_message=f"Update ARCHITECTURE.md via in-app editor {datetime.today().strftime('%Y-%m-%d %H:%M')}",
+            )
+            if ok:
+                st.session_state["arch_doc_content"] = edited
+                st.success("✅ Saved to GitHub.")
+            else:
+                st.error(f"⚠️ Save failed: {msg}")
+
+
+tab_punch, tab_arch = st.tabs(["📋 Punch List", "🏗️ Architecture"])
+
+with tab_arch:
+    render_architecture_tab()
+
+with tab_punch:
+    st.title("🗂️ Voskuil FP — Dev Punch List")
+    st.caption("Internal development tracker · Not visible in production · Remove this page before commercial launch")
+
+    # ── Persistent GitHub sync error banner ─────────────────────────────────────
+    # Survives st.rerun() by reading from session state. Prevents the flash-and-vanish
+    # error that used to happen when a checkbox toggle triggered save → rerun.
+    if st.session_state.get("punch_list_github_ok") is False:
+        st.error(
+            f"⚠️ **GitHub sync FAILED on last save.** Your changes exist ONLY in this session "
+            f"and WILL BE LOST on reboot/redeploy.\n\n"
+            f"**Error:** {st.session_state.get('punch_list_github_msg', '(no message)')}\n\n"
+            f"**Action:** Download a backup with the 💾 button below, then fix the sync "
+            f"(most likely: GITHUB_TOKEN expired or missing repo scope in Streamlit secrets)."
+        )
+        if st.button("Dismiss banner (until next failure)"):
+            st.session_state.punch_list_github_ok = None
+            st.rerun()
+
+    # Stats bar
+    total   = len(items)
+    done    = sum(1 for i in items if i["done"])
+    open_   = total - done
+    urgent  = sum(1 for i in items if not i["done"] and i["priority"] == "Urgent")
+    high    = sum(1 for i in items if not i["done"] and i["priority"] == "High")
+
+    st.markdown(f"""
+    <div class="stats-bar">
+      <div class="stat-item"><div class="stat-num">{open_}</div><div class="stat-lbl">Open</div></div>
+      <div class="stat-item"><div class="stat-num" style="color:#dc2626">{urgent}</div><div class="stat-lbl">Urgent</div></div>
+      <div class="stat-item"><div class="stat-num" style="color:#c2410c">{high}</div><div class="stat-lbl">High</div></div>
+      <div class="stat-item"><div class="stat-num" style="color:#15803d">{done}</div><div class="stat-lbl">Done</div></div>
+      <div class="stat-item"><div class="stat-num" style="color:#6b7280">{total}</div><div class="stat-lbl">Total</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Always-visible backup + reload controls ───────────────────────────────
+    # Backup: Download current JSON — save this after every editing session as a
+    #   local backup. Streamlit Cloud's filesystem resets on redeploy.
+    # Reload: Force re-read from GitHub (bypasses session state) — use if you
+    #   suspect the app is showing a stale copy after Claude or another tab
+    #   pushed changes.
+    backup_data = st.session_state.get("punch_list_backup", json.dumps(items, indent=2))
+    saved_at    = st.session_state.get("punch_list_saved_at", "now")
+
+    # Stale warning: if last save was blocked by SHA guard, remind user to reload
+    if st.session_state.get("punch_list_stale"):
+        st.warning(
+            "⚠️ **Session is out of sync with GitHub.** Your last edit was not saved. "
+            "Click **🔄 Reload from GitHub** below to pull the latest, then re-apply your change."
         )
 
-# ─────────────────────────────────────────────
-# FILTERS + ADD FORM
-# ─────────────────────────────────────────────
-f_col1, f_col2, f_col3, add_col = st.columns([2, 2, 1, 1])
-with f_col1:
-    filter_phase = st.selectbox("Phase", ["All Phases"] + PHASES, label_visibility="collapsed")
-with f_col2:
-    filter_priority = st.selectbox("Priority", ["All Priorities"] + PRIORITIES, label_visibility="collapsed")
-with f_col3:
-    show_done_only = st.toggle("Show Done Only", value=False)
-with add_col:
-    add_clicked = st.button("➕ Add Item", type="primary", use_container_width=True)
-
-# ── Manage Phases ──────────────────────────────────────────────────────────
-with st.expander("🗂️ Manage Phases", expanded=False):
-    st.caption("Add new phases or remove unused ones. Changes apply immediately to all dropdowns.")
-    pc1, pc2 = st.columns([3, 1])
-    new_phase_name = pc1.text_input("New phase name", placeholder="e.g. Bug Fixes, Version 2.0, On Hold...",
-                                     label_visibility="collapsed", key="new_phase_input")
-    if pc2.button("➕ Add Phase", use_container_width=True):
-        name = new_phase_name.strip()
-        if name and name not in PHASES:
-            PHASES.append(name)
-            st.session_state.punch_phases = PHASES
-            save_items(items, PHASES)
+    bcol1, bcol2, bcol3 = st.columns([1, 1, 5])
+    with bcol1:
+        st.download_button(
+            "💾 Backup JSON",
+            data=backup_data,
+            file_name=f"punch_list_data.json",
+            mime="application/json",
+            use_container_width=True,
+            help="Download your punch list as JSON. Re-upload to restore after a Streamlit Cloud redeploy wipes the filesystem.",
+        )
+    with bcol2:
+        if st.button("🔄 Reload from GitHub", use_container_width=True,
+                     help="Force re-read punch_list_data.json from GitHub (bypasses session state). Use this if the app looks stale after Claude pushed changes."):
+            _items, _phases = load_from_github()
+            st.session_state.punch_items  = _items
+            st.session_state.punch_phases = _phases
+            st.session_state.punch_list_stale = False
+            st.success("Reloaded from GitHub.")
             st.rerun()
-        elif name in PHASES:
-            st.warning(f'"{name}" already exists.')
+    with bcol3:
+        gh_ok  = st.session_state.get("punch_list_github_ok", None)
+        gh_msg = st.session_state.get("punch_list_github_msg", "")
+        if gh_ok is True:
+            st.caption(f"✅ **Synced to GitHub.** Last saved: {saved_at}")
+        elif gh_ok is False:
+            st.caption(f"❌ **GitHub sync FAILED** — {gh_msg}  "
+                       f"Changes only live in this session. Download a backup now. Last local save: {saved_at}")
         else:
-            st.warning("Enter a phase name first.")
-
-    st.markdown("**Current phases** — click 🗑 to remove (only if no items use it):")
-    for ph in list(PHASES):
-        ph_col1, ph_col2 = st.columns([5, 1])
-        ph_col1.markdown(f"• {ph}")
-        in_use = any(i["phase"] == ph for i in items)
-        if ph_col2.button("🗑", key=f"del_phase_{ph}", disabled=in_use,
-                           help="In use — reassign items first" if in_use else f"Remove '{ph}'"):
-            PHASES.remove(ph)
-            st.session_state.punch_phases = PHASES
-            save_items(items, PHASES)
-            st.rerun()
-
-# ── Add item form ──────────────────────────────────────────────────────────
-if add_clicked:
-    st.session_state.show_add_form = True
-
-if st.session_state.get("show_add_form"):
-    with st.container(border=True):
-        st.markdown("**New Punch List Item**")
-        a1, a2, a3 = st.columns([3, 1.5, 1.5])
-        new_title    = a1.text_input("Title *", placeholder="What needs to be built?", key="new_title")
-        new_phase    = a2.selectbox("Phase", PHASES, key="new_phase")
-        new_priority = a3.selectbox("Priority", PRIORITIES, key="new_priority")
-        new_note     = st.text_area("Context / Notes", placeholder="Approach, dependencies, constraints — enough for Claude to pick this up in a future session...", key="new_note", height=80)
-        b1, b2, _ = st.columns([1, 1, 4])
-        if b1.button("✅ Add", type="primary"):
-            if new_title.strip():
-                new_item = {
-                    "id":       next_id(items),
-                    "title":    new_title.strip(),
-                    "note":     new_note.strip(),
-                    "phase":    new_phase,
-                    "priority": new_priority,
-                    "done":     False,
-                    "created":  datetime.today().strftime("%Y-%m-%d"),
-                }
-                items.append(new_item)
-                save_items(items)
-                st.session_state.show_add_form = False
-                st.rerun()
-            else:
-                st.warning("Title is required.")
-        if b2.button("Cancel"):
-            st.session_state.show_add_form = False
-            st.rerun()
-
-st.divider()
-
-# ─────────────────────────────────────────────
-# ITEM LIST
-# ─────────────────────────────────────────────
-PRIORITY_COLORS = {
-    "Urgent": ("#dc2626", "badge-urgent"),
-    "High":   ("#c2410c", "badge-high"),
-    "Medium": ("#1d4ed8", "badge-medium"),
-    "Low":    ("#6b7280", "badge-low"),
-}
-
-# Filter
-# Filter — show_done_only is the single switch between "open items" and
-# "done items"; phase and priority filters apply independently in either mode.
-visible = [i for i in items if (
-    (filter_phase    == "All Phases"     or i["phase"]    == filter_phase) and
-    (filter_priority == "All Priorities" or i["priority"] == filter_priority) and
-    (i["done"] if show_done_only else not i["done"])
-)]
-
-# Group by phase
-phase_order = PHASES
-grouped = {}
-for phase in phase_order:
-    group = [i for i in visible if i["phase"] == phase]
-    if group:
-        grouped[phase] = group
-
-if not visible:
-    st.info("No items match the current filters.")
-
-for phase, phase_items in grouped.items():
-    open_count = sum(1 for i in phase_items if not i["done"])
-    done_count = sum(1 for i in phase_items if i["done"])
-    count_str  = f"{open_count} open" + (f" · {done_count} done" if done_count else "")
-    st.markdown(f'<div class="phase-header">{phase} &nbsp;·&nbsp; {count_str}</div>', unsafe_allow_html=True)
-
-    for item in phase_items:
-        pid     = item["id"]
-        is_done = item["done"]
-        color, badge_cls = PRIORITY_COLORS.get(item["priority"], ("#888", "badge-low"))
-        title_cls = "done-title" if is_done else ""
-
-        # Expand/edit toggle key
-        edit_key = f"edit_{pid}"
-        if edit_key not in st.session_state:
-            st.session_state[edit_key] = False
-
-        # Row: checkbox | title+badge | edit | delete
-        c_check, c_main, c_edit, c_del = st.columns([0.3, 7, 0.6, 0.4])
-
-        # ── Checkbox ──────────────────────────────────────────────────────
-        checked = c_check.checkbox("", value=is_done, key=f"chk_{pid}", label_visibility="collapsed")
-        if checked != is_done:
-            item["done"] = checked
-            save_items(items)
-            st.rerun()
-
-        # ── Title + note ───────────────────────────────────────────────────
-        with c_main:
-            st.markdown(
-                f'<div class="item-title {title_cls}">'
-                f'<span style="color:#9ca3af; font-weight:400; margin-right:6px">#{pid}</span>'
-                f'{item["title"]}'
-                f'<span class="badge {badge_cls}">{item["priority"]}</span>'
-                f'</div>'
-                + (f'<div class="item-note">{item["note"]}</div>' if item["note"] else ""),
-                unsafe_allow_html=True,
+            st.caption(
+                f"ℹ️ GitHub sync status unknown until your next edit. "
+                f"The 💾 button is a manual backup if you want a local copy too. "
+                f"Last saved: {saved_at}"
             )
 
-        # ── Edit button ────────────────────────────────────────────────────
-        if c_edit.button("✏️", key=f"editbtn_{pid}", help="Edit"):
-            st.session_state[edit_key] = not st.session_state[edit_key]
-            st.rerun()
+    # ─────────────────────────────────────────────
+    # FILTERS + ADD FORM
+    # ─────────────────────────────────────────────
+    f_col1, f_col2, f_col3, add_col = st.columns([2, 2, 1, 1])
+    with f_col1:
+        filter_phase = st.selectbox("Phase", ["All Phases"] + PHASES, label_visibility="collapsed")
+    with f_col2:
+        filter_priority = st.selectbox("Priority", ["All Priorities"] + PRIORITIES, label_visibility="collapsed")
+    with f_col3:
+        show_done_only = st.toggle("Show Done Only", value=False)
+    with add_col:
+        add_clicked = st.button("➕ Add Item", type="primary", use_container_width=True)
 
-        # ── Delete button ──────────────────────────────────────────────────
-        if c_del.button("🗑", key=f"delbtn_{pid}", help="Delete"):
-            items[:] = [i for i in items if i["id"] != pid]
-            save_items(items)
-            st.rerun()
+    # ── Manage Phases ──────────────────────────────────────────────────────────
+    with st.expander("🗂️ Manage Phases", expanded=False):
+        st.caption("Add new phases or remove unused ones. Changes apply immediately to all dropdowns.")
+        pc1, pc2 = st.columns([3, 1])
+        new_phase_name = pc1.text_input("New phase name", placeholder="e.g. Bug Fixes, Version 2.0, On Hold...",
+                                         label_visibility="collapsed", key="new_phase_input")
+        if pc2.button("➕ Add Phase", use_container_width=True):
+            name = new_phase_name.strip()
+            if name and name not in PHASES:
+                PHASES.append(name)
+                st.session_state.punch_phases = PHASES
+                save_items(items, PHASES)
+                st.rerun()
+            elif name in PHASES:
+                st.warning(f'"{name}" already exists.')
+            else:
+                st.warning("Enter a phase name first.")
 
-        # ── Inline edit form ───────────────────────────────────────────────
-        if st.session_state.get(edit_key):
-            with st.container(border=True):
-                e1, e2, e3 = st.columns([3, 1.5, 1.5])
-                new_t = e1.text_input("Title",    value=item["title"],    key=f"et_{pid}")
-                new_p = e2.selectbox("Phase",     PHASES,                 key=f"ep_{pid}",
-                                      index=PHASES.index(item["phase"]) if item["phase"] in PHASES else 0)
-                new_pr= e3.selectbox("Priority",  PRIORITIES,             key=f"epr_{pid}",
-                                      index=PRIORITIES.index(item["priority"]) if item["priority"] in PRIORITIES else 1)
-                new_n = st.text_area("Notes", value=item["note"], key=f"en_{pid}", height=80)
-                s1, s2, _ = st.columns([1, 1, 4])
-                if s1.button("💾 Save", key=f"save_{pid}", type="primary"):
-                    item["title"]    = new_t.strip() or item["title"]
-                    item["phase"]    = new_p
-                    item["priority"] = new_pr
-                    item["note"]     = new_n.strip()
+        st.markdown("**Current phases** — click 🗑 to remove (only if no items use it):")
+        for ph in list(PHASES):
+            ph_col1, ph_col2 = st.columns([5, 1])
+            ph_col1.markdown(f"• {ph}")
+            in_use = any(i["phase"] == ph for i in items)
+            if ph_col2.button("🗑", key=f"del_phase_{ph}", disabled=in_use,
+                               help="In use — reassign items first" if in_use else f"Remove '{ph}'"):
+                PHASES.remove(ph)
+                st.session_state.punch_phases = PHASES
+                save_items(items, PHASES)
+                st.rerun()
+
+    # ── Add item form ──────────────────────────────────────────────────────────
+    if add_clicked:
+        st.session_state.show_add_form = True
+
+    if st.session_state.get("show_add_form"):
+        with st.container(border=True):
+            st.markdown("**New Punch List Item**")
+            a1, a2, a3 = st.columns([3, 1.5, 1.5])
+            new_title    = a1.text_input("Title *", placeholder="What needs to be built?", key="new_title")
+            new_phase    = a2.selectbox("Phase", PHASES, key="new_phase")
+            new_priority = a3.selectbox("Priority", PRIORITIES, key="new_priority")
+            new_note     = st.text_area("Context / Notes", placeholder="Approach, dependencies, constraints — enough for Claude to pick this up in a future session...", key="new_note", height=80)
+            b1, b2, _ = st.columns([1, 1, 4])
+            if b1.button("✅ Add", type="primary"):
+                if new_title.strip():
+                    new_item = {
+                        "id":       next_id(items),
+                        "title":    new_title.strip(),
+                        "note":     new_note.strip(),
+                        "phase":    new_phase,
+                        "priority": new_priority,
+                        "done":     False,
+                        "created":  datetime.today().strftime("%Y-%m-%d"),
+                    }
+                    items.append(new_item)
                     save_items(items)
-                    st.session_state[edit_key] = False
+                    st.session_state.show_add_form = False
                     st.rerun()
-                if s2.button("Cancel", key=f"cancel_{pid}"):
-                    st.session_state[edit_key] = False
-                    st.rerun()
+                else:
+                    st.warning("Title is required.")
+            if b2.button("Cancel"):
+                st.session_state.show_add_form = False
+                st.rerun()
 
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.divider()
 
-# ─────────────────────────────────────────────
-# FOOTER
-# ─────────────────────────────────────────────
-st.divider()
-st.caption(f"Data persisted to `{DATA_FILE}` · {total} items · Last session: {datetime.today().strftime('%B %d, %Y')}")
+    # ─────────────────────────────────────────────
+    # ITEM LIST
+    # ─────────────────────────────────────────────
+    PRIORITY_COLORS = {
+        "Urgent": ("#dc2626", "badge-urgent"),
+        "High":   ("#c2410c", "badge-high"),
+        "Medium": ("#1d4ed8", "badge-medium"),
+        "Low":    ("#6b7280", "badge-low"),
+    }
 
-@st.dialog("⚠️ Reset to Defaults?")
-def confirm_reset_dialog():
-    st.warning(
-        f"This will delete all **{len(st.session_state.punch_items)} items** "
-        f"and restore the original {len(DEFAULT_ITEMS)}-item default list. "
-        f"**This cannot be undone** unless you have a backup."
-    )
-    st.caption("Tip: Download a backup first using the 💾 Backup JSON button above.")
-    c1, c2 = st.columns(2)
-    if c1.button("Yes, reset everything", type="primary", use_container_width=True):
-        save_items(DEFAULT_ITEMS, DEFAULT_PHASES.copy())
-        st.session_state.punch_items  = DEFAULT_ITEMS.copy()
-        st.session_state.punch_phases = DEFAULT_PHASES.copy()
-        st.session_state.confirm_reset = False
-        st.rerun()
-    if c2.button("Cancel", use_container_width=True):
-        st.rerun()
+    # Filter
+    # Filter — show_done_only is the single switch between "open items" and
+    # "done items"; phase and priority filters apply independently in either mode.
+    visible = [i for i in items if (
+        (filter_phase    == "All Phases"     or i["phase"]    == filter_phase) and
+        (filter_priority == "All Priorities" or i["priority"] == filter_priority) and
+        (i["done"] if show_done_only else not i["done"])
+    )]
 
-col_export, col_reset, _ = st.columns([1, 1, 5])
-with col_export:
-    md_lines = ["# Voskuil FP 1.0 — Punch List\n"]
-    for phase in PHASES:
-        phase_items = [i for i in items if i["phase"] == phase]
-        if phase_items:
-            md_lines.append(f"\n## {phase}\n")
-            for i in phase_items:
-                chk = "x" if i["done"] else " "
-                md_lines.append(f"- [{chk}] **{i['title']}** `{i['priority']}`")
-                if i["note"]:
-                    md_lines.append(f"  {i['note']}")
-    st.download_button(
-        "⬇️ Export as Markdown",
-        data="\n".join(md_lines),
-        file_name="PUNCH_LIST.md",
-        mime="text/markdown",
-        use_container_width=True,
-    )
-with col_reset:
-    if st.button("↺ Reset to Defaults", use_container_width=True):
-        confirm_reset_dialog()
+    # Group by phase
+    phase_order = PHASES
+    grouped = {}
+    for phase in phase_order:
+        group = [i for i in visible if i["phase"] == phase]
+        if group:
+            grouped[phase] = group
+
+    if not visible:
+        st.info("No items match the current filters.")
+
+    for phase, phase_items in grouped.items():
+        open_count = sum(1 for i in phase_items if not i["done"])
+        done_count = sum(1 for i in phase_items if i["done"])
+        count_str  = f"{open_count} open" + (f" · {done_count} done" if done_count else "")
+        st.markdown(f'<div class="phase-header">{phase} &nbsp;·&nbsp; {count_str}</div>', unsafe_allow_html=True)
+
+        for item in phase_items:
+            pid     = item["id"]
+            is_done = item["done"]
+            color, badge_cls = PRIORITY_COLORS.get(item["priority"], ("#888", "badge-low"))
+            title_cls = "done-title" if is_done else ""
+
+            # Expand/edit toggle key
+            edit_key = f"edit_{pid}"
+            if edit_key not in st.session_state:
+                st.session_state[edit_key] = False
+
+            # Row: checkbox | title+badge | edit | delete
+            c_check, c_main, c_edit, c_del = st.columns([0.3, 7, 0.6, 0.4])
+
+            # ── Checkbox ──────────────────────────────────────────────────────
+            checked = c_check.checkbox("", value=is_done, key=f"chk_{pid}", label_visibility="collapsed")
+            if checked != is_done:
+                item["done"] = checked
+                save_items(items)
+                st.rerun()
+
+            # ── Title + note ───────────────────────────────────────────────────
+            with c_main:
+                st.markdown(
+                    f'<div class="item-title {title_cls}">'
+                    f'<span style="color:#9ca3af; font-weight:400; margin-right:6px">#{pid}</span>'
+                    f'{item["title"]}'
+                    f'<span class="badge {badge_cls}">{item["priority"]}</span>'
+                    f'</div>'
+                    + (f'<div class="item-note">{item["note"]}</div>' if item["note"] else ""),
+                    unsafe_allow_html=True,
+                )
+
+            # ── Edit button ────────────────────────────────────────────────────
+            if c_edit.button("✏️", key=f"editbtn_{pid}", help="Edit"):
+                st.session_state[edit_key] = not st.session_state[edit_key]
+                st.rerun()
+
+            # ── Delete button ──────────────────────────────────────────────────
+            if c_del.button("🗑", key=f"delbtn_{pid}", help="Delete"):
+                items[:] = [i for i in items if i["id"] != pid]
+                save_items(items)
+                st.rerun()
+
+            # ── Inline edit form ───────────────────────────────────────────────
+            if st.session_state.get(edit_key):
+                with st.container(border=True):
+                    e1, e2, e3 = st.columns([3, 1.5, 1.5])
+                    new_t = e1.text_input("Title",    value=item["title"],    key=f"et_{pid}")
+                    new_p = e2.selectbox("Phase",     PHASES,                 key=f"ep_{pid}",
+                                          index=PHASES.index(item["phase"]) if item["phase"] in PHASES else 0)
+                    new_pr= e3.selectbox("Priority",  PRIORITIES,             key=f"epr_{pid}",
+                                          index=PRIORITIES.index(item["priority"]) if item["priority"] in PRIORITIES else 1)
+                    new_n = st.text_area("Notes", value=item["note"], key=f"en_{pid}", height=80)
+                    s1, s2, _ = st.columns([1, 1, 4])
+                    if s1.button("💾 Save", key=f"save_{pid}", type="primary"):
+                        item["title"]    = new_t.strip() or item["title"]
+                        item["phase"]    = new_p
+                        item["priority"] = new_pr
+                        item["note"]     = new_n.strip()
+                        save_items(items)
+                        st.session_state[edit_key] = False
+                        st.rerun()
+                    if s2.button("Cancel", key=f"cancel_{pid}"):
+                        st.session_state[edit_key] = False
+                        st.rerun()
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # ─────────────────────────────────────────────
+    # FOOTER
+    # ─────────────────────────────────────────────
+    st.divider()
+    st.caption(f"Data persisted to `{DATA_FILE}` · {total} items · Last session: {datetime.today().strftime('%B %d, %Y')}")
+
+    @st.dialog("⚠️ Reset to Defaults?")
+    def confirm_reset_dialog():
+        st.warning(
+            f"This will delete all **{len(st.session_state.punch_items)} items** "
+            f"and restore the original {len(DEFAULT_ITEMS)}-item default list. "
+            f"**This cannot be undone** unless you have a backup."
+        )
+        st.caption("Tip: Download a backup first using the 💾 Backup JSON button above.")
+        c1, c2 = st.columns(2)
+        if c1.button("Yes, reset everything", type="primary", use_container_width=True):
+            save_items(DEFAULT_ITEMS, DEFAULT_PHASES.copy())
+            st.session_state.punch_items  = DEFAULT_ITEMS.copy()
+            st.session_state.punch_phases = DEFAULT_PHASES.copy()
+            st.session_state.confirm_reset = False
+            st.rerun()
+        if c2.button("Cancel", use_container_width=True):
+            st.rerun()
+
+    col_export, col_reset, _ = st.columns([1, 1, 5])
+    with col_export:
+        md_lines = ["# Voskuil FP 1.0 — Punch List\n"]
+        for phase in PHASES:
+            phase_items = [i for i in items if i["phase"] == phase]
+            if phase_items:
+                md_lines.append(f"\n## {phase}\n")
+                for i in phase_items:
+                    chk = "x" if i["done"] else " "
+                    md_lines.append(f"- [{chk}] **{i['title']}** `{i['priority']}`")
+                    if i["note"]:
+                        md_lines.append(f"  {i['note']}")
+        st.download_button(
+            "⬇️ Export as Markdown",
+            data="\n".join(md_lines),
+            file_name="PUNCH_LIST.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
+    with col_reset:
+        if st.button("↺ Reset to Defaults", use_container_width=True):
+            confirm_reset_dialog()
