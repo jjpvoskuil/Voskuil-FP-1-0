@@ -146,7 +146,7 @@ DEFAULT_ITEMS = [
      "note": "SEC and Yahoo Finance buttons added directly to Equity Scout page after Deep Dive click. Complete.",
      "phase": "Phase 4 — Deeper Analysis", "priority": "High", "done": True, "created": "2026-05-01"},
     {"id": 5,  "title": "Strategy-matched discovery scan",
-     "note": "Scan for stocks matching specific criteria: Dividend Aristocrats, commodity ETFs, Long Squeeze survivors.",
+     "note": "Scan for stocks matching specific criteria: Dividend Aristocrats, commodity ETFs, and other user-defined discovery filters.",
      "phase": "Phase 4 — Deeper Analysis", "priority": "High", "done": False, "created": "2026-05-01"},
     # Phase 5
     {"id": 6,  "title": "Real-time tax monitoring (replace MS Parametric)",

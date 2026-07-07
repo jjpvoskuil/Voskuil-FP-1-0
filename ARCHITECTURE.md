@@ -21,8 +21,12 @@ Cloud, version-controlled on GitHub (`jjpvoskuil/Voskuil-FP-1-0`). Two parallel 
 ## Owner Profile & Investment Philosophy
 
 - Age 57. Buffett/Munger **concentrated value** philosophy — not diversification theater.
-- Macro overlay: **"Long Squeeze"** thesis — financial repression, high national debt, passive
-  index bubble risk. Informs the macro-aware framing in Claude agent prompts across the app.
+- **No macro/market-prediction overlay.** An earlier "Long Squeeze" macro thesis (financial
+  repression, passive index bubble risk) was baked into Claude's system prompt and some UI text.
+  Retired in July 2026 — deliberate design principle now: the app evaluates each business on its
+  own fundamentals (moat, balance sheet, management) under a generic downside-survival stress
+  test, not a specific predicted economic scenario. Don't reintroduce market-timing or
+  macro-thesis assumptions into scoring or Claude prompts.
 - Primary home fully paid off — no mortgage obligations.
 - Goal: identify a handful of high-conviction concentrated positions using owner-earnings-based
   analysis, not P/E-multiple comparison shopping.
@@ -174,6 +178,14 @@ Worth keeping visible so it doesn't silently recur:
 - **Market Screener's random-sample scan bias** — was silently scanning the same
   alphabetically-first slice every time; now either scans everything or takes a seeded random
   sample.
+- **"Long Squeeze" macro overlay removed.** Was baked into Claude's core system prompt
+  (`claude_utils.py`) as an entire "pessimistic scenario" narrative — credit tightening, passive
+  index concentration risk — with the return-assumption variable literally named `ls_return`.
+  Also present in a few suggested-question strings and punch list seed text. Removed everywhere
+  found; system prompt now explicitly instructs Claude not to layer in speculative macro/market-
+  timing predictions. The retirement modeler's base/pessimistic/bear return scenarios for
+  withdrawal-sustainability stress testing were left alone — that's standard financial planning,
+  not a market thesis, though the variable was renamed away from the Long Squeeze association.
 
 ## Known Gaps / Still Stale
 

@@ -711,7 +711,7 @@ if _cache_key and _cache_key in st.session_state:
         starters = [
             "What are the biggest qualitative red flags in this filing?",
             "Does management's tone in the MD&A match the numbers?",
-            "How resilient is this business in a credit crunch / financial repression environment?",
+            "How resilient is this business's balance sheet and cash flow to an extended economic downturn?",
             "What does the filing say about competitive moat and pricing power?",
         ]
         for i, q in enumerate(starters):

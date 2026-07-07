@@ -48,7 +48,7 @@
     {
       "id": 5,
       "title": "Strategy-matched discovery scan",
-      "note": "Scan for stocks matching specific criteria: Dividend Aristocrats, commodity ETFs, Long Squeeze survivors.",
+      "note": "Scan for stocks matching specific criteria: Dividend Aristocrats, commodity ETFs, and other user-defined discovery filters.",
       "phase": "Fund Deep Dive",
       "priority": "High",
       "done": false,
@@ -563,6 +563,15 @@
       "title": "Market Screen Deep Dive",
       "note": "On the compare page of market screening, I want to be able to click on any of the financial metrics and see the historical trend of that metric across all companies in the compare.",
       "phase": "Fund Deep Dive",
+      "priority": "Medium",
+      "done": true,
+      "created": "2026-07-06"
+    },
+    {
+      "id": 65,
+      "title": "Remove Long Squeeze macro overlay",
+      "note": "Retired the Long Squeeze macro thesis (financial repression, passive index bubble) from Claude system prompt, suggested questions, and punch list seed text. App now evaluates businesses on fundamentals only, no baked-in market predictions.",
+      "phase": "Architecture",
       "priority": "Medium",
       "done": true,
       "created": "2026-07-06"
