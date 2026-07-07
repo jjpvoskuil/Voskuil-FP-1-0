@@ -575,6 +575,15 @@
       "priority": "Medium",
       "done": true,
       "created": "2026-07-06"
+    },
+    {
+      "id": 66,
+      "title": "Build diversification tool",
+      "note": "When looking at my holdings I want to get a gauge of my diversification/risk.  In equity scout, it would be nice to see when the equity fits into the holdings diversification.  On market screener, it would be good to also include something that lets me see how investment in any of the selctions fits with my holdings and diversification strategy.  Probably need a top level tool to define what my diversification strategy is for assess in all other tools",
+      "phase": "Data Quality",
+      "priority": "High",
+      "done": false,
+      "created": "2026-07-07"
     }
   ],
   "phases": [
