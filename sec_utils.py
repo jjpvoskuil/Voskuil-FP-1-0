@@ -163,14 +163,35 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
         "fiscal_year_end":   None,
     }
 
-    # 4. For each scoring field, try concept candidates in priority order
+    # 4. For each scoring field, merge observations across ALL matching
+    # concept candidates — not just the first one with any data.
+    #
+    # Bug this fixes: companies routinely change which XBRL tag they use
+    # for the same line item over time (e.g. ASC 606 forced most filers
+    # to switch revenue tags from "Revenues" to
+    # "RevenueFromContractWithCustomerExcludingAssessedTax" around 2018;
+    # equity/debt tags get similarly deprecated/renamed across taxonomy
+    # updates). The old logic tried concepts in priority order and
+    # STOPPED at the first one with any data — so a large, long-tenured
+    # filer whose preferred tag only covers a handful of recent (or
+    # early) fiscal years would get its history silently truncated to
+    # just that span, even though a full multi-decade history exists
+    # across two or three tag generations combined. This is what was
+    # producing false "limited history" flags on mega-caps that
+    # obviously have plenty of EDGAR history.
+    #
+    # Fix: merge every concept's annual observations into one history
+    # keyed by fiscal period-end date. Priority order is preserved only
+    # as a tie-breaker — if two tags both report the SAME period end
+    # (companies sometimes double-tag during a transition year), the
+    # higher-priority (earlier-listed) tag's value wins.
     latest  = {}   # field → most recent annual value (float or None)
     history = {}   # field → sorted list of annual observations
 
     all_annual_ends = []  # track all period end dates to find fiscal year
 
     for field, concepts in CONCEPT_MAP.items():
-        field_history = []
+        merged_by_end = {}  # end date -> observation dict
 
         for concept in concepts:
             if concept not in us_gaap:
@@ -221,31 +242,31 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
             if not annual_obs:
                 continue
 
-            # Deduplicate: if multiple entries share the same end date
-            # (e.g. original + amended), prefer the latest filed
+            # Within THIS concept, if multiple entries share the same end
+            # date (e.g. original + amended), prefer the latest filed
             seen_ends = {}
             for o in sorted(annual_obs, key=lambda x: x.get("filed", "")):
                 seen_ends[o["end"]] = o
-            annual_obs = sorted(seen_ends.values(), key=lambda x: x["end"])
 
-            # Build history list for this field
-            field_history = [
-                {
-                    "period": o["end"][:4],          # fiscal year as string e.g. "2024"
-                    "end":    o["end"],               # exact period end date
-                    "value":  o.get("val"),           # raw value in USD or shares
-                    "filed":  o.get("filed", ""),     # filing date
-                    "form":   o.get("form", ""),
-                }
-                for o in annual_obs
-                if o.get("val") is not None
-            ]
+            # Merge into the field's combined history. Since concepts are
+            # processed in priority order, only add an end date if a
+            # higher-priority concept hasn't already claimed it.
+            for end, o in seen_ends.items():
+                if o.get("val") is None:
+                    continue
+                if end not in merged_by_end:
+                    merged_by_end[end] = {
+                        "period": o["end"][:4],          # fiscal year as string e.g. "2024"
+                        "end":    o["end"],               # exact period end date
+                        "value":  o.get("val"),           # raw value in USD or shares
+                        "filed":  o.get("filed", ""),     # filing date
+                        "form":   o.get("form", ""),
+                    }
 
-            if field_history:
-                all_annual_ends.extend([h["end"] for h in field_history])
-                break  # found a working concept — stop trying aliases
+        field_history = sorted(merged_by_end.values(), key=lambda x: x["end"])
 
         if field_history:
+            all_annual_ends.extend([h["end"] for h in field_history])
             history[field] = field_history
             latest[field]  = field_history[-1]["value"]  # most recent annual
 
