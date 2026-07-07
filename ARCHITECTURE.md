@@ -251,6 +251,13 @@ can't drift out of sync the way a hand-maintained roadmap would.
 
 ## Keeping This Current
 
+**PowerPoint version:** `Voskuil_FP_Architecture.pptx` — a real, editable slide deck (native
+shapes/connectors/tables, not a picture) generated from this same content, for anyone who prefers
+dragging boxes around PowerPoint over reading markdown. Regenerate anytime by asking Claude, or
+run `node tools/build_architecture_deck.js` directly (see that file's header for the full
+command). Edit the .pptx freely in PowerPoint — if you want those edits folded back into this
+file, re-upload the edited deck in a chat with Claude and it'll reconcile the content.
+
 This file lives in the repo, not just Claude's Project Knowledge — same principle as the punch
 list. Project Knowledge uploads are manual and lag behind reality (the old
 `voskuil_fp_project_summary.md` is a good example of exactly this problem: still describes 3
