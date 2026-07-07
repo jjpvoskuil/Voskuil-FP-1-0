@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
 from ui_utils import force_scroll_to_top
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
+from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
@@ -21,37 +22,12 @@ TAX_FILE_PRIOR = 'ms_realized_gl_prior.csv'
 TRANS_FILE_YTD   = 'ms_transactions_ytd.csv'
 TRANS_FILE_PRIOR = 'ms_transactions_prior.csv'
 APP_URL   = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
-POLY_URL  = "https://api.polygon.io"
-
-DEFAULT_WEIGHTS = {
-    "FCF Yield":              20,
-    "ROIC":                   10,
-    "Debt / FCF":             20,
-    "Gross Margin":           15,
-    "Interest Coverage":      10,
-    "Price / Owner Earnings": 25,
-}
 
 DEFAULT_HOLD_THRESHOLDS = {
     "min_roic":      0.12,
     "max_debt_fcf":  5.0,
     "max_poe":       25.0,
     "min_fcf_yield": 0.03,
-}
-
-THRESHOLDS = {
-    "fcf_yield_good":           0.04,
-    "fcf_yield_great":          0.06,
-    "roic_good":                0.12,
-    "roic_great":               0.20,
-    "debt_fcf_safe":            3.0,
-    "debt_fcf_warning":         5.0,
-    "interest_coverage_safe":   5.0,
-    "gross_margin_good":        0.40,
-    "gross_margin_great":       0.60,
-    "poe_bargain":              15.0,
-    "poe_fair":                 25.0,
-    "poe_stretched":            35.0,
 }
 
 # ─────────────────────────────────────────────
@@ -105,195 +81,22 @@ with st.sidebar:
     st.divider()
 
 # ─────────────────────────────────────────────
-# POLYGON HELPERS
+# EDGAR DATA FETCH (holdings scoring)
 # ─────────────────────────────────────────────
-def poly_get(endpoint, params={}):
-    try:
-        key = st.secrets["POLYGON_KEY"]
-        url = f"{POLY_URL}{endpoint}"
-        all_params = {**params, "apiKey": key}
-        response = requests.get(url, params=all_params, timeout=10)
-        if response.status_code == 200:
-            return response.json()
-        return None
-    except Exception:
-        return None
-
-def safe_float(val):
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return None
-
-def fval(obj, key):
-    try:
-        return float(obj[key]["value"])
-    except (KeyError, TypeError, ValueError):
-        return None
-
-def calc_interest_coverage(inc):
-    op_income    = fval(inc, "operating_income_loss")
-    interest_exp = fval(inc, "interest_expense_operating")
-    if interest_exp and interest_exp > 0 and op_income is not None:
-        return op_income / interest_exp, False
-    nonop = fval(inc, "nonoperating_income_loss")
-    if nonop is not None and nonop > 0:
-        return None, True
-    return None, False
-
-# ─────────────────────────────────────────────
-# YFINANCE FALLBACK
-# ─────────────────────────────────────────────
-def fetch_score_data_yfinance(ticker):
-    try:
-        import yfinance as yf
-        stock = yf.Ticker(ticker)
-        info  = stock.info
-        market_cap = safe_float(info.get('marketCap'))
-        price      = safe_float(info.get('currentPrice') or info.get('regularMarketPrice'))
-        cashflow   = stock.cashflow
-        financials = stock.financials
-        balance    = stock.balance_sheet
-        op_cf  = safe_float(cashflow.loc['Operating Cash Flow'].iloc[0]) if 'Operating Cash Flow' in cashflow.index else None
-        capex  = safe_float(cashflow.loc['Capital Expenditure'].iloc[0]) if 'Capital Expenditure' in cashflow.index else None
-        fcf    = (op_cf + capex) if (op_cf is not None and capex is not None) else None
-        if fcf is None or fcf <= 0:
-            return None
-        fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
-        gross_margin = safe_float(info.get('grossMargins'))
-        net_income   = safe_float(financials.loc['Net Income'].iloc[0]) if 'Net Income' in financials.index else None
-        total_assets = safe_float(balance.loc['Total Assets'].iloc[0]) if 'Total Assets' in balance.index else None
-        current_liab = safe_float(balance.loc['Current Liabilities'].iloc[0]) if 'Current Liabilities' in balance.index else None
-        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-        total_debt   = safe_float(balance.loc['Total Debt'].iloc[0]) if 'Total Debt' in balance.index else None
-        debt_to_fcf  = (total_debt / fcf) if (total_debt is not None and fcf > 0) else None
-        ebit         = safe_float(financials.loc['EBIT'].iloc[0]) if 'EBIT' in financials.index else None
-        int_exp      = abs(safe_float(financials.loc['Interest Expense'].iloc[0])) if 'Interest Expense' in financials.index else None
-        interest_cov = (ebit / int_exp) if (ebit and int_exp and int_exp > 0) else None
-        shares       = safe_float(info.get('sharesOutstanding'))
-        dna          = safe_float(cashflow.loc['Depreciation And Amortization'].iloc[0]) if 'Depreciation And Amortization' in cashflow.index else None
-        capex_abs    = abs(capex) if capex else 0
-        owner_earn   = (net_income + (dna or 0) - capex_abs) if net_income is not None else None
-        poe          = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        div_yield    = safe_float(info.get('dividendYield'))
-        return {
-            "fcf_yield":         fcf_yield,
-            "roic":              roic,
-            "debt_to_fcf":       debt_to_fcf,
-            "interest_coverage": interest_cov,
-            "is_net_creditor":   False,
-            "gross_margin":      gross_margin,
-            "price_owner_earn":  poe,
-            "dividend_yield":    div_yield,
-            "source":            "yfinance",
-        }
-    except Exception:
-        return None
-
-# ─────────────────────────────────────────────
-# PRIMARY POLYGON FETCHER
-# ─────────────────────────────────────────────
+# Migrated off the old Polygon-primary/yfinance-fallback pipeline, which had
+# drifted from the rest of the app: it used the superseded ROIC formula
+# (Total Assets - Current Liabilities instead of Total Equity + Total Debt),
+# still scored Price/Owner Earnings as a weighted criterion (demoted to
+# reference-only everywhere else), and had no rebalancing for missing data.
+# This now reuses the exact same fetch_fundamentals_edgar() + score_stock()
+# used by Equity Scout, Market Screener, and Compare Stocks, so a holding's
+# score here matches its score everywhere else in the app.
 def fetch_score_data(ticker):
-    try:
-        det_data   = poly_get(f"/v3/reference/tickers/{ticker}")
-        det        = det_data.get("results", {}) if det_data else {}
-        market_cap = safe_float(det.get("market_cap"))
-        shares     = safe_float(det.get("weighted_shares_outstanding"))
-        price_data = poly_get(f"/v2/aggs/ticker/{ticker}/prev")
-        price = None
-        try:
-            price = float(price_data["results"][0]["c"])
-        except (KeyError, TypeError, IndexError):
-            pass
-        fin_data = poly_get("/vX/reference/financials", {
-            "ticker": ticker, "timeframe": "annual", "limit": 1,
-            "order": "desc", "sort": "period_of_report_date",
-        })
-        if not fin_data or not fin_data.get("results"):
-            return fetch_score_data_yfinance(ticker)
-        f   = fin_data["results"][0]["financials"]
-        inc = f.get("income_statement",    {})
-        cf  = f.get("cash_flow_statement", {})
-        bs  = f.get("balance_sheet",       {})
-        op_cf  = fval(cf, "net_cash_flow_from_operating_activities")
-        inv_cf = fval(cf, "net_cash_flow_from_investing_activities")
-        fcf    = (op_cf + inv_cf) if (op_cf is not None and inv_cf is not None) else None
-        if fcf is None or fcf <= 0:
-            return fetch_score_data_yfinance(ticker)
-        fcf_yield    = (fcf / market_cap) if (market_cap and market_cap > 0) else None
-        gross_profit = fval(inc, "gross_profit")
-        revenues     = fval(inc, "revenues")
-        gross_margin = (gross_profit / revenues) if (gross_profit and revenues and revenues > 0) else None
-        net_income   = fval(inc, "net_income_loss")
-        total_assets = fval(bs,  "assets")
-        current_liab = fval(bs,  "current_liabilities")
-        invested_cap = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic         = (net_income / invested_cap) if (net_income and invested_cap and invested_cap != 0) else None
-        long_term_debt = fval(bs, "long_term_debt") or fval(bs, "noncurrent_liabilities")
-        debt_to_fcf    = (long_term_debt / fcf) if (long_term_debt is not None and fcf > 0) else None
-        interest_cov, is_net_creditor = calc_interest_coverage(inc)
-        dna_proxy  = (op_cf - net_income) if (op_cf and net_income) else None
-        capex_abs  = abs(inv_cf) if inv_cf else 0
-        owner_earn = (net_income + (dna_proxy or 0) - capex_abs) if net_income is not None else None
-        poe        = (price / (owner_earn / shares)) if (owner_earn and owner_earn > 0 and shares and price) else None
-        div_ps     = fval(inc, "common_stock_dividends")
-        div_yield  = (div_ps / price) if (div_ps and price and price > 0) else None
-        return {
-            "fcf_yield":         fcf_yield,
-            "roic":              roic,
-            "debt_to_fcf":       debt_to_fcf,
-            "interest_coverage": interest_cov,
-            "is_net_creditor":   is_net_creditor,
-            "gross_margin":      gross_margin,
-            "price_owner_earn":  poe,
-            "dividend_yield":    div_yield,
-            "source":            "polygon",
-        }
-    except Exception:
-        return fetch_score_data_yfinance(ticker)
-
-# ─────────────────────────────────────────────
-# SCORING ENGINE
-# ─────────────────────────────────────────────
-def score_stock(data, weights):
-    pts = 0
-    fcf_yield = data.get('fcf_yield')
-    if fcf_yield:
-        if fcf_yield >= THRESHOLDS['fcf_yield_great']:   pts += weights["FCF Yield"]
-        elif fcf_yield >= THRESHOLDS['fcf_yield_good']:  pts += round(weights["FCF Yield"] * 0.60)
-        elif fcf_yield > 0:                              pts += round(weights["FCF Yield"] * 0.15)
-    roic = data.get('roic')
-    if roic:
-        if roic >= THRESHOLDS['roic_great']:   pts += weights["ROIC"]
-        elif roic >= THRESHOLDS['roic_good']:  pts += round(weights["ROIC"] * 0.60)
-        elif roic > 0:                         pts += round(weights["ROIC"] * 0.20)
-    debt_fcf = data.get('debt_to_fcf')
-    ic = data.get('interest_coverage') or 0
-    is_nc = data.get('is_net_creditor', False)
-    if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS['debt_fcf_safe']:        pts += weights["Debt / FCF"]
-        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:   pts += round(weights["Debt / FCF"] * 0.50)
-        elif ic >= THRESHOLDS['interest_coverage_safe'] or is_nc:
-                                                          pts += round(weights["Debt / FCF"] * 0.50)
-    gm = data.get('gross_margin')
-    if gm:
-        if gm >= THRESHOLDS['gross_margin_great']:   pts += weights["Gross Margin"]
-        elif gm >= THRESHOLDS['gross_margin_good']:  pts += round(weights["Gross Margin"] * 0.67)
-        else:                                        pts += round(weights["Gross Margin"] * 0.20)
-    ic_val = data.get('interest_coverage')
-    if is_nc:
-        pts += weights["Interest Coverage"]
-    elif ic_val:
-        if ic_val >= THRESHOLDS['interest_coverage_safe']: pts += weights["Interest Coverage"]
-        elif ic_val >= 2.5:                                pts += round(weights["Interest Coverage"] * 0.50)
-        elif ic_val > 0:                                   pts += round(weights["Interest Coverage"] * 0.15)
-    poe = data.get('price_owner_earn')
-    if poe:
-        if poe <= THRESHOLDS['poe_bargain']:     pts += weights["Price / Owner Earnings"]
-        elif poe <= THRESHOLDS['poe_fair']:      pts += round(weights["Price / Owner Earnings"] * 0.67)
-        elif poe <= THRESHOLDS['poe_stretched']: pts += round(weights["Price / Owner Earnings"] * 0.25)
-    return pts
+    data = fetch_fundamentals_edgar(ticker)
+    if data.get("error"):
+        return None
+    data["source"] = "edgar"
+    return data
 
 def score_to_badge(score):
     try:
@@ -545,7 +348,7 @@ if df_holdings_raw is not None:
 
     # ── Weight reset handler ───────────────────────────────────────────
     _weight_map = [("w_fcf","FCF Yield"),("w_roic","ROIC"),("w_debt","Debt / FCF"),
-                   ("w_gm","Gross Margin"),("w_ic","Interest Coverage"),("w_poe","Price / Owner Earnings")]
+                   ("w_gm","Gross Margin"),("w_ic","Interest Coverage")]
     for _wkey, _mkey in _weight_map:
         if st.session_state.pop(f"pending_reset_{_wkey}", False):
             st.session_state[_wkey] = DEFAULT_WEIGHTS[_mkey]
@@ -561,7 +364,12 @@ if df_holdings_raw is not None:
 
     # ── Scoring Weights Expander ───────────────────────────────────────
     with st.expander("⚙️ Scoring Weights", expanded=False):
-        st.caption("Adjust freely — scoring uses the last **Applied** set.")
+        st.caption(
+            "Adjust freely — scoring uses the last **Applied** set. Shared with Equity Scout, "
+            "Market Screener, and Compare Stocks, so a holding's score here matches its score "
+            "everywhere else in the app. Price/Owner Earnings is shown as a reference valuation "
+            "metric on holding detail cards but isn't scored — same as the rest of the app."
+        )
         rc1, rc2, rc3 = st.columns([1.2, 1.2, 4])
         if rc1.button("↺ Reset to Defaults", key="reset_stock_weights"):
             st.session_state.scoring_weights  = DEFAULT_WEIGHTS.copy()
@@ -577,7 +385,6 @@ if df_holdings_raw is not None:
             "Debt / FCF":             st.session_state.get("w_debt", sw["Debt / FCF"]),
             "Gross Margin":           st.session_state.get("w_gm",   sw["Gross Margin"]),
             "Interest Coverage":      st.session_state.get("w_ic",   sw["Interest Coverage"]),
-            "Price / Owner Earnings": st.session_state.get("w_poe",  sw["Price / Owner Earnings"]),
         }
         draft_total = sum(draft_weights.values())
         apply_ok    = draft_total == 100
@@ -593,7 +400,7 @@ if df_holdings_raw is not None:
         cw = st.session_state.committed_weights
         rc3.caption(
             f"**Active:** FCF {cw['FCF Yield']} · ROIC {cw['ROIC']} · Debt {cw['Debt / FCF']} · "
-            f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']} · P/OE {cw['Price / Owner Earnings']}"
+            f"GM {cw['Gross Margin']} · IC {cw['Interest Coverage']}"
         )
 
         w_col1, w_col2 = st.columns(2)
@@ -629,16 +436,10 @@ if df_holdings_raw is not None:
                 st.write("")
                 if st.button(f"↺ {DEFAULT_WEIGHTS['Interest Coverage']}", key="reset_w_ic", use_container_width=True):
                     st.session_state["pending_reset_w_ic"] = True; st.rerun()
-            _sc, _sb = st.columns([4, 1])
-            with _sc: w_poe = st.slider("Price / Owner Earnings", 0, 60, sw["Price / Owner Earnings"], step=5, key="w_poe")
-            with _sb:
-                st.write("")
-                if st.button(f"↺ {DEFAULT_WEIGHTS['Price / Owner Earnings']}", key="reset_w_poe", use_container_width=True):
-                    st.session_state["pending_reset_w_poe"] = True; st.rerun()
 
         active_weights = {
             "FCF Yield": w_fcf, "ROIC": w_roic, "Debt / FCF": w_debt,
-            "Gross Margin": w_gm, "Interest Coverage": w_ic, "Price / Owner Earnings": w_poe,
+            "Gross Margin": w_gm, "Interest Coverage": w_ic,
         }
         st.session_state.scoring_weights = active_weights
         total_weight = sum(active_weights.values())
@@ -694,16 +495,16 @@ if df_holdings_raw is not None:
         run_scoring = st.button(
             f"⚡ Score All {n_symbols} Holdings", type="primary",
             disabled=(total_weight != 100),
-            help="Weights must add up to 100." if total_weight != 100 else "Score using Polygon (with yfinance fallback)."
+            help="Weights must add up to 100." if total_weight != 100 else "Score using SEC EDGAR fundamentals."
         )
     with info_col:
-        scored_count = len(st.session_state.holding_scores)
-        if scored_count > 0:
-            poly_count = sum(1 for s in st.session_state.holding_sources.values() if s == "polygon")
-            yf_count   = sum(1 for s in st.session_state.holding_sources.values() if s == "yfinance")
-            msg = f"✅ {scored_count} holdings scored"
-            if yf_count > 0:
-                msg += f" — {poly_count} via Polygon, {yf_count} via yfinance"
+        _all_scores = st.session_state.holding_scores
+        scored_count  = sum(1 for s in _all_scores.values() if s is not None)
+        failed_count  = sum(1 for s in _all_scores.values() if s is None)
+        if _all_scores:
+            msg = f"✅ {scored_count} holdings scored via SEC EDGAR"
+            if failed_count > 0:
+                msg += f" ({failed_count} unavailable — foreign ADRs or no EDGAR filings)"
             st.success(msg)
         else:
             st.caption("Scores not yet loaded. Click the button above.")
@@ -721,7 +522,7 @@ if df_holdings_raw is not None:
             data = fetch_score_data(symbol)
             if data is not None:
                 scores[symbol]          = score_stock(data, active_weights)
-                sources[symbol]         = data.get("source", "polygon")
+                sources[symbol]         = data.get("source", "edgar")
                 raw_data_cache[symbol]  = data
             else:
                 scores[symbol]  = None
@@ -732,11 +533,7 @@ if df_holdings_raw is not None:
         st.session_state.holding_raw_data = raw_data_cache
         progress_bar.progress(1.0)
         scored_ok = len([s for s in scores.values() if s is not None])
-        yf_ok     = sum(1 for s in sources.values() if s == "yfinance")
-        status_text.markdown(
-            f"✅ Done — {scored_ok} of {n_symbols} scored "
-            f"({yf_ok} via yfinance fallback)."
-        )
+        status_text.markdown(f"✅ Done — {scored_ok} of {n_symbols} scored via SEC EDGAR.")
 
     st.divider()
 
@@ -810,11 +607,7 @@ if df_holdings_raw is not None:
     for _, row in display_df.iterrows():
         c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8])
         with c1:
-            src = row.get('Source')
-            sym_label = f"**{row['Symbol']}**"
-            if src == "yfinance":
-                sym_label += " 🌐"
-            st.markdown(sym_label)
+            st.markdown(f"**{row['Symbol']}**")
         with c2:
             st.caption(row['Name'])
         with c3:
@@ -862,7 +655,7 @@ if df_holdings_raw is not None:
                 st.session_state["dive_ticker"] = row['Symbol']
                 st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")
 
-    st.caption("🌐 = scored via yfinance fallback (foreign ADR — not in SEC database)")
+    st.caption("Foreign ADRs and companies without SEC EDGAR filings will show as unscored — see the summary message above for a count.")
     st.divider()
 
     # ── Ask Claude — Portfolio Analysis ───────────────────────────────
@@ -1002,10 +795,8 @@ if df_holdings_raw is not None:
         total_holding_val = account_detail['Market Value ($)'].sum()
         st.markdown(f"**{selected_symbol}** — Total Value: **${total_holding_val:,.2f}**")
         score  = st.session_state.holding_scores.get(selected_symbol)
-        source = st.session_state.holding_sources.get(selected_symbol)
         if score is not None:
-            src_label = " (via yfinance — foreign ADR)" if source == "yfinance" else " (via Polygon)"
-            st.markdown(f"Conviction Score: {score_to_badge(score)}{src_label}")
+            st.markdown(f"Conviction Score: {score_to_badge(score)} (via SEC EDGAR)")
         account_detail['% of Position'] = (
             account_detail['Market Value ($)'] / total_holding_val * 100
         ).round(1).astype(str) + '%'
