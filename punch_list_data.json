@@ -584,6 +584,33 @@
       "priority": "High",
       "done": false,
       "created": "2026-07-07"
+    },
+    {
+      "id": 67,
+      "title": "Emerging Candidates track \u2014 Market Screener",
+      "note": "Second, clearly-separate results bucket in the Market Screener for companies with 2-4 years of EDGAR history (below the main funnel's 5-year minimum) that still clear the SAME ROIC/FCF-margin thresholds as the main checklist AND show an improving/flat trend (not just a lucky average over a short window). Debt hurdle and dilution checks still apply as hard requirements. Purpose: surface businesses that look fundamentally solid but haven't had time to build a full 10-year track record, so they aren't simply invisible (current behavior: <5yr history = excluded outright, no flag, no visibility). Shown as a distinct \"Emerging Candidates\" section on the same Stage 1 results page, not mixed into the main survivor count. Pairs with #68 (tag-to-Watchlist + Watchlist page) so these can be revisited later as they accumulate history.",
+      "phase": "Equity Scoring",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-07-20"
+    },
+    {
+      "id": 68,
+      "title": "Tag-to-Watchlist + dedicated Watchlist page",
+      "note": "Add a tag/star control on Market Screener result cards (main funnel survivors AND Emerging Candidates from #67) to add a ticker to a persistent Watchlist. Watchlist should live on its own page (not just session state) so tagged names persist across sessions/reboots \u2014 likely GitHub-backed via github_store.py, same pattern as the punch list and scan cache. This also satisfies/extends the existing open item #1 (\"Watchlist \u2014 save top screener candidates\") and #14 (\"Watchlist persistence across sessions\") \u2014 consider consolidating those into this item once scoped.",
+      "phase": "Equity Scoring",
+      "priority": "Medium",
+      "done": false,
+      "created": "2026-07-20"
+    },
+    {
+      "id": 69,
+      "title": "Market Screener scans block navigation / die on long runs",
+      "note": "Two related symptoms from a single root cause: Stage 1 runs as one long synchronous script execution tied to the browser session, so (a) navigating to another page kills the in-progress scan, and (b) a full ~6,000-ticker scan (now correctly rate-limited to stay under SEC's ~10 req/sec fair-access limit, so it necessarily takes longer than before) risks the connection/session dying partway through on Streamlit Cloud before it finishes \u2014 observed: one run stopped at ~2,500 of 6,000+ names scanned (~15 passed, ~50 fetch failures at the point it stopped), with no error shown, just halted. Needs a real fix: options include (1) chunked/resumable scanning with incremental checkpoint saves to the GitHub-backed cache so a stoppage doesn't lose completed work and a re-run can pick up where it left off instead of starting over, or (2) a genuinely backgrounded scan (e.g. a separate worker process/thread decoupled from the Streamlit session) the user can navigate away from and check back on. Needs investigation into whether the ~2,500 stoppage is a Streamlit Cloud resource/idle timeout, a dropped websocket, or something else \u2014 no server-side error was surfaced, so this needs to be reproduced with logging.",
+      "phase": "API / Infrastructure",
+      "priority": "High",
+      "done": false,
+      "created": "2026-07-20"
     }
   ],
   "phases": [
