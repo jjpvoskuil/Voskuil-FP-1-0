@@ -609,7 +609,7 @@
       "note": "Two related symptoms from a single root cause: Stage 1 runs as one long synchronous script execution tied to the browser session, so (a) navigating to another page kills the in-progress scan, and (b) a full ~6,000-ticker scan (now correctly rate-limited to stay under SEC's ~10 req/sec fair-access limit, so it necessarily takes longer than before) risks the connection/session dying partway through on Streamlit Cloud before it finishes \u2014 observed: one run stopped at ~2,500 of 6,000+ names scanned (~15 passed, ~50 fetch failures at the point it stopped), with no error shown, just halted. Needs a real fix: options include (1) chunked/resumable scanning with incremental checkpoint saves to the GitHub-backed cache so a stoppage doesn't lose completed work and a re-run can pick up where it left off instead of starting over, or (2) a genuinely backgrounded scan (e.g. a separate worker process/thread decoupled from the Streamlit session) the user can navigate away from and check back on. Needs investigation into whether the ~2,500 stoppage is a Streamlit Cloud resource/idle timeout, a dropped websocket, or something else \u2014 no server-side error was surfaced, so this needs to be reproduced with logging.",
       "phase": "API / Infrastructure",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-07-20"
     }
   ],
