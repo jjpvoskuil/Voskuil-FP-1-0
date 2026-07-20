@@ -312,7 +312,7 @@
       "note": "Replace interest expense (accrual) with interest paid (cash). Replace EBITDA/earnings denominator with cash available for debt service. Add capitalized interest check. Express as margin (% interest paid to cash available for debt service) alongside principal multiple.",
       "phase": "Equity Scoring",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-04"
     },
     {
