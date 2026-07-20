@@ -114,7 +114,7 @@
       "note": "Polygon distribution_yield field sparse for ETFs \u2014 rebalanced out currently. Picks up automatically when Polygon improves coverage.",
       "phase": "API / Infrastructure",
       "priority": "Low",
-      "done": false,
+      "done": true,
       "created": "2026-05-01"
     },
     {
