@@ -6,7 +6,7 @@
       "note": "Save tickers from Market Screener for later review. Needs session-state persistence or a lightweight store.",
       "phase": "Aesthetics and UX",
       "priority": "Medium",
-      "done": false,
+      "done": true,
       "created": "2026-05-01"
     },
     {
