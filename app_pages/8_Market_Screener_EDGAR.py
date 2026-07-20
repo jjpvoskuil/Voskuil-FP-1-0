@@ -503,16 +503,19 @@ def _scan_snapshot() -> dict:
         return dict(_SCAN_STATE)
 
 
-def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
-                                 skip_financials, universe_label, cache_path):
+def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
+                                   skip_financials, universe_label, cache_path):
     """
-    Runs the full Stage 1 checklist scan on a background thread. Mirrors
-    the logic that used to run inline in the main script (waterfall
-    tally, fetch_quality_edgar per ticker), but writes progress into the
-    module-level _SCAN_STATE instead of directly rendering Streamlit
-    widgets — the main script's fragment (see render section below)
-    reads this state to display live progress from whatever page/session
-    happens to be looking at it.
+    Initializes _SCAN_STATE and spawns the background thread. Called
+    from the MAIN script thread (the button-click handler), NOT from
+    within the background thread itself — this matters: the caller
+    calls st.rerun() immediately after this returns, and that rerun
+    needs to see active=True right away. If "active" were set inside
+    the background thread instead, there'd be a race — the thread might
+    not get scheduled before the rerun re-checks the state, and the
+    page would show nothing at all (this was an actual bug: the scan
+    would appear to do nothing because the very first rerun after
+    launching it still saw the stale "not active" state).
     """
     with _SCAN_LOCK:
         _SCAN_STATE.update({
@@ -530,7 +533,28 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
             "finished_at": None, "error": None,
             "github_save_ok": None, "github_save_msg": "",
         })
+    threading.Thread(
+        target=_run_stage1_scan_background,
+        args=(tickers_to_scan, ticker_cik_map, funnel_thresholds, skip_financials, universe_label, cache_path),
+        daemon=True,
+    ).start()
 
+
+def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
+                                 skip_financials, universe_label, cache_path):
+    """
+    Does the actual scanning work on a background thread. State is
+    already initialized by _start_stage1_scan_background() (on the main
+    thread, before this thread was even spawned — see that function's
+    docstring for why the ordering matters) — this function just does
+    the work and updates progress as it goes. Mirrors the logic that
+    used to run inline in the main script (waterfall tally,
+    fetch_quality_edgar per ticker), but writes progress into the
+    module-level _SCAN_STATE instead of directly rendering Streamlit
+    widgets — the main script's fragment (see render section below)
+    reads this state to display live progress from whatever page/session
+    happens to be looking at it.
+    """
     def _worker(ticker):
         cik = ticker_cik_map.get(ticker.upper())
         if not cik:
@@ -1359,14 +1383,13 @@ if run_screen:
 
         # ── Launch Stage 1 in the background (#69) and hand control back ──
         # to Streamlit immediately, instead of blocking this script
-        # execution for potentially several minutes. See the big comment
-        # block above _run_stage1_scan_background for why this survives
-        # page navigation.
-        threading.Thread(
-            target=_run_stage1_scan_background,
-            args=(tickers_to_scan, ticker_cik_map, funnel_thresholds, skip_financials, universe_choice, SCAN_CACHE_PATH),
-            daemon=True,
-        ).start()
+        # execution for potentially several minutes. State is initialized
+        # synchronously here (see _start_stage1_scan_background's
+        # docstring for why that ordering matters) before the rerun below.
+        _start_stage1_scan_background(
+            tickers_to_scan, ticker_cik_map, funnel_thresholds,
+            skip_financials, universe_choice, SCAN_CACHE_PATH,
+        )
         st.rerun()
 
 # ── Live progress if a scan is currently running (any session can see this) ──
