@@ -132,7 +132,7 @@
       "note": "Saved tickers and notes persist between Streamlit sessions. Options: SQLite, Supabase, secrets-backed JSON.",
       "phase": "Commercial Product Track",
       "priority": "Low",
-      "done": false,
+      "done": true,
       "created": "2026-05-01"
     },
     {
