@@ -15,6 +15,8 @@ analysis (#37), and the historical normalization layer (#52).
 """
 
 import re
+import time
+import threading
 import requests
 import concurrent.futures
 import streamlit as st
@@ -25,6 +27,51 @@ SEC_BASE      = "https://www.sec.gov"
 HEADERS       = {"User-Agent": "VoskuilFP/1.0 jvoskuil@foxdenholdings.com"}
 SECTION_LIMIT = 8_000
 
+# ── Shared SEC rate limiter ─────────────────────────────────────────────
+# SEC's fair-access policy caps requests at ~10/sec per source. The Market
+# Screener's Stage 1 scan fires up to 8 concurrent worker threads, each
+# making 2 requests per ticker (companyfacts + submissions) across
+# thousands of tickers — with no shared throttle, that blows well past
+# the limit and SEC starts returning 429s, which then also blocks
+# unrelated pages (Compare Stocks, Equity Scout) hitting the same IP
+# until the cooldown passes. This lock + timestamp pacing keeps the
+# EFFECTIVE combined request rate across all threads under the limit,
+# and _sec_get() retries a 429 (honoring Retry-After if SEC sends one)
+# a few times before giving up, rather than failing immediately.
+_rate_lock          = threading.Lock()
+_last_request_time  = [0.0]
+_MIN_REQUEST_INTERVAL = 0.12   # ~8 req/sec ceiling, safely under SEC's ~10/sec guidance
+
+
+def _sec_get(url: str, timeout: int = 30, max_retries: int = 3):
+    """
+    Shared GET wrapper for every SEC EDGAR request in this module.
+    Paces requests across ALL threads to stay under SEC's fair-access
+    rate limit, and retries 429s (rate-limited) with backoff instead of
+    surfacing an immediate failure.
+    """
+    for attempt in range(max_retries + 1):
+        with _rate_lock:
+            elapsed = time.monotonic() - _last_request_time[0]
+            if elapsed < _MIN_REQUEST_INTERVAL:
+                time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
+            _last_request_time[0] = time.monotonic()
+
+        resp = requests.get(url, headers=HEADERS, timeout=timeout)
+
+        if resp.status_code == 429 and attempt < max_retries:
+            retry_after = resp.headers.get("Retry-After")
+            try:
+                wait = float(retry_after) if retry_after else (2 ** attempt) * 1.0
+            except ValueError:
+                wait = (2 ** attempt) * 1.0
+            time.sleep(min(wait, 15.0))
+            continue
+
+        return resp
+
+    return resp  # exhausted retries — caller checks status_code
+
 
 def get_cik(ticker: str):
     """
@@ -34,7 +81,7 @@ def get_cik(ticker: str):
     company_tickers.json file (10,000+ entries) on every call.
     """
     try:
-        resp = requests.get(f"{SEC_BASE}/files/company_tickers.json", headers=HEADERS, timeout=10)
+        resp = _sec_get(f"{SEC_BASE}/files/company_tickers.json", timeout=10)
         if resp.status_code != 200:
             return None, f"company_tickers.json returned {resp.status_code}"
         for entry in resp.json().values():
@@ -56,7 +103,7 @@ def get_ticker_cik_map() -> dict:
     of a screen run.
     """
     try:
-        resp = requests.get(f"{SEC_BASE}/files/company_tickers.json", headers=HEADERS, timeout=15)
+        resp = _sec_get(f"{SEC_BASE}/files/company_tickers.json", timeout=15)
         if resp.status_code != 200:
             return {}
         data = resp.json()
@@ -123,7 +170,7 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     url = f"{EDGAR_BASE}/api/xbrl/companyfacts/CIK{cik}.json"
     try:
 
-        resp = requests.get(url, headers=HEADERS, timeout=30)
+        resp = _sec_get(url, timeout=30)
         if resp.status_code != 200:
             return {"latest": {}, "history": {}, "meta": {}, "missing": [],
                     "error": f"Company Facts API returned {resp.status_code} for CIK {cik}"}
@@ -143,10 +190,7 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     # Get SIC from submissions API (lightweight call, cached by EDGAR)
     sic = None
     try:
-        sub_resp = requests.get(
-            f"{EDGAR_BASE}/submissions/CIK{cik}.json",
-            headers=HEADERS, timeout=10
-        )
+        sub_resp = _sec_get(f"{EDGAR_BASE}/submissions/CIK{cik}.json", timeout=10)
         if sub_resp.status_code == 200:
             sic = str(sub_resp.json().get("sic", ""))
     except Exception:
@@ -545,7 +589,7 @@ def get_latest_10k_accession(cik: str):
     Skips 10-K/A amendments — we want the original filing.
     """
     try:
-        resp = requests.get(f"{EDGAR_BASE}/submissions/CIK{cik}.json", headers=HEADERS, timeout=10)
+        resp = _sec_get(f"{EDGAR_BASE}/submissions/CIK{cik}.json", timeout=10)
         if resp.status_code != 200:
             return None, None, f"submissions API returned {resp.status_code}"
         data   = resp.json()
@@ -567,7 +611,7 @@ def get_latest_10k_accession(cik: str):
         # Check older filing pages
         for file_entry in data.get("filings", {}).get("files", []):
             fname    = file_entry.get("name", "")
-            sub_resp = requests.get(f"{EDGAR_BASE}/submissions/{fname}", headers=HEADERS, timeout=10)
+            sub_resp = _sec_get(f"{EDGAR_BASE}/submissions/{fname}", timeout=10)
             if sub_resp.status_code == 200:
                 sub = sub_resp.json()
                 for i, form in enumerate(sub.get("form", [])):

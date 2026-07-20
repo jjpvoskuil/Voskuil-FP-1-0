@@ -334,7 +334,7 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
     """
     facts = fetch_company_facts_with_cik(ticker, cik)
     if facts.get("error"):
-        return None
+        return {"_fetch_failed": True, "ticker": ticker, "reason": facts["error"]}
 
     latest = facts.get("latest", {})
     meta   = facts.get("meta", {})
@@ -346,6 +346,8 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
         # exclude a business with a genuinely strong 10-year average that
         # simply had one weak year — worth revisiting if it starts
         # dropping companies you'd expect the checklist to catch instead.
+        # (Distinct from a fetch failure above — this IS real EDGAR data,
+        # the company just didn't clear the pre-filter.)
 
     funnel = evaluate_buffett_funnel(facts, funnel_thresholds or FUNNEL_THRESHOLDS)
 
@@ -951,6 +953,7 @@ if run_screen:
     progress_bar = st.progress(0)
     status_text  = st.empty()
     stage1_results = []
+    fetch_failures  = []   # tickers that errored (429/timeout/etc), NOT excluded by the checklist
     completed = 0
 
     def _stage1_worker(ticker):
@@ -965,12 +968,19 @@ if run_screen:
             completed += 1
             pct = completed / total_tickers
             progress_bar.progress(pct)
-            status_text.markdown(f"⏳ Stage 1: {completed} of {total_tickers} ({int(pct*100)}%) — {len(stage1_results)} candidates so far")
+            status_text.markdown(
+                f"⏳ Stage 1: {completed} of {total_tickers} ({int(pct*100)}%) — "
+                f"{len(stage1_results)} candidates so far"
+                + (f", {len(fetch_failures)} fetch failures" if fetch_failures else "")
+            )
             try:
                 data = future.result()
-            except Exception:
-                data = None
+            except Exception as e:
+                data = {"_fetch_failed": True, "ticker": futures[future], "reason": str(e)}
             if data is None:
+                continue
+            if data.get("_fetch_failed"):
+                fetch_failures.append(data)
                 continue
             if skip_financials and data.get("is_financial"):
                 continue
@@ -978,10 +988,32 @@ if run_screen:
                 stage1_results.append(data)
 
     progress_bar.progress(1.0)
+    st.session_state['ms_edgar_last_fetch_failures'] = fetch_failures
+    _fail_msg = ""
+    if fetch_failures:
+        _fail_msg = (
+            f" ⚠️ {len(fetch_failures)} companies could not be fetched (rate-limited/timeout/etc) and "
+            f"are NOT reflected in this count — see the note below before trusting the survivor total."
+        )
     status_text.markdown(
         f"✅ Stage 1 complete — {len(stage1_results)} of {total_tickers} companies cleared the "
         f"Buffett/Munger checklist (10-yr avg ROIC, 10-yr avg FCF margin, a debt hurdle, no dilution)."
+        f"{_fail_msg}"
     )
+    if fetch_failures:
+        with st.expander(f"⚠️ {len(fetch_failures)} fetch failures (excluded from both the pass and fail counts)"):
+            st.caption(
+                "These tickers errored out (SEC rate-limited us, timed out, etc.) before the checklist "
+                "could even run — they are neither 'passed' nor 'failed', just unknown. If this list is "
+                "long, SEC's fair-access limit was likely hit mid-scan; re-running (especially at a quieter "
+                "time, or with a smaller universe) should get most of them through."
+            )
+            _fail_reasons = {}
+            for f in fetch_failures:
+                _fail_reasons.setdefault(f.get("reason", "unknown"), []).append(f.get("ticker", "?"))
+            for reason, tickers in sorted(_fail_reasons.items(), key=lambda kv: -len(kv[1])):
+                st.markdown(f"**{len(tickers)}x** — {reason}")
+                st.caption(", ".join(tickers[:30]) + (f" … +{len(tickers)-30} more" if len(tickers) > 30 else ""))
 
     if not stage1_results:
         st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
