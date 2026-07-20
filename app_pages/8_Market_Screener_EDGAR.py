@@ -4,6 +4,7 @@ import pandas as pd
 from io import StringIO
 import time
 import random
+import threading
 from datetime import datetime, timezone
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -442,6 +443,288 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
         "funnel_years_used":    funnel["years_used"],
         "_latest":           latest,
     }
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Background Stage 1 scan (#69)
+#
+# Streamlit reruns the whole SCRIPT on every interaction (a click, a
+# widget change — even ones that look unrelated). If Stage 1 runs
+# inline in that script execution, ANY interaction — including
+# navigating to another page, or an accidental click while scrolling —
+# triggers a rerun that abandons the in-progress scan.
+#
+# Fix: run Stage 1 in a real background thread. Streamlit's rerun
+# mechanism only stops/restarts the SCRIPT's own execution thread; a
+# thread YOU spawn with threading.Thread(...).start() is a normal OS
+# thread in the same process and keeps running regardless of what the
+# script does. Progress lives in a MODULE-LEVEL dict (not
+# st.session_state) so it survives page navigation and script reruns —
+# every page render just reads the latest snapshot.
+#
+# IMPORTANT LIMITATION: this is process-global state, not per-session.
+# Fine for a single-user instance (this app today), but if/when multi-
+# user support (#15/#16) happens, this needs to become keyed by
+# session/user before it's safe to ship — otherwise one user's scan
+# would show up in everyone's browser. Flagging here so it isn't
+# forgotten.
+#
+# ALSO NOTE: this only survives navigation/scrolling/interaction within
+# the running app. It does NOT survive an actual app restart (a
+# redeploy from a new git push, or Streamlit Cloud recycling the
+# container) — the whole Python process, and this in-memory state with
+# it, goes away in that case. That's a different, harder problem
+# (would need a real out-of-process job queue) and is out of scope here.
+# ═════════════════════════════════════════════════════════════════════
+
+_SCAN_LOCK = threading.Lock()
+_SCAN_STATE = {
+    "active":            False,
+    "cancel_requested":  False,
+    "universe":          None,
+    "total":             0,
+    "completed":         0,
+    "stage1_results":    [],
+    "fetch_failures":    [],
+    "no_xbrl_tickers":   [],
+    "waterfall":         {},
+    "started_at":        None,
+    "finished_at":       None,
+    "cancelled":         False,
+    "error":             None,
+    "github_save_ok":    None,
+    "github_save_msg":   "",
+}
+
+
+def _scan_snapshot() -> dict:
+    """Thread-safe read of the full background scan state."""
+    with _SCAN_LOCK:
+        return dict(_SCAN_STATE)
+
+
+def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
+                                 skip_financials, universe_label, cache_path):
+    """
+    Runs the full Stage 1 checklist scan on a background thread. Mirrors
+    the logic that used to run inline in the main script (waterfall
+    tally, fetch_quality_edgar per ticker), but writes progress into the
+    module-level _SCAN_STATE instead of directly rendering Streamlit
+    widgets — the main script's fragment (see render section below)
+    reads this state to display live progress from whatever page/session
+    happens to be looking at it.
+    """
+    with _SCAN_LOCK:
+        _SCAN_STATE.update({
+            "active": True, "cancel_requested": False, "cancelled": False,
+            "universe": universe_label, "total": len(tickers_to_scan),
+            "completed": 0, "stage1_results": [], "fetch_failures": [],
+            "no_xbrl_tickers": [],
+            "waterfall": {
+                "no_cik": 0, "no_xbrl_data": 0, "fetch_failed": 0,
+                "excluded_fcf": 0, "excluded_financial": 0,
+                "failed_roic": 0, "failed_fcf_margin": 0,
+                "failed_debt": 0, "failed_dilution": 0, "passed": 0,
+            },
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "finished_at": None, "error": None,
+            "github_save_ok": None, "github_save_msg": "",
+        })
+
+    def _worker(ticker):
+        cik = ticker_cik_map.get(ticker.upper())
+        if not cik:
+            return {"_status": "no_cik", "ticker": ticker}
+        return fetch_quality_edgar(ticker, cik, funnel_thresholds)
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+        futures = {executor.submit(_worker, t): t for t in tickers_to_scan}
+        try:
+            for future in concurrent.futures.as_completed(futures):
+                with _SCAN_LOCK:
+                    if _SCAN_STATE["cancel_requested"]:
+                        break
+                try:
+                    data = future.result()
+                except Exception as e:
+                    data = {"_status": "fetch_failed", "ticker": futures[future], "reason": str(e)}
+
+                status = data.get("_status") if data else "no_cik"
+
+                with _SCAN_LOCK:
+                    _SCAN_STATE["completed"] += 1
+                    wf = _SCAN_STATE["waterfall"]
+
+                    if status == "no_cik":
+                        wf["no_cik"] += 1
+                    elif status == "no_xbrl_data":
+                        wf["no_xbrl_data"] += 1
+                        _SCAN_STATE["no_xbrl_tickers"].append(data)
+                    elif status == "fetch_failed":
+                        wf["fetch_failed"] += 1
+                        _SCAN_STATE["fetch_failures"].append(data)
+                    elif status == "excluded_fcf":
+                        wf["excluded_fcf"] += 1
+                    else:
+                        # "evaluated" — reached the checklist
+                        if skip_financials and data.get("is_financial"):
+                            wf["excluded_financial"] += 1
+                        else:
+                            funnel = data.get("funnel", {})
+                            if not funnel.get("roic_pass"):       wf["failed_roic"]       += 1
+                            if not funnel.get("fcf_margin_pass"): wf["failed_fcf_margin"] += 1
+                            if not funnel.get("debt_pass"):       wf["failed_debt"]       += 1
+                            if not funnel.get("dilution_pass"):   wf["failed_dilution"]   += 1
+                            if data.get("funnel_passed"):
+                                wf["passed"] += 1
+                                _SCAN_STATE["stage1_results"].append(data)
+        finally:
+            # cancel_futures needs Python 3.9+; falls back gracefully if unsupported.
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                executor.shutdown(wait=False)
+    except Exception as e:
+        with _SCAN_LOCK:
+            _SCAN_STATE["error"] = str(e)
+
+    with _SCAN_LOCK:
+        was_cancelled = _SCAN_STATE["cancel_requested"]
+        _SCAN_STATE["cancelled"]  = was_cancelled
+        _SCAN_STATE["active"]     = False
+        _SCAN_STATE["finished_at"] = datetime.now(timezone.utc).isoformat()
+        stage1_results = list(_SCAN_STATE["stage1_results"])
+        total_scanned  = _SCAN_STATE["completed"] if was_cancelled else _SCAN_STATE["total"]
+
+    # Persist to GitHub from the background thread itself — this way it
+    # happens exactly once regardless of how many browser tabs/sessions
+    # are watching, rather than each session trying to save its own copy.
+    if stage1_results and not was_cancelled:
+        _scan_timestamp = datetime.now(timezone.utc).isoformat()
+        _ok, _msg = github_put_json(
+            cache_path,
+            {
+                "universe":              universe_label,
+                "scan_timestamp":        _scan_timestamp,
+                "total_tickers_scanned": total_scanned,
+                "stage1_survivors":      stage1_results,
+            },
+            commit_message=f"Market screener scan cache — {universe_label} — {len(stage1_results)} survivors",
+        )
+        with _SCAN_LOCK:
+            _SCAN_STATE["github_save_ok"]  = _ok
+            _SCAN_STATE["github_save_msg"] = _msg if not _ok else _scan_timestamp
+
+
+def _build_waterfall_rows(waterfall: dict, total_tickers: int) -> list:
+    """Shared waterfall row builder — used for both the live in-progress
+    display and the persisted post-scan display, so they can't drift."""
+    reached_checklist = (
+        total_tickers - waterfall.get("no_cik", 0) - waterfall.get("no_xbrl_data", 0)
+        - waterfall.get("fetch_failed", 0) - waterfall.get("excluded_fcf", 0)
+    )
+    return [
+        ("Total scanned",                                              total_tickers, None),
+        ("→ No CIK match in EDGAR",                                    waterfall.get("no_cik", 0), total_tickers),
+        ("→ No XBRL data at all (404 — permanent, not a rate limit)",  waterfall.get("no_xbrl_data", 0), total_tickers),
+        ("→ EDGAR fetch failed (rate-limited/timeout — transient)",    waterfall.get("fetch_failed", 0), total_tickers),
+        ("→ Excluded: latest-year FCF ≤ 0",                            waterfall.get("excluded_fcf", 0), total_tickers),
+        ("= Reached the checklist",                                    reached_checklist, total_tickers),
+        ("→ Excluded: financial firm",                                 waterfall.get("excluded_financial", 0), reached_checklist),
+        ("→ Failed ROIC leg",                                          waterfall.get("failed_roic", 0), reached_checklist),
+        ("→ Failed FCF Margin leg",                                    waterfall.get("failed_fcf_margin", 0), reached_checklist),
+        ("→ Failed Debt leg (both hurdles)",                           waterfall.get("failed_debt", 0), reached_checklist),
+        ("→ Failed Dilution leg",                                      waterfall.get("failed_dilution", 0), reached_checklist),
+        ("= Passed all four legs",                                     waterfall.get("passed", 0), reached_checklist),
+    ]
+
+
+def _render_waterfall_and_failures(waterfall, total_tickers, num_passed, fetch_failures, no_xbrl_tickers, expanded_default=False):
+    """Shared renderer so the waterfall/failure expanders look identical
+    whether shown live (mid-scan) or after the fact (persisted in
+    session_state, e.g. when the user navigates back to this page)."""
+    with st.expander(f"📊 Waterfall: how {total_tickers} tickers became {num_passed} survivors", expanded=expanded_default):
+        wf_rows = _build_waterfall_rows(waterfall, total_tickers)
+        st.caption(
+            "Note: the four 'Failed X leg' rows are NOT mutually exclusive — a company can fail more than "
+            "one leg at once, so they won't sum to (Reached checklist − Passed). Financial-firm exclusion "
+            "happens independently of the checklist legs, so a financial firm's leg results are still "
+            "tallied even though it's excluded from the final survivor count. 'No XBRL data' and 'fetch "
+            "failed' are DIFFERENT problems — see the two expanders below."
+        )
+        _wf_df = pd.DataFrame([
+            {"Stage": label, "Count": count,
+             "% of denominator": f"{count/denom:.1%}" if denom else "N/A"}
+            for label, count, denom in wf_rows
+        ])
+        st.dataframe(_wf_df, hide_index=True, use_container_width=True)
+
+    if fetch_failures:
+        with st.expander(f"⚠️ {len(fetch_failures)} TRANSIENT fetch failures — worth retrying"):
+            st.caption(
+                "These tickers errored out (SEC rate-limited us, timed out, etc.) before the checklist "
+                "could even run — they are neither 'passed' nor 'failed', just unknown. If this list is "
+                "long, SEC's fair-access limit was likely hit mid-scan; re-running (especially at a quieter "
+                "time, or with a smaller universe) should get most of them through."
+            )
+            _fail_reasons = {}
+            for f in fetch_failures:
+                _fail_reasons.setdefault(f.get("reason", "unknown"), []).append(f.get("ticker", "?"))
+            for reason, tickers in sorted(_fail_reasons.items(), key=lambda kv: -len(kv[1])):
+                st.markdown(f"**{len(tickers)}x** — {reason}")
+                st.caption(", ".join(tickers[:30]) + (f" … +{len(tickers)-30} more" if len(tickers) > 30 else ""))
+
+    if no_xbrl_tickers:
+        with st.expander(f"ℹ️ {len(no_xbrl_tickers)} tickers with NO XBRL data — permanent, re-running won't help"):
+            st.caption(
+                "These CIKs returned 404 on Company Facts — there's simply no XBRL data to fetch, so "
+                "retrying changes nothing. Almost always one of: (1) a closed-end fund or other "
+                "registered investment company (they file N-CSR, not a standard 10-K, so they never "
+                "populate this API), (2) a preferred share, warrant, unit, or rights listing riding on "
+                "a parent company's CIK, or (3) a stale/incorrect ticker→CIK mapping in the Nasdaq "
+                "Trader universe file. If a name you specifically care about shows up here, it's worth "
+                "checking by hand — otherwise these are expected noise in a full-market scan and safe "
+                "to ignore."
+            )
+            _tickers_only = [f.get("ticker", "?") for f in no_xbrl_tickers]
+            st.caption(", ".join(_tickers_only[:60]) + (f" … +{len(_tickers_only)-60} more" if len(_tickers_only) > 60 else ""))
+
+
+@st.fragment(run_every=2)
+def _render_scan_progress_fragment():
+    """
+    Auto-refreshing (every 2s) progress display for an active background
+    scan. Only re-executes THIS fragment, not the whole page, while the
+    scan is active — that's what lets the rest of the page (and other
+    pages) stay fully interactive while Stage 1 runs. Once the
+    background scan finishes, triggers a full app rerun (st.rerun()) so
+    the main script can ingest the results — a fragment rerun alone
+    can't do that, per Streamlit's fragment model.
+    """
+    snap = _scan_snapshot()
+    if not snap["active"]:
+        st.success("Scan finished — loading results...")
+        st.rerun()
+        return
+
+    completed, total = snap["completed"], snap["total"]
+    pct = (completed / total) if total else 0
+    st.progress(pct)
+    wf = snap["waterfall"]
+    st.markdown(
+        f"⏳ Stage 1 running in the background — {completed} of {total} ({int(pct*100)}%) — "
+        f"{wf.get('passed', 0)} candidates so far"
+        + (f", {len(snap['fetch_failures'])} transient errors" if snap["fetch_failures"] else "")
+    )
+    st.caption(
+        "This keeps running even if you navigate to other pages or close this tab — come back "
+        "anytime to check progress. (It does NOT survive an app restart/redeploy.)"
+    )
+    if st.button("🛑 Cancel Scan", key="ms_cancel_scan_btn"):
+        with _SCAN_LOCK:
+            _SCAN_STATE["cancel_requested"] = True
+        st.warning("Cancelling — will stop after in-flight requests finish (a few seconds).")
 
 
 # ── Stage 2: Price + final full scoring for survivors only ─────────────
@@ -1039,245 +1322,121 @@ if refilter_clicked and _has_cached_pool:
 
 
 if run_screen:
-    with st.spinner(f"Loading {universe_choice} ticker list..."):
-        if universe_choice == "S&P 500 (~500)":
-            tickers = get_sp500_tickers()
-        else:
-            tickers = fetch_full_us_equity_universe(universe="all_us")
-
-    if not tickers:
-        st.error(f"Could not load the {universe_choice} ticker list. Try again — Nasdaq Trader/Wikipedia data sources occasionally have transient issues.")
-        st.stop()
-
-    st.caption(f"📋 {len(tickers):,} tickers loaded — {'scanning ALL of them' if scan_all else f'scanning a random sample of up to {max_scan:,}'}.")
-
-    if scan_all or max_scan >= len(tickers):
-        tickers_to_scan = tickers
+    _snap = _scan_snapshot()
+    if _snap["active"]:
+        st.warning("A scan is already running in the background. Wait for it to finish, or cancel it below, before starting a new one.")
     else:
-        # Random sample, not an alphabetical slice — fetch_full_us_equity_universe()
-        # returns tickers sorted alphabetically, so tickers[:max_scan] would always
-        # scan the same 'A'-through-'D'-ish subset and never see the rest of the
-        # alphabet. Seeded for reproducibility within a session/day (cache TTL is
-        # 24h), so re-running the same scan gives consistent results.
-        _rng = random.Random(f"{universe_choice}-{max_scan}-{time.strftime('%Y-%m-%d')}")
-        tickers_to_scan = _rng.sample(tickers, max_scan)
-    total_tickers   = len(tickers_to_scan)
+        with st.spinner(f"Loading {universe_choice} ticker list..."):
+            if universe_choice == "S&P 500 (~500)":
+                tickers = get_sp500_tickers()
+            else:
+                tickers = fetch_full_us_equity_universe(universe="all_us")
 
-    # ── Build ticker -> CIK map ONCE (the key bulk-scan optimization) ──
-    with st.spinner("Resolving tickers to SEC CIK numbers (one-time lookup)..."):
-        ticker_cik_map = get_ticker_cik_map()
+        if not tickers:
+            st.error(f"Could not load the {universe_choice} ticker list. Try again — Nasdaq Trader/Wikipedia data sources occasionally have transient issues.")
+            st.stop()
 
-    if not ticker_cik_map:
-        st.error("Could not load EDGAR ticker-to-CIK map. Try again in a moment.")
-        st.stop()
+        st.caption(f"📋 {len(tickers):,} tickers loaded — {'scanning ALL of them' if scan_all else f'scanning a random sample of up to {max_scan:,}'}.")
 
-    # ── Stage 1: Buffett/Munger checklist scan (EDGAR, parallel, no price) ──
-    st.markdown(f"### Stage 1 — Checklist Scan ({total_tickers} companies, EDGAR fundamentals)")
-    progress_bar = st.progress(0)
-    status_text  = st.empty()
-    stage1_results = []
-    fetch_failures  = []   # transient errors (429/timeout/5xx) — worth retrying
-    no_xbrl_tickers = []   # permanent 404s — NOT worth retrying, see bucket note below
-    completed = 0
+        if scan_all or max_scan >= len(tickers):
+            tickers_to_scan = tickers
+        else:
+            # Random sample, not an alphabetical slice — fetch_full_us_equity_universe()
+            # returns tickers sorted alphabetically, so tickers[:max_scan] would always
+            # scan the same 'A'-through-'D'-ish subset and never see the rest of the
+            # alphabet. Seeded for reproducibility within a session/day (cache TTL is
+            # 24h), so re-running the same scan gives consistent results.
+            _rng = random.Random(f"{universe_choice}-{max_scan}-{time.strftime('%Y-%m-%d')}")
+            tickers_to_scan = _rng.sample(tickers, max_scan)
 
-    # Waterfall tally — every ticker lands in exactly one terminal bucket
-    # below, so total_tickers always equals the sum of the buckets. This
-    # is what makes a survivor count auditable instead of a single
-    # opaque number.
-    waterfall = {
-        "no_cik":            0,   # ticker not found in EDGAR's ticker->CIK map
-        "no_xbrl_data":       0,   # CIK has no XBRL Company Facts at all (404) — PERMANENT, not a rate limit
-        "fetch_failed":       0,   # EDGAR request errored (429/timeout/5xx) after retries — TRANSIENT
-        "excluded_fcf":       0,   # fetched OK, but latest-year FCF <= 0 (hard pre-filter)
-        "excluded_financial": 0,   # fetched OK, reached checklist, but is a financial firm (skipped by default)
-        "failed_roic":        0,   # reached checklist, failed the 10-yr avg ROIC leg
-        "failed_fcf_margin":  0,   # reached checklist, failed the 10-yr avg FCF margin leg
-        "failed_debt":        0,   # reached checklist, failed BOTH debt hurdles
-        "failed_dilution":    0,   # reached checklist, failed the dilution check
-        "passed":             0,   # cleared all four legs
-    }
+        # ── Build ticker -> CIK map ONCE (the key bulk-scan optimization) ──
+        with st.spinner("Resolving tickers to SEC CIK numbers (one-time lookup)..."):
+            ticker_cik_map = get_ticker_cik_map()
 
-    def _stage1_worker(ticker):
-        cik = ticker_cik_map.get(ticker.upper())
-        if not cik:
-            return {"_status": "no_cik", "ticker": ticker}
-        return fetch_quality_edgar(ticker, cik, funnel_thresholds)
+        if not ticker_cik_map:
+            st.error("Could not load EDGAR ticker-to-CIK map. Try again in a moment.")
+            st.stop()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {executor.submit(_stage1_worker, t): t for t in tickers_to_scan}
-        for future in concurrent.futures.as_completed(futures):
-            completed += 1
-            pct = completed / total_tickers
-            progress_bar.progress(pct)
-            status_text.markdown(
-                f"⏳ Stage 1: {completed} of {total_tickers} ({int(pct*100)}%) — "
-                f"{len(stage1_results)} candidates so far"
-                + (f", {len(fetch_failures)} transient errors" if fetch_failures else "")
-            )
-            try:
-                data = future.result()
-            except Exception as e:
-                data = {"_status": "fetch_failed", "ticker": futures[future], "reason": str(e)}
+        # ── Launch Stage 1 in the background (#69) and hand control back ──
+        # to Streamlit immediately, instead of blocking this script
+        # execution for potentially several minutes. See the big comment
+        # block above _run_stage1_scan_background for why this survives
+        # page navigation.
+        threading.Thread(
+            target=_run_stage1_scan_background,
+            args=(tickers_to_scan, ticker_cik_map, funnel_thresholds, skip_financials, universe_choice, SCAN_CACHE_PATH),
+            daemon=True,
+        ).start()
+        st.rerun()
 
-            status = data.get("_status") if data else "no_cik"
+# ── Live progress if a scan is currently running (any session can see this) ──
+_snap = _scan_snapshot()
+_just_ingested = False
+if _snap["active"]:
+    st.markdown("### Stage 1 — Checklist Scan (running in background)")
+    _render_scan_progress_fragment()
 
-            if status == "no_cik":
-                waterfall["no_cik"] += 1
-                continue
-            if status == "no_xbrl_data":
-                waterfall["no_xbrl_data"] += 1
-                no_xbrl_tickers.append(data)
-                continue
-            if status == "fetch_failed":
-                waterfall["fetch_failed"] += 1
-                fetch_failures.append(data)
-                continue
-            if status == "excluded_fcf":
-                waterfall["excluded_fcf"] += 1
-                continue
+# ── Ingest a just-finished scan into THIS session, exactly once ────────
+elif _snap["finished_at"] and st.session_state.get('ms_edgar_ingested_finish_ts') != _snap["finished_at"]:
+    st.session_state['ms_edgar_ingested_finish_ts'] = _snap["finished_at"]
+    _just_ingested = True
 
-            # status == "evaluated" from here on — reached the checklist
-            if skip_financials and data.get("is_financial"):
-                waterfall["excluded_financial"] += 1
-                continue
+    if _snap.get("error"):
+        st.error(f"Scan failed: {_snap['error']}")
+    if _snap.get("cancelled"):
+        st.warning(f"Scan cancelled after {_snap['completed']} of {_snap['total']} tickers — partial results only, and NOT saved persistently (only completed full scans are cached).")
 
-            funnel = data.get("funnel", {})
-            if not funnel.get("roic_pass"):       waterfall["failed_roic"]       += 1
-            if not funnel.get("fcf_margin_pass"):  waterfall["failed_fcf_margin"] += 1
-            if not funnel.get("debt_pass"):        waterfall["failed_debt"]       += 1
-            if not funnel.get("dilution_pass"):    waterfall["failed_dilution"]   += 1
+    stage1_results = _snap["stage1_results"]
+    total_tickers  = _snap["completed"] if _snap.get("cancelled") else _snap["total"]
 
-            if data.get("funnel_passed"):
-                waterfall["passed"] += 1
-                stage1_results.append(data)
-
-    progress_bar.progress(1.0)
-    st.session_state['ms_edgar_last_fetch_failures'] = fetch_failures
-    st.session_state['ms_edgar_last_no_xbrl']         = no_xbrl_tickers
-    st.session_state['ms_edgar_last_waterfall']       = waterfall
-    _fail_msg = ""
-    if fetch_failures:
-        _fail_msg += (
-            f" ⚠️ {len(fetch_failures)} companies hit a transient error (rate-limited/timeout) and "
-            f"are NOT reflected in this count — re-running should recover most of them."
-        )
-    if no_xbrl_tickers:
-        _fail_msg += (
-            f" ℹ️ {len(no_xbrl_tickers)} more have no XBRL data at all (likely closed-end funds, "
-            f"preferred/warrant listings, etc.) — permanently excluded, re-running won't change this."
-        )
-    status_text.markdown(
-        f"✅ Stage 1 complete — {len(stage1_results)} of {total_tickers} companies cleared the "
-        f"Buffett/Munger checklist (10-yr avg ROIC, 10-yr avg FCF margin, a debt hurdle, no dilution)."
-        f"{_fail_msg}"
-    )
-
-    # ── Waterfall breakdown — always shown, not just when there are failures ──
-    with st.expander(f"📊 Waterfall: how {total_tickers} tickers became {len(stage1_results)} survivors", expanded=bool(fetch_failures or no_xbrl_tickers)):
-        reached_checklist = (
-            total_tickers - waterfall["no_cik"] - waterfall["no_xbrl_data"]
-            - waterfall["fetch_failed"] - waterfall["excluded_fcf"]
-        )
-        wf_rows = [
-            ("Total scanned",                                    total_tickers, None),
-            ("→ No CIK match in EDGAR",                          waterfall["no_cik"], total_tickers),
-            ("→ No XBRL data at all (404 — permanent, not a rate limit)", waterfall["no_xbrl_data"], total_tickers),
-            ("→ EDGAR fetch failed (rate-limited/timeout — transient)",   waterfall["fetch_failed"], total_tickers),
-            ("→ Excluded: latest-year FCF ≤ 0",                   waterfall["excluded_fcf"], total_tickers),
-            ("= Reached the checklist",                           reached_checklist, total_tickers),
-            ("→ Excluded: financial firm",                        waterfall["excluded_financial"], reached_checklist),
-            ("→ Failed ROIC leg",                                 waterfall["failed_roic"], reached_checklist),
-            ("→ Failed FCF Margin leg",                           waterfall["failed_fcf_margin"], reached_checklist),
-            ("→ Failed Debt leg (both hurdles)",                  waterfall["failed_debt"], reached_checklist),
-            ("→ Failed Dilution leg",                             waterfall["failed_dilution"], reached_checklist),
-            ("= Passed all four legs",                            waterfall["passed"], reached_checklist),
-        ]
-        st.caption(
-            "Note: the four 'Failed X leg' rows are NOT mutually exclusive — a company can fail more than "
-            "one leg at once, so they won't sum to (Reached checklist − Passed). Financial-firm exclusion "
-            "happens independently of the checklist legs, so a financial firm's leg results are still "
-            "tallied even though it's excluded from the final survivor count. 'No XBRL data' and 'fetch "
-            "failed' are DIFFERENT problems — see the two expanders below."
-        )
-        _wf_df = pd.DataFrame([
-            {"Stage": label, "Count": count,
-             "% of denominator": f"{count/denom:.1%}" if denom else "N/A"}
-            for label, count, denom in wf_rows
-        ])
-        st.dataframe(_wf_df, hide_index=True, use_container_width=True)
-
-    if fetch_failures:
-        with st.expander(f"⚠️ {len(fetch_failures)} TRANSIENT fetch failures — worth retrying"):
-            st.caption(
-                "These tickers errored out (SEC rate-limited us, timed out, etc.) before the checklist "
-                "could even run — they are neither 'passed' nor 'failed', just unknown. If this list is "
-                "long, SEC's fair-access limit was likely hit mid-scan; re-running (especially at a quieter "
-                "time, or with a smaller universe) should get most of them through."
-            )
-            _fail_reasons = {}
-            for f in fetch_failures:
-                _fail_reasons.setdefault(f.get("reason", "unknown"), []).append(f.get("ticker", "?"))
-            for reason, tickers in sorted(_fail_reasons.items(), key=lambda kv: -len(kv[1])):
-                st.markdown(f"**{len(tickers)}x** — {reason}")
-                st.caption(", ".join(tickers[:30]) + (f" … +{len(tickers)-30} more" if len(tickers) > 30 else ""))
-
-    if no_xbrl_tickers:
-        with st.expander(f"ℹ️ {len(no_xbrl_tickers)} tickers with NO XBRL data — permanent, re-running won't help"):
-            st.caption(
-                "These CIKs returned 404 on Company Facts — there's simply no XBRL data to fetch, so "
-                "retrying changes nothing. Almost always one of: (1) a closed-end fund or other "
-                "registered investment company (they file N-CSR, not a standard 10-K, so they never "
-                "populate this API), (2) a preferred share, warrant, unit, or rights listing riding on "
-                "a parent company's CIK, or (3) a stale/incorrect ticker→CIK mapping in the Nasdaq "
-                "Trader universe file. If a name you specifically care about shows up here, it's worth "
-                "checking by hand — otherwise these are expected noise in a full-market scan and safe "
-                "to ignore."
-            )
-            _tickers_only = [f.get("ticker", "?") for f in no_xbrl_tickers]
-            st.caption(", ".join(_tickers_only[:60]) + (f" … +{len(_tickers_only)-60} more" if len(_tickers_only) > 60 else ""))
+    # Persist the waterfall/failure breakdown into session_state too, so
+    # it's still visible if the user navigates away and back later — not
+    # just on the exact rerun where ingestion happened.
+    st.session_state['ms_edgar_last_waterfall']      = _snap["waterfall"]
+    st.session_state['ms_edgar_last_fetch_failures'] = _snap["fetch_failures"]
+    st.session_state['ms_edgar_last_no_xbrl']        = _snap["no_xbrl_tickers"]
+    st.session_state['ms_edgar_last_total_scanned']  = total_tickers
+    st.session_state['ms_edgar_last_num_passed']     = len(stage1_results)
 
     if not stage1_results:
         st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
-        st.stop()
-
-    # Cache the RAW, unfiltered Stage 1 pool so filters can be changed
-    # and re-applied later via the "Re-apply Filters" button above,
-    # without re-running the slow EDGAR fetch.
-    st.session_state['ms_edgar_stage1_raw_pool']  = stage1_results
-    st.session_state['ms_edgar_stage1_raw_total'] = total_tickers
-
-    # Persist to GitHub so this survives a Streamlit Cloud reboot/redeploy —
-    # the whole point of a full-universe scan being expensive (minutes) is
-    # to not have to pay that cost again every time the app restarts.
-    _scan_timestamp = datetime.now(timezone.utc).isoformat()
-    with st.spinner("💾 Saving scan results persistently (survives reboots)..."):
-        _ok, _msg = github_put_json(
-            SCAN_CACHE_PATH,
-            {
-                "universe":              universe_choice,
-                "scan_timestamp":        _scan_timestamp,
-                "total_tickers_scanned": total_tickers,
-                "stage1_survivors":      stage1_results,
-            },
-            commit_message=f"Market screener scan cache — {universe_choice} — {len(stage1_results)} survivors",
-        )
-    if _ok:
-        st.session_state['ms_edgar_scan_timestamp'] = _scan_timestamp
-        st.session_state['ms_edgar_scan_universe']  = universe_choice
-        st.caption("✅ Scan cached persistently — will still be here after a reboot.")
     else:
-        st.warning(f"⚠️ Scan completed but persistent save failed: {_msg}\n\n"
-                   f"Results are available for this session, but a reboot/redeploy will lose them "
-                   f"until you re-run the scan.")
+        # Cache the RAW, unfiltered Stage 1 pool so filters can be changed
+        # and re-applied later via the "Re-apply Filters" button above,
+        # without re-running the slow EDGAR fetch.
+        st.session_state['ms_edgar_stage1_raw_pool']  = stage1_results
+        st.session_state['ms_edgar_stage1_raw_total'] = total_tickers
 
-    run_filters_and_stage2(stage1_results, total_tickers)
+        # The persistent GitHub save already happened inside the
+        # background worker itself (exactly once, regardless of how many
+        # sessions/tabs are watching) — just reflect its outcome here.
+        if _snap.get("github_save_ok") is True:
+            st.session_state['ms_edgar_scan_timestamp'] = _snap["github_save_msg"]  # holds the timestamp on success
+            st.session_state['ms_edgar_scan_universe']  = _snap["universe"]
+            st.caption("✅ Scan cached persistently — will still be here after a reboot.")
+        elif _snap.get("github_save_ok") is False:
+            st.warning(f"⚠️ Scan completed but persistent save failed: {_snap['github_save_msg']}\n\n"
+                       f"Results are available for this session, but a reboot/redeploy will lose them "
+                       f"until you re-run the scan.")
+
+        run_filters_and_stage2(stage1_results, total_tickers)
+
+# ── Waterfall/failures from the most recent scan, if any — persists across reruns/navigation ──
+if not _snap["active"] and st.session_state.get('ms_edgar_last_waterfall'):
+    _render_waterfall_and_failures(
+        st.session_state['ms_edgar_last_waterfall'],
+        st.session_state.get('ms_edgar_last_total_scanned', 0),
+        st.session_state.get('ms_edgar_last_num_passed', 0),
+        st.session_state.get('ms_edgar_last_fetch_failures', []),
+        st.session_state.get('ms_edgar_last_no_xbrl', []),
+    )
 
 # ── Render results (fresh or cached) ─────────────────────────────────
 if 'ms_edgar_results_df' in st.session_state:
     results_df    = st.session_state['ms_edgar_results_df']
     total_tickers = st.session_state.get('ms_edgar_total_tickers', 0)
 
-    if not run_screen:
+    if not run_screen and not _just_ingested:
         st.info("💡 Showing results from last screen run. Click **Run Screen** to refresh.")
 
     st.divider()
