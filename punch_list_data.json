@@ -276,7 +276,7 @@
       "note": "Gross margin is too context-dependent to be a universal moat indicator. High GM businesses with no moat (Groupon 90% GM, strong buy) and low GM businesses with strong moats (Costco 13% GM, 46 score) both score incorrectly. Remove from composite or limit to intra-industry comparison only.",
       "phase": "Equity Scoring",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-06-04"
     },
     {
