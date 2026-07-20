@@ -282,7 +282,7 @@
     {
       "id": 32,
       "title": "Restructure Debt/FCF \u2014 use outstanding principal and cash available for debt service",
-      "note": "Replace carrying value of debt with outstanding principal. Replace standard FCF with cash available for debt service. Note: leverage on negative working capital float (insurance model) can be sound practice \u2014 avoid penalizing structural float users. Do not use as binary positive/negative scoring.",
+      "note": "CADS-based debt metric is built and live: evaluate_buffett_funnel() in sec_utils.py computes Cash Available for Debt Service (Operating Income + D&A - Capex) and runs a dual debt hurdle in parallel -- simple (Debt/Net Income) and refined (Debt/CADS) -- passing on EITHER, which is exactly the \"do not penalize structural float users like insurers\" goal from the original note. Live and validated in Market Screener (debt_hurdle_cleared shows which one cleared per company). REMAINING: Dashboard and Equity Scout still score debt with the old debt_to_fcf metric via score_stock_breakdown()/DEFAULT_WEIGHTS -- they have not adopted the CADS-based dual-hurdle logic. Next step is porting it there, or deciding whether Dashboard/Equity Scout should move toward the pass/fail funnel style entirely (see #34, same situation).",
       "phase": "Equity Scoring",
       "priority": "High",
       "done": false,
@@ -318,7 +318,7 @@
     {
       "id": 36,
       "title": "Add financial firm detection \u2014 flag for alternative scoring",
-      "note": "Banks, insurers, asset managers, mortgage lenders, broker-dealers use fundamentally different accounting. Standard FCF/debt/margin metrics are meaningless or misleading for these firms (JPM scores 20, RKT scores 0). Detect financial firms and flag with warning that standard scoring does not apply. Build alternative model later.",
+      "note": "Detection is built and live: is_financial flag (SIC-code based) is computed in fetch_company_facts() and used by Market Screener's default \"skip financial firms\" exclusion. REMAINING: the \"alternative scoring model\" half is not built -- financial firms are currently just excluded, not scored under a different framework. Needs its own design pass -- bank/insurer-appropriate metrics (net interest margin, loan loss reserves, combined ratio for insurers, etc.) do not exist anywhere in the current concept map or funnel and would need new EDGAR concept mappings plus a separate evaluation path.",
       "phase": "Equity Scoring",
       "priority": "High",
       "done": false,
@@ -462,7 +462,7 @@
     {
       "id": 52,
       "title": "EDGAR \u2014 Historical full ingestion and normalization layer",
-      "note": "Ingest complete SEC XBRL history for core holdings (all 10-K/10-Q filings available). Normalize to standard schema across all years \u2014 same concept map as #48. Store as per-company JSON in GitHub (e.g. historical/COST.json). This unlocks: 10-year ROIC trending (#34, #40), full-cycle analysis for cyclicals (#37), Debt/FCF trajectory, and Owner Earnings history. Key design constraint: normalization must be replayable \u2014 if concept map changes, re-run produces consistent output across all years. Build after #47-#50 are stable.",
+      "note": "The core normalization problem this item was after is solved: fetch_company_facts() in sec_utils.py now merges historical observations across ALL matching XBRL concept aliases for a field (instead of stopping at the first match), which fixed silent history truncation from tag transitions (e.g. the ASC 606 revenue tag change) and now gives accurate full-decade history live. This directly powers the Market Screener's 10-yr ROIC/FCF-margin averaging and passed real validation (Microsoft/Apple both show full 10-year history where they previously showed 3). REMAINING: the persistence/caching layer this item originally proposed (per-company normalized JSON files stored in GitHub, e.g. historical/COST.json) was not built -- all history is fetched live from EDGAR on every scan/lookup. Fine at current scan frequency and rate-limiting is already handled (shared rate limiter + retry), but worth revisiting if scan latency becomes a bigger pain point, or if point-in-time historical comparisons ACROSS scans (not just within one) become useful.",
       "phase": "API / Infrastructure",
       "priority": "Medium",
       "done": false,
