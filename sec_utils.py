@@ -163,6 +163,37 @@ def fetch_company_facts(ticker: str) -> dict:
     return _fetch_company_facts_for_cik(ticker, cik)
 
 
+def _roic_denominator_reliable(net_income, invested_cap) -> bool:
+    """
+    True if invested_cap is a large enough, positive capital base for
+    net_income / invested_cap to be an economically meaningful return
+    figure — not just an equation.
+
+    Guards against companies with negative or near-zero book equity, a
+    common pattern for aggressive-buyback compounders (VeriSign,
+    Domino's, AutoZone, etc.). Invested capital (equity + debt) for
+    these businesses can swing through zero year to year — and when it
+    does, net_income / invested_cap produces triple- or quadruple-digit
+    swings that are purely a denominator artifact, not a real return.
+    Confirmed empirically: VeriSign's raw 10-yr average ROIC computed as
+    +273% against a latest-year figure of -87% for the SAME business,
+    because one or more years in the window had invested capital near
+    zero.
+
+    Requires invested_cap to be positive AND at least half the
+    magnitude of that year's net income, so the ratio itself can't
+    exceed roughly 200% purely from a thin capital base. This is a
+    materiality floor relative to earnings, not company size, so it
+    doesn't suppress genuinely high ROIC from real capital-light
+    compounders — only denominators too small to be trustworthy.
+    """
+    if invested_cap is None or net_income is None:
+        return False
+    if invested_cap <= 0:
+        return False
+    return invested_cap >= 0.5 * abs(net_income)
+
+
 def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     """Internal: does the actual Company Facts fetch + parse once CIK is known."""
     # Fetch Company Facts JSON
@@ -355,10 +386,19 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     # Net debt
     latest["net_debt"] = ltd + std - cash
 
-    # ROIC
+    # ROIC — guarded against near-zero/negative invested capital; see
+    # _roic_denominator_reliable(). Shows N/A rather than a technically-
+    # computed but economically meaningless ratio for negative-equity
+    # buyback compounders.
     inv_cap = latest.get("invested_cap")
-    if net_inc is not None and inv_cap and inv_cap != 0:
+    if net_inc is not None and _roic_denominator_reliable(net_inc, inv_cap):
         latest["roic"] = net_inc / inv_cap
+
+    # Negative equity flag — surfaced independently of whether it happens
+    # to distort ROIC in the CURRENT window, because it's meaningful
+    # information in its own right (debt/float-funded capital structure).
+    if eq is not None:
+        latest["is_negative_equity"] = eq < 0
 
     # Debt / FCF
     fcf = latest.get("fcf")
@@ -513,14 +553,19 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
             if 0.0 <= gm <= 1.0:
                 gm_hist.append({"period": period, "end": end, "value": gm})
 
-        # ROIC
+        # ROIC — guarded against near-zero/negative invested capital; see
+        # _roic_denominator_reliable(). This is THE critical guard: an
+        # unguarded historical average is what let VeriSign's 10-yr avg
+        # ROIC come out to +273% (vs. a latest-year figure of -87% for
+        # the same business) — one bad-denominator year distorts the
+        # whole average, not just that year's figure.
         ni  = net_inc_h.get(end)
         eq  = eq_h.get(end)
         ltd = ltd_h.get(end, 0) or 0
         std = std_h.get(end, 0) or 0
         if eq is not None:
             inv_cap = eq + ltd + std
-            if ni is not None and inv_cap:
+            if ni is not None and _roic_denominator_reliable(ni, inv_cap):
                 roic_hist.append({"period": period, "end": end, "value": ni / inv_cap})
 
         # Debt / FCF
@@ -1384,6 +1429,7 @@ def evaluate_buffett_funnel(facts: dict, thresholds: dict = None) -> dict:
         "years_used":           years_used,
         "is_financial":         facts.get("meta", {}).get("is_financial", False),
         "is_cyclical":          facts.get("meta", {}).get("is_cyclical", False),
+        "is_negative_equity":   facts.get("latest", {}).get("is_negative_equity", False),
     }
 
 

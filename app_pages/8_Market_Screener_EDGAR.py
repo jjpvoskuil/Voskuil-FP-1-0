@@ -409,6 +409,7 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
         "sic":               meta.get("sic"),
         "is_financial":      meta.get("is_financial", False),
         "is_cyclical":       meta.get("is_cyclical", False),
+        "is_negative_equity": latest.get("is_negative_equity", False),
         "market_cap":        market_cap,
         "sector":            sector,
         "fcf":               fcf,
@@ -502,6 +503,19 @@ A survivor's card shows which hurdle it cleared: 💪 *both*, or ✓ *one*.
 average at all. Companies with less than the full 10 years are flagged
 **"Limited History (Xy)"** with the actual year count shown, rather than
 excluded outright or silently blended in with true 10-year track records.
+
+**ROIC reliability guard:** a year is only counted toward the 10-yr ROIC
+average if invested capital (equity + debt) is positive and at least
+half the magnitude of that year's net income. This specifically targets
+aggressive-buyback compounders (VeriSign, Domino's, AutoZone-type
+businesses) whose book equity is negative or near zero — for these,
+invested capital can swing through zero year to year, and an unguarded
+average can produce a nonsense figure (confirmed case: VeriSign's raw
+10-yr avg ROIC computed as +273% against a -87% latest-year figure for
+the same business). Companies where this guard is active are flagged
+**"📊 Negative Equity"** on their card regardless of whether it happened
+to distort their current ROIC figure, since the underlying capital
+structure is worth knowing either way.
 
 **Explicitly excluded from Stage 1** (by design, not oversight):
 - *Gross Margin* — too context-dependent to be a universal moat signal (a 90%-margin business with no moat and a 13%-margin business with a deep one can both mislead a GM-based filter).
@@ -601,6 +615,7 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                     _tag_bits = []
                     if dbg_meta.get("is_financial"): _tag_bits.append("🏦 Financial firm")
                     if dbg_meta.get("is_cyclical"):  _tag_bits.append("⚠️ Cyclical")
+                    if dbg_latest.get("is_negative_equity"): _tag_bits.append("📊 Negative Equity")
                     if dbg_funnel["limited_history"]: _tag_bits.append(f"📏 Limited history ({dbg_funnel['years_used']}y)")
                     if _tag_bits:
                         st.caption(" · ".join(_tag_bits))
@@ -1362,6 +1377,8 @@ if 'ms_edgar_results_df' in st.session_state:
                 st.caption(row.get('sub_industry') or row.get('sector', ''))
                 _badges = []
                 if row.get('is_cyclical') and flag_cyclicals: _badges.append("⚠️ Cyclical")
+                if row.get('is_negative_equity'):
+                    _badges.append("📊 Negative Equity")
                 if row.get('limited_history'):
                     _badges.append(f"📏 Limited History ({row.get('funnel_years_used','?')}y)")
                 if _badges:
