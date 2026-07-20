@@ -555,7 +555,7 @@
       "note": "Test a modification of the scoring metrics on the Market Screener.  Consider using:  AND 10-Year Average ROIC > 15%\n    AND 10-Year Average FCF Margin > 10%\n    AND Total Long-Term Debt / Net Income < 3.0\n    AND Total Shares Outstanding (Year t) <= Total Shares Outstanding (Year t-5)",
       "phase": "Data Quality",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-07-06"
     },
     {
