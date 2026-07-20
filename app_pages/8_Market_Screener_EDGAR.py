@@ -3,7 +3,6 @@ import requests
 import pandas as pd
 from io import StringIO
 import time
-import random
 import threading
 from datetime import datetime, timezone
 import sys, os
@@ -55,6 +54,7 @@ def build_ms_context(df):
         flags = []
         if row.get('is_cyclical'):     flags.append("CYCLICAL")
         if row.get('limited_history'): flags.append(f"limited history ({row.get('funnel_years_used','?')}y)")
+        if row.get('roic_stale'):      flags.append(f"stale ROIC (last reliable {row.get('roic_last_reliable_period','?')}, {row.get('roic_stale_years','?')}y old)")
         flag_str = f" | Flags: {', '.join(flags)}" if flags else ""
         lines.append(
             f"{row['ticker']} ({row.get('name','')}) | 10yr Avg ROIC: {f(row.get('roic_avg'))} | "
@@ -441,6 +441,9 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
         "dilution_pct_change":  funnel["dilution"]["pct_change"],
         "limited_history":      funnel["limited_history"],
         "funnel_years_used":    funnel["years_used"],
+        "roic_stale":           funnel["roic_stale"],
+        "roic_stale_years":     funnel["roic_stale_years"],
+        "roic_last_reliable_period": funnel["roic_last_reliable_period"],
         "_latest":           latest,
     }
 
@@ -843,6 +846,15 @@ the same business). Companies where this guard is active are flagged
 to distort their current ROIC figure, since the underlying capital
 structure is worth knowing either way.
 
+**ROIC staleness flag:** excluding unreliable years (above) can leave the
+average built entirely from OLDER history if a company's most recent
+years happen to be the unreliable ones — the average would still look
+strong, but it's silently going quiet on anything recent. Flagged
+**"🕰️ Stale ROIC"** whenever the most recent reliable year is 2+ years
+behind the company's actual latest filing, showing exactly which year
+and how old it is, so a strong-looking average doesn't get mistaken for
+a current one.
+
 **Explicitly excluded from Stage 1** (by design, not oversight):
 - *Gross Margin* — too context-dependent to be a universal moat signal (a 90%-margin business with no moat and a 13%-margin business with a deep one can both mislead a GM-based filter).
 - *FCF Yield / Price-Owner-Earnings* — these are valuation metrics, not quality metrics. They're computed in **Stage 2** once a live price is available, as a secondary check — quality first, then "is the price reasonable."
@@ -943,6 +955,8 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                     if dbg_meta.get("is_cyclical"):  _tag_bits.append("⚠️ Cyclical")
                     if dbg_latest.get("is_negative_equity"): _tag_bits.append("📊 Negative Equity")
                     if dbg_funnel["limited_history"]: _tag_bits.append(f"📏 Limited history ({dbg_funnel['years_used']}y)")
+                    if dbg_funnel["roic_stale"]:
+                        _tag_bits.append(f"🕰️ Stale ROIC (last reliable: {dbg_funnel['roic_last_reliable_period']}, {dbg_funnel['roic_stale_years']}y old)")
                     if _tag_bits:
                         st.caption(" · ".join(_tag_bits))
 
@@ -1032,23 +1046,6 @@ with col2:
                                    help="Cyclicals aren't excluded, just badged ⚠️ on their result card — a "
                                         "10-yr average still leans on wherever the cycle currently sits.")
 with col3:
-    _default_max = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)": 1000}[universe_choice]
-    scan_all = st.checkbox(
-        "Scan ALL tickers in universe",
-        value=True,
-        help="Bypasses the max-scan limit entirely and screens every ticker in the selected "
-             "universe. For 'All US Common Stocks' this is 6,000-8,000+ tickers and will take "
-             "significantly longer (see time estimate below) — but the result is cached "
-             "persistently afterward, so this cost is paid once, not on every reboot."
-    )
-    max_scan = st.number_input(
-        "Max stocks to scan (Stage 1)", min_value=10, max_value=8000,
-        value=_default_max, step=50, disabled=scan_all,
-        help="Larger universes take longer on Stage 1. EDGAR has no hard rate limit at this scale, "
-             "but expect several minutes for 1,000+ tickers. When below the full universe size, "
-             "a random sample is scanned (not an alphabetical slice) so results aren't biased "
-             "toward tickers starting with 'A'."
-    )
     min_div  = st.checkbox("Dividend payers only (Stage 2 filter)", value=False)
 
 # ── Stage 1 filters: industry, market cap, superinvestor coverage ──────
@@ -1136,12 +1133,8 @@ with si_filt_col2:
         st.caption("Optional — load to filter Stage 1 results to only companies held by at least one of 82 tracked superinvestors.")
 
 _approx_universe_size = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)": 7000}[universe_choice]
-_effective_scan = _approx_universe_size if scan_all else max_scan
-_est_min = max(1, round(_effective_scan / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
-if scan_all:
-    st.caption(f"⏱️ Estimated Stage 1 time for ALL ~{_approx_universe_size:,} tickers: ~{_est_min} minutes. Stage 2 (price lookups on survivors) adds 10-60 seconds.")
-else:
-    st.caption(f"⏱️ Estimated Stage 1 time for {max_scan} tickers: ~{_est_min} minute{'s' if _est_min != 1 else ''}. Stage 2 (price lookups on survivors) adds 10-60 seconds.")
+_est_min = max(1, round(_approx_universe_size / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
+st.caption(f"⏱️ Estimated Stage 1 time for ALL ~{_approx_universe_size:,} tickers: ~{_est_min} minutes. Stage 2 (price lookups on survivors) adds 10-60 seconds. Runs in the background — you can navigate elsewhere while it works.")
 
 st.divider()
 run_screen = st.button("🚀 Run Two-Stage Screen", type="primary", use_container_width=True)
@@ -1379,18 +1372,8 @@ if run_screen:
             st.error(f"Could not load the {universe_choice} ticker list. Try again — Nasdaq Trader/Wikipedia data sources occasionally have transient issues.")
             st.stop()
 
-        st.caption(f"📋 {len(tickers):,} tickers loaded — {'scanning ALL of them' if scan_all else f'scanning a random sample of up to {max_scan:,}'}.")
-
-        if scan_all or max_scan >= len(tickers):
-            tickers_to_scan = tickers
-        else:
-            # Random sample, not an alphabetical slice — fetch_full_us_equity_universe()
-            # returns tickers sorted alphabetically, so tickers[:max_scan] would always
-            # scan the same 'A'-through-'D'-ish subset and never see the rest of the
-            # alphabet. Seeded for reproducibility within a session/day (cache TTL is
-            # 24h), so re-running the same scan gives consistent results.
-            _rng = random.Random(f"{universe_choice}-{max_scan}-{time.strftime('%Y-%m-%d')}")
-            tickers_to_scan = _rng.sample(tickers, max_scan)
+        st.caption(f"📋 {len(tickers):,} tickers loaded — scanning all of them.")
+        tickers_to_scan = tickers
 
         # ── Build ticker -> CIK map ONCE (the key bulk-scan optimization) ──
         with st.spinner("Resolving tickers to SEC CIK numbers (one-time lookup)..."):
@@ -1582,6 +1565,8 @@ if 'ms_edgar_results_df' in st.session_state:
                     _badges.append("📊 Negative Equity")
                 if row.get('limited_history'):
                     _badges.append(f"📏 Limited History ({row.get('funnel_years_used','?')}y)")
+                if row.get('roic_stale'):
+                    _badges.append(f"🕰️ Stale ROIC (last reliable: {row.get('roic_last_reliable_period','?')}, {row.get('roic_stale_years','?')}y old)")
                 if _badges:
                     st.caption(" · ".join(_badges))
             with c3: st.metric("ROIC (10yr avg)",      fmt(row.get('roic_avg'), "pct"),
@@ -1641,12 +1626,14 @@ if 'ms_edgar_results_df' in st.session_state:
                      'roic_avg','roic_avg_years','fcf_margin_avg','fcf_margin_avg_years',
                      'debt_to_ni','debt_to_cads','debt_hurdle_cleared',
                      'dilution_passed','dilution_pct_change','limited_history','funnel_years_used',
-                     'is_cyclical','fcf_yield','price_owner_earn','dividend_yield','price','market_cap']
+                     'is_cyclical','is_negative_equity','roic_stale','roic_stale_years','roic_last_reliable_period',
+                     'fcf_yield','price_owner_earn','dividend_yield','price','market_cap']
     _export_names = ['Ticker','Name','Sector','Industry','Sub-Industry',
                       'ROIC (10yr avg)','ROIC Years Used','FCF Margin (10yr avg)','FCF Margin Years Used',
                       'Debt/Net Income','Debt/CADS','Debt Hurdle Cleared',
                       'Dilution Passed','Shares Chg (5yr)','Limited History','Funnel Years Used',
-                      'Cyclical','FCF Yield','Price/Owner Earnings','Dividend Yield','Price','Market Cap']
+                      'Cyclical','Negative Equity','Stale ROIC','Stale ROIC Years','ROIC Last Reliable Year',
+                      'FCF Yield','Price/Owner Earnings','Dividend Yield','Price','Market Cap']
     if 'si_holders' in results_df.columns:
         _export_cols  += ['si_holders', 'si_score']
         _export_names += ['SI Holders', 'SI Conviction Score']

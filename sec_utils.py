@@ -1296,6 +1296,9 @@ FUNNEL_THRESHOLDS = {
     "debt_to_ni_max":          3.0,   # simple gate: total debt / net income          (#63)
     "debt_to_cads_max":        3.0,   # refined gate: total debt / cash avail. for debt service (#32)
     "dilution_lookback_years": 5,     # shares (t) vs. shares (t - this many years)   (#63)
+    "roic_stale_years_max":    2,     # flag if the most recent RELIABLE ROIC year is
+                                       # this many years or more behind the company's
+                                       # actual latest filing (see _roic_denominator_reliable)
 }
 
 
@@ -1411,12 +1414,36 @@ def evaluate_buffett_funnel(facts: dict, thresholds: dict = None) -> dict:
     years_used            = min(years_used_candidates) if years_used_candidates else 0
     limited_history        = 0 < years_used < t["lookback_years"]
 
+    # ROIC staleness — distinct from limited_history. limited_history
+    # means "fewer than 10 years total"; staleness means "the RELIABLE
+    # years available skip over recent history entirely." This can
+    # happen even with a full 10 years counted, if the reliability guard
+    # (see _roic_denominator_reliable) excludes several of the most
+    # recent years — e.g. a company whose invested capital only recently
+    # went negative/unreliable would show a strong-looking multi-year
+    # average that's actually silent on anything since. Confirmed real
+    # case: without this check, a company could show "10 years, 64% avg"
+    # while its most reliable year is actually several years old.
+    roic_hist        = history.get("roic", [])
+    roic_last_period = roic_hist[-1]["period"] if roic_hist else None
+    company_last_period = facts.get("meta", {}).get("last_annual_period")
+    roic_stale_years = None
+    if roic_last_period and company_last_period:
+        try:
+            roic_stale_years = int(company_last_period) - int(roic_last_period)
+        except (TypeError, ValueError):
+            roic_stale_years = None
+    roic_stale = roic_stale_years is not None and roic_stale_years >= t.get("roic_stale_years_max", 2)
+
     overall_passed = bool(roic_pass and fcfm_pass and debt_pass and dilution_pass)
 
     return {
         "overall_passed":       overall_passed,
         "roic_avg":             roic_r,
         "roic_pass":            roic_pass,
+        "roic_stale":           roic_stale,
+        "roic_stale_years":     roic_stale_years,
+        "roic_last_reliable_period": roic_last_period,
         "fcf_margin_avg":       fcfm_r,
         "fcf_margin_pass":      fcfm_pass,
         "debt_to_ni":           debt_to_ni,
