@@ -458,11 +458,22 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
 # mechanism only stops/restarts the SCRIPT's own execution thread; a
 # thread YOU spawn with threading.Thread(...).start() is a normal OS
 # thread in the same process and keeps running regardless of what the
-# script does. Progress lives in a MODULE-LEVEL dict (not
-# st.session_state) so it survives page navigation and script reruns —
-# every page render just reads the latest snapshot.
+# script does.
 #
-# IMPORTANT LIMITATION: this is process-global state, not per-session.
+# CRITICAL DETAIL: progress state must live behind st.cache_resource,
+# NOT a bare module-level variable. Streamlit re-executes the page's
+# entire script from scratch on every rerun — that's the actual reason
+# st.session_state exists at all. A plain `_SCAN_STATE = {...}` literal
+# gets silently recreated fresh on every single rerun, completely
+# disconnected from whatever a background thread is still writing to;
+# the background thread keeps a reference to the OLD dict object while
+# the next rerun creates a brand new one with the same name. This was a
+# real, confirmed bug in an earlier version of this fix — st.cache_resource
+# is Streamlit's actual mechanism for a shared, mutable object that
+# survives both reruns and (since it's a global cache) navigation.
+#
+# IMPORTANT LIMITATION: cache_resource is process-global, not per-
+# session — same caveat as before, just via the correct mechanism now.
 # Fine for a single-user instance (this app today), but if/when multi-
 # user support (#15/#16) happens, this needs to become keyed by
 # session/user before it's safe to ship — otherwise one user's scan
@@ -477,36 +488,44 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
 # (would need a real out-of-process job queue) and is out of scope here.
 # ═════════════════════════════════════════════════════════════════════
 
-_SCAN_LOCK = threading.Lock()
-_SCAN_STATE = {
-    "active":            False,
-    "cancel_requested":  False,
-    "universe":          None,
-    "total":             0,
-    "completed":         0,
-    "stage1_results":    [],
-    "fetch_failures":    [],
-    "no_xbrl_tickers":   [],
-    "waterfall":         {},
-    "started_at":        None,
-    "finished_at":       None,
-    "cancelled":         False,
-    "error":             None,
-    "github_save_ok":    None,
-    "github_save_msg":   "",
-}
+@st.cache_resource
+def _get_scan_lock() -> threading.Lock:
+    """Same Lock instance every call, across reruns and sessions — see the big comment above."""
+    return threading.Lock()
+
+
+@st.cache_resource
+def _get_scan_state() -> dict:
+    """Same dict instance every call, across reruns and sessions — see the big comment above."""
+    return {
+        "active":            False,
+        "cancel_requested":  False,
+        "universe":          None,
+        "total":             0,
+        "completed":         0,
+        "stage1_results":    [],
+        "fetch_failures":    [],
+        "no_xbrl_tickers":   [],
+        "waterfall":         {},
+        "started_at":        None,
+        "finished_at":       None,
+        "cancelled":         False,
+        "error":             None,
+        "github_save_ok":    None,
+        "github_save_msg":   "",
+    }
 
 
 def _scan_snapshot() -> dict:
     """Thread-safe read of the full background scan state."""
-    with _SCAN_LOCK:
-        return dict(_SCAN_STATE)
+    with _get_scan_lock():
+        return dict(_get_scan_state())
 
 
 def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
                                    skip_financials, universe_label, cache_path):
     """
-    Initializes _SCAN_STATE and spawns the background thread. Called
+    Initializes the cache_resource-backed scan state and spawns the background thread. Called
     from the MAIN script thread (the button-click handler), NOT from
     within the background thread itself — this matters: the caller
     calls st.rerun() immediately after this returns, and that rerun
@@ -517,8 +536,8 @@ def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresh
     would appear to do nothing because the very first rerun after
     launching it still saw the stale "not active" state).
     """
-    with _SCAN_LOCK:
-        _SCAN_STATE.update({
+    with _get_scan_lock():
+        _get_scan_state().update({
             "active": True, "cancel_requested": False, "cancelled": False,
             "universe": universe_label, "total": len(tickers_to_scan),
             "completed": 0, "stage1_results": [], "fetch_failures": [],
@@ -550,7 +569,7 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
     the work and updates progress as it goes. Mirrors the logic that
     used to run inline in the main script (waterfall tally,
     fetch_quality_edgar per ticker), but writes progress into the
-    module-level _SCAN_STATE instead of directly rendering Streamlit
+    cache_resource-backed scan state instead of directly rendering Streamlit
     widgets — the main script's fragment (see render section below)
     reads this state to display live progress from whatever page/session
     happens to be looking at it.
@@ -566,8 +585,8 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
         futures = {executor.submit(_worker, t): t for t in tickers_to_scan}
         try:
             for future in concurrent.futures.as_completed(futures):
-                with _SCAN_LOCK:
-                    if _SCAN_STATE["cancel_requested"]:
+                with _get_scan_lock():
+                    if _get_scan_state()["cancel_requested"]:
                         break
                 try:
                     data = future.result()
@@ -576,18 +595,18 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
 
                 status = data.get("_status") if data else "no_cik"
 
-                with _SCAN_LOCK:
-                    _SCAN_STATE["completed"] += 1
-                    wf = _SCAN_STATE["waterfall"]
+                with _get_scan_lock():
+                    _get_scan_state()["completed"] += 1
+                    wf = _get_scan_state()["waterfall"]
 
                     if status == "no_cik":
                         wf["no_cik"] += 1
                     elif status == "no_xbrl_data":
                         wf["no_xbrl_data"] += 1
-                        _SCAN_STATE["no_xbrl_tickers"].append(data)
+                        _get_scan_state()["no_xbrl_tickers"].append(data)
                     elif status == "fetch_failed":
                         wf["fetch_failed"] += 1
-                        _SCAN_STATE["fetch_failures"].append(data)
+                        _get_scan_state()["fetch_failures"].append(data)
                     elif status == "excluded_fcf":
                         wf["excluded_fcf"] += 1
                     else:
@@ -602,7 +621,7 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
                             if not funnel.get("dilution_pass"):   wf["failed_dilution"]   += 1
                             if data.get("funnel_passed"):
                                 wf["passed"] += 1
-                                _SCAN_STATE["stage1_results"].append(data)
+                                _get_scan_state()["stage1_results"].append(data)
         finally:
             # cancel_futures needs Python 3.9+; falls back gracefully if unsupported.
             try:
@@ -610,16 +629,16 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
             except TypeError:
                 executor.shutdown(wait=False)
     except Exception as e:
-        with _SCAN_LOCK:
-            _SCAN_STATE["error"] = str(e)
+        with _get_scan_lock():
+            _get_scan_state()["error"] = str(e)
 
-    with _SCAN_LOCK:
-        was_cancelled = _SCAN_STATE["cancel_requested"]
-        _SCAN_STATE["cancelled"]  = was_cancelled
-        _SCAN_STATE["active"]     = False
-        _SCAN_STATE["finished_at"] = datetime.now(timezone.utc).isoformat()
-        stage1_results = list(_SCAN_STATE["stage1_results"])
-        total_scanned  = _SCAN_STATE["completed"] if was_cancelled else _SCAN_STATE["total"]
+    with _get_scan_lock():
+        was_cancelled = _get_scan_state()["cancel_requested"]
+        _get_scan_state()["cancelled"]  = was_cancelled
+        _get_scan_state()["active"]     = False
+        _get_scan_state()["finished_at"] = datetime.now(timezone.utc).isoformat()
+        stage1_results = list(_get_scan_state()["stage1_results"])
+        total_scanned  = _get_scan_state()["completed"] if was_cancelled else _get_scan_state()["total"]
 
     # Persist to GitHub from the background thread itself — this way it
     # happens exactly once regardless of how many browser tabs/sessions
@@ -636,9 +655,9 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
             },
             commit_message=f"Market screener scan cache — {universe_label} — {len(stage1_results)} survivors",
         )
-        with _SCAN_LOCK:
-            _SCAN_STATE["github_save_ok"]  = _ok
-            _SCAN_STATE["github_save_msg"] = _msg if not _ok else _scan_timestamp
+        with _get_scan_lock():
+            _get_scan_state()["github_save_ok"]  = _ok
+            _get_scan_state()["github_save_msg"] = _msg if not _ok else _scan_timestamp
 
 
 def _build_waterfall_rows(waterfall: dict, total_tickers: int) -> list:
@@ -746,8 +765,8 @@ def _render_scan_progress_fragment():
         "anytime to check progress. (It does NOT survive an app restart/redeploy.)"
     )
     if st.button("🛑 Cancel Scan", key="ms_cancel_scan_btn"):
-        with _SCAN_LOCK:
-            _SCAN_STATE["cancel_requested"] = True
+        with _get_scan_lock():
+            _get_scan_state()["cancel_requested"] = True
         st.warning("Cancelling — will stop after in-flight requests finish (a few seconds).")
 
 
