@@ -173,13 +173,15 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
         resp = _sec_get(url, timeout=30)
         if resp.status_code != 200:
             return {"latest": {}, "history": {}, "meta": {}, "missing": [],
-                    "error": f"Company Facts API returned {resp.status_code} for CIK {cik}"}
+                    "error": f"Company Facts API returned {resp.status_code} for CIK {cik}",
+                    "status_code": resp.status_code}
         data = resp.json()
     except requests.Timeout:
         return {"latest": {}, "history": {}, "meta": {}, "missing": [],
-                "error": "Timeout fetching Company Facts (>30s)"}
+                "error": "Timeout fetching Company Facts (>30s)", "status_code": None}
     except Exception as e:
         return {"latest": {}, "history": {}, "meta": {}, "missing": [],
+                "status_code": None,
                 "error": f"Error fetching Company Facts: {e}"}
 
     # 3. Extract company metadata

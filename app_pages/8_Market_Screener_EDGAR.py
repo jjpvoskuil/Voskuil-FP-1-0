@@ -334,6 +334,15 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
     """
     facts = fetch_company_facts_with_cik(ticker, cik)
     if facts.get("error"):
+        if facts.get("status_code") == 404:
+            # Permanent, not transient — this CIK has no XBRL Company Facts at
+            # all. Almost always means it's not an operating company filing
+            # 10-Ks: closed-end funds and other registered investment
+            # companies (Investment Company Act filers) don't populate this
+            # API the way a normal 10-K filer does, and it also catches
+            # stale/bad ticker->CIK mappings. Re-running will NOT fix this —
+            # unlike a 429 or timeout, there's nothing to retry.
+            return {"_status": "no_xbrl_data", "ticker": ticker, "reason": facts["error"]}
         return {"_status": "fetch_failed", "ticker": ticker, "reason": facts["error"]}
 
     latest = facts.get("latest", {})
@@ -1052,7 +1061,8 @@ if run_screen:
     progress_bar = st.progress(0)
     status_text  = st.empty()
     stage1_results = []
-    fetch_failures  = []   # tickers that errored (429/timeout/etc), NOT excluded by the checklist
+    fetch_failures  = []   # transient errors (429/timeout/5xx) — worth retrying
+    no_xbrl_tickers = []   # permanent 404s — NOT worth retrying, see bucket note below
     completed = 0
 
     # Waterfall tally — every ticker lands in exactly one terminal bucket
@@ -1061,7 +1071,8 @@ if run_screen:
     # opaque number.
     waterfall = {
         "no_cik":            0,   # ticker not found in EDGAR's ticker->CIK map
-        "fetch_failed":       0,   # EDGAR request errored (429/timeout/etc) after retries
+        "no_xbrl_data":       0,   # CIK has no XBRL Company Facts at all (404) — PERMANENT, not a rate limit
+        "fetch_failed":       0,   # EDGAR request errored (429/timeout/5xx) after retries — TRANSIENT
         "excluded_fcf":       0,   # fetched OK, but latest-year FCF <= 0 (hard pre-filter)
         "excluded_financial": 0,   # fetched OK, reached checklist, but is a financial firm (skipped by default)
         "failed_roic":        0,   # reached checklist, failed the 10-yr avg ROIC leg
@@ -1086,7 +1097,7 @@ if run_screen:
             status_text.markdown(
                 f"⏳ Stage 1: {completed} of {total_tickers} ({int(pct*100)}%) — "
                 f"{len(stage1_results)} candidates so far"
-                + (f", {len(fetch_failures)} fetch failures" if fetch_failures else "")
+                + (f", {len(fetch_failures)} transient errors" if fetch_failures else "")
             )
             try:
                 data = future.result()
@@ -1097,6 +1108,10 @@ if run_screen:
 
             if status == "no_cik":
                 waterfall["no_cik"] += 1
+                continue
+            if status == "no_xbrl_data":
+                waterfall["no_xbrl_data"] += 1
+                no_xbrl_tickers.append(data)
                 continue
             if status == "fetch_failed":
                 waterfall["fetch_failed"] += 1
@@ -1123,12 +1138,18 @@ if run_screen:
 
     progress_bar.progress(1.0)
     st.session_state['ms_edgar_last_fetch_failures'] = fetch_failures
+    st.session_state['ms_edgar_last_no_xbrl']         = no_xbrl_tickers
     st.session_state['ms_edgar_last_waterfall']       = waterfall
     _fail_msg = ""
     if fetch_failures:
-        _fail_msg = (
-            f" ⚠️ {len(fetch_failures)} companies could not be fetched (rate-limited/timeout/etc) and "
-            f"are NOT reflected in this count — see the note below before trusting the survivor total."
+        _fail_msg += (
+            f" ⚠️ {len(fetch_failures)} companies hit a transient error (rate-limited/timeout) and "
+            f"are NOT reflected in this count — re-running should recover most of them."
+        )
+    if no_xbrl_tickers:
+        _fail_msg += (
+            f" ℹ️ {len(no_xbrl_tickers)} more have no XBRL data at all (likely closed-end funds, "
+            f"preferred/warrant listings, etc.) — permanently excluded, re-running won't change this."
         )
     status_text.markdown(
         f"✅ Stage 1 complete — {len(stage1_results)} of {total_tickers} companies cleared the "
@@ -1137,26 +1158,31 @@ if run_screen:
     )
 
     # ── Waterfall breakdown — always shown, not just when there are failures ──
-    with st.expander(f"📊 Waterfall: how {total_tickers} tickers became {len(stage1_results)} survivors", expanded=bool(fetch_failures)):
-        reached_checklist = total_tickers - waterfall["no_cik"] - waterfall["fetch_failed"] - waterfall["excluded_fcf"]
+    with st.expander(f"📊 Waterfall: how {total_tickers} tickers became {len(stage1_results)} survivors", expanded=bool(fetch_failures or no_xbrl_tickers)):
+        reached_checklist = (
+            total_tickers - waterfall["no_cik"] - waterfall["no_xbrl_data"]
+            - waterfall["fetch_failed"] - waterfall["excluded_fcf"]
+        )
         wf_rows = [
-            ("Total scanned",                              total_tickers, None),
-            ("→ No CIK match in EDGAR",                    waterfall["no_cik"], total_tickers),
-            ("→ EDGAR fetch failed (rate-limited/timeout)", waterfall["fetch_failed"], total_tickers),
-            ("→ Excluded: latest-year FCF ≤ 0",             waterfall["excluded_fcf"], total_tickers),
-            ("= Reached the checklist",                     reached_checklist, total_tickers),
-            ("→ Excluded: financial firm",                  waterfall["excluded_financial"], reached_checklist),
-            ("→ Failed ROIC leg",                           waterfall["failed_roic"], reached_checklist),
-            ("→ Failed FCF Margin leg",                     waterfall["failed_fcf_margin"], reached_checklist),
-            ("→ Failed Debt leg (both hurdles)",            waterfall["failed_debt"], reached_checklist),
-            ("→ Failed Dilution leg",                       waterfall["failed_dilution"], reached_checklist),
-            ("= Passed all four legs",                      waterfall["passed"], reached_checklist),
+            ("Total scanned",                                    total_tickers, None),
+            ("→ No CIK match in EDGAR",                          waterfall["no_cik"], total_tickers),
+            ("→ No XBRL data at all (404 — permanent, not a rate limit)", waterfall["no_xbrl_data"], total_tickers),
+            ("→ EDGAR fetch failed (rate-limited/timeout — transient)",   waterfall["fetch_failed"], total_tickers),
+            ("→ Excluded: latest-year FCF ≤ 0",                   waterfall["excluded_fcf"], total_tickers),
+            ("= Reached the checklist",                           reached_checklist, total_tickers),
+            ("→ Excluded: financial firm",                        waterfall["excluded_financial"], reached_checklist),
+            ("→ Failed ROIC leg",                                 waterfall["failed_roic"], reached_checklist),
+            ("→ Failed FCF Margin leg",                           waterfall["failed_fcf_margin"], reached_checklist),
+            ("→ Failed Debt leg (both hurdles)",                  waterfall["failed_debt"], reached_checklist),
+            ("→ Failed Dilution leg",                             waterfall["failed_dilution"], reached_checklist),
+            ("= Passed all four legs",                            waterfall["passed"], reached_checklist),
         ]
         st.caption(
             "Note: the four 'Failed X leg' rows are NOT mutually exclusive — a company can fail more than "
             "one leg at once, so they won't sum to (Reached checklist − Passed). Financial-firm exclusion "
             "happens independently of the checklist legs, so a financial firm's leg results are still "
-            "tallied even though it's excluded from the final survivor count."
+            "tallied even though it's excluded from the final survivor count. 'No XBRL data' and 'fetch "
+            "failed' are DIFFERENT problems — see the two expanders below."
         )
         _wf_df = pd.DataFrame([
             {"Stage": label, "Count": count,
@@ -1166,7 +1192,7 @@ if run_screen:
         st.dataframe(_wf_df, hide_index=True, use_container_width=True)
 
     if fetch_failures:
-        with st.expander(f"⚠️ {len(fetch_failures)} fetch failures (excluded from both the pass and fail counts)"):
+        with st.expander(f"⚠️ {len(fetch_failures)} TRANSIENT fetch failures — worth retrying"):
             st.caption(
                 "These tickers errored out (SEC rate-limited us, timed out, etc.) before the checklist "
                 "could even run — they are neither 'passed' nor 'failed', just unknown. If this list is "
@@ -1179,6 +1205,21 @@ if run_screen:
             for reason, tickers in sorted(_fail_reasons.items(), key=lambda kv: -len(kv[1])):
                 st.markdown(f"**{len(tickers)}x** — {reason}")
                 st.caption(", ".join(tickers[:30]) + (f" … +{len(tickers)-30} more" if len(tickers) > 30 else ""))
+
+    if no_xbrl_tickers:
+        with st.expander(f"ℹ️ {len(no_xbrl_tickers)} tickers with NO XBRL data — permanent, re-running won't help"):
+            st.caption(
+                "These CIKs returned 404 on Company Facts — there's simply no XBRL data to fetch, so "
+                "retrying changes nothing. Almost always one of: (1) a closed-end fund or other "
+                "registered investment company (they file N-CSR, not a standard 10-K, so they never "
+                "populate this API), (2) a preferred share, warrant, unit, or rights listing riding on "
+                "a parent company's CIK, or (3) a stale/incorrect ticker→CIK mapping in the Nasdaq "
+                "Trader universe file. If a name you specifically care about shows up here, it's worth "
+                "checking by hand — otherwise these are expected noise in a full-market scan and safe "
+                "to ignore."
+            )
+            _tickers_only = [f.get("ticker", "?") for f in no_xbrl_tickers]
+            st.caption(", ".join(_tickers_only[:60]) + (f" … +{len(_tickers_only)-60} more" if len(_tickers_only) > 60 else ""))
 
     if not stage1_results:
         st.warning("No companies passed Stage 1 quality filters. Try lowering the quality floor or scanning more tickers.")
