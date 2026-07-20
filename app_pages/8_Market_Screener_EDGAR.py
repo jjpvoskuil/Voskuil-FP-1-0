@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
 from sec_utils import (
-    get_ticker_cik_map, fetch_company_facts_with_cik, DEFAULT_WEIGHTS,
+    get_cik, get_ticker_cik_map, fetch_company_facts_with_cik, DEFAULT_WEIGHTS,
     evaluate_buffett_funnel, FUNNEL_THRESHOLDS,
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
@@ -334,20 +334,21 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
     """
     facts = fetch_company_facts_with_cik(ticker, cik)
     if facts.get("error"):
-        return {"_fetch_failed": True, "ticker": ticker, "reason": facts["error"]}
+        return {"_status": "fetch_failed", "ticker": ticker, "reason": facts["error"]}
 
     latest = facts.get("latest", {})
     meta   = facts.get("meta", {})
 
     fcf            = latest.get("fcf")
     if fcf is None or fcf <= 0:
-        return None  # negative/no FCF in the latest year — hard pre-filter,
-        # applied before the funnel checklist even runs. Note: this can
-        # exclude a business with a genuinely strong 10-year average that
-        # simply had one weak year — worth revisiting if it starts
-        # dropping companies you'd expect the checklist to catch instead.
-        # (Distinct from a fetch failure above — this IS real EDGAR data,
-        # the company just didn't clear the pre-filter.)
+        return {"_status": "excluded_fcf", "ticker": ticker}
+        # negative/no FCF in the latest year — hard pre-filter, applied
+        # before the funnel checklist even runs. Note: this can exclude
+        # a business with a genuinely strong 10-year average that simply
+        # had one weak year — worth revisiting if it starts dropping
+        # companies you'd expect the checklist to catch instead.
+        # (Distinct from a fetch failure above — this IS real EDGAR
+        # data, the company just didn't clear the pre-filter.)
 
     funnel = evaluate_buffett_funnel(facts, funnel_thresholds or FUNNEL_THRESHOLDS)
 
@@ -393,6 +394,7 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
         market_cap = None
 
     return {
+        "_status":           "evaluated",
         "ticker":            ticker,
         "name":              meta.get("company_name", ticker),
         "sic":               meta.get("sic"),
@@ -554,6 +556,103 @@ with st.expander("⚙️ Customize Funnel Thresholds", expanded=False):
         st.success("Thresholds updated — re-run Stage 1 to apply.")
 
 funnel_thresholds = st.session_state.get("committed_funnel_thresholds", FUNNEL_THRESHOLDS.copy())
+
+with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
+    st.caption(
+        "Runs the exact same funnel checklist a full scan uses, against one ticker, and shows every "
+        "underlying number — not just pass/fail. Useful for sanity-checking against companies you "
+        "already have a view on (e.g. a mega-cap you'd expect to clear the debt/dilution checks "
+        "easily, or a business you'd expect to fail on margin quality) before trusting a full scan."
+    )
+    dbg_col1, dbg_col2 = st.columns([2, 1])
+    with dbg_col1:
+        dbg_ticker = st.text_input("Ticker", value="", placeholder="e.g. MSFT", key="ms_debug_ticker").strip().upper()
+    with dbg_col2:
+        st.write("")
+        st.write("")
+        dbg_run = st.button("Run Checklist", key="ms_debug_run", use_container_width=True)
+
+    if dbg_run and dbg_ticker:
+        with st.spinner(f"Fetching {dbg_ticker} from EDGAR..."):
+            dbg_cik, dbg_cik_err = get_cik(dbg_ticker)
+            if not dbg_cik:
+                st.error(f"Could not resolve CIK for {dbg_ticker}: {dbg_cik_err}")
+            else:
+                dbg_facts = fetch_company_facts_with_cik(dbg_ticker, dbg_cik)
+                if dbg_facts.get("error"):
+                    st.error(f"EDGAR fetch failed: {dbg_facts['error']}")
+                else:
+                    dbg_funnel  = evaluate_buffett_funnel(dbg_facts, funnel_thresholds)
+                    dbg_latest  = dbg_facts.get("latest", {})
+                    dbg_meta    = dbg_facts.get("meta", {})
+                    dbg_history = dbg_facts.get("history", {})
+
+                    overall_icon = "✅" if dbg_funnel["overall_passed"] else "❌"
+                    st.markdown(f"### {overall_icon} {dbg_meta.get('company_name', dbg_ticker)} ({dbg_ticker})")
+                    _tag_bits = []
+                    if dbg_meta.get("is_financial"): _tag_bits.append("🏦 Financial firm")
+                    if dbg_meta.get("is_cyclical"):  _tag_bits.append("⚠️ Cyclical")
+                    if dbg_funnel["limited_history"]: _tag_bits.append(f"📏 Limited history ({dbg_funnel['years_used']}y)")
+                    if _tag_bits:
+                        st.caption(" · ".join(_tag_bits))
+
+                    def _leg_row(label, passed, actual_str, rule_str, years_str=""):
+                        icon = "✅" if passed else "❌"
+                        st.markdown(f"{icon} **{label}** — {actual_str} (need {rule_str}){years_str}")
+
+                    st.markdown("#### Checklist Legs")
+                    _roic = dbg_funnel["roic_avg"]
+                    _leg_row(
+                        "10-yr Avg ROIC", dbg_funnel["roic_pass"],
+                        f"{_roic['avg']:.1%}" if _roic["avg"] is not None else "N/A",
+                        f"> {funnel_thresholds['roic_avg_min']:.0%}",
+                        f" · {_roic['years_used']} years used (min {funnel_thresholds['min_history_years']})",
+                    )
+                    _fcfm = dbg_funnel["fcf_margin_avg"]
+                    _leg_row(
+                        "10-yr Avg FCF Margin", dbg_funnel["fcf_margin_pass"],
+                        f"{_fcfm['avg']:.1%}" if _fcfm["avg"] is not None else "N/A",
+                        f"> {funnel_thresholds['fcf_margin_avg_min']:.0%}",
+                        f" · {_fcfm['years_used']} years used (min {funnel_thresholds['min_history_years']})",
+                    )
+                    _dni  = dbg_funnel["debt_to_ni"]
+                    _dcads = dbg_funnel["debt_to_cads"]
+                    _leg_row(
+                        "Debt Hurdle (either)", dbg_funnel["debt_pass"],
+                        f"Debt/NI {f'{_dni:.1f}x' if _dni is not None else 'N/A'} · "
+                        f"Debt/CADS {f'{_dcads:.1f}x' if _dcads is not None else 'N/A'}",
+                        f"either < {funnel_thresholds['debt_to_ni_max']:.1f}x / {funnel_thresholds['debt_to_cads_max']:.1f}x",
+                        f" · cleared: {dbg_funnel['debt_hurdle_cleared']}",
+                    )
+                    _dil = dbg_funnel["dilution"]
+                    _dil_pct = _dil.get("pct_change")
+                    _dil_pct_str = f"{_dil_pct:+.1%}" if _dil_pct is not None else "N/A"
+                    _leg_row(
+                        "No Dilution", dbg_funnel["dilution_pass"],
+                        f"shares chg {_dil_pct_str} over {_dil['years_compared'] or '?'}y",
+                        f"≤ 0% over {funnel_thresholds['dilution_lookback_years']}y",
+                    )
+
+                    st.markdown("#### Raw History Depth (validates the tag-merge fix — should NOT be truncated for a long-tenured filer)")
+                    _hist_rows = []
+                    for field in ["roic", "fcf_margin", "revenue", "net_income", "diluted_shares"]:
+                        h = dbg_history.get(field, [])
+                        _hist_rows.append({
+                            "Field": field,
+                            "Years of History": len(h),
+                            "Earliest": h[0]["period"] if h else "N/A",
+                            "Latest": h[-1]["period"] if h else "N/A",
+                        })
+                    st.dataframe(pd.DataFrame(_hist_rows), hide_index=True, use_container_width=True)
+
+                    with st.expander("Full ROIC + FCF Margin history (year by year)"):
+                        _yr_col1, _yr_col2 = st.columns(2)
+                        with _yr_col1:
+                            st.caption("ROIC")
+                            st.dataframe(pd.DataFrame(dbg_history.get("roic", [])), hide_index=True, use_container_width=True)
+                        with _yr_col2:
+                            st.caption("FCF Margin")
+                            st.dataframe(pd.DataFrame(dbg_history.get("fcf_margin", [])), hide_index=True, use_container_width=True)
 
 st.markdown("#### Ticker Universe")
 universe_choice = st.radio(
@@ -956,10 +1055,26 @@ if run_screen:
     fetch_failures  = []   # tickers that errored (429/timeout/etc), NOT excluded by the checklist
     completed = 0
 
+    # Waterfall tally — every ticker lands in exactly one terminal bucket
+    # below, so total_tickers always equals the sum of the buckets. This
+    # is what makes a survivor count auditable instead of a single
+    # opaque number.
+    waterfall = {
+        "no_cik":            0,   # ticker not found in EDGAR's ticker->CIK map
+        "fetch_failed":       0,   # EDGAR request errored (429/timeout/etc) after retries
+        "excluded_fcf":       0,   # fetched OK, but latest-year FCF <= 0 (hard pre-filter)
+        "excluded_financial": 0,   # fetched OK, reached checklist, but is a financial firm (skipped by default)
+        "failed_roic":        0,   # reached checklist, failed the 10-yr avg ROIC leg
+        "failed_fcf_margin":  0,   # reached checklist, failed the 10-yr avg FCF margin leg
+        "failed_debt":        0,   # reached checklist, failed BOTH debt hurdles
+        "failed_dilution":    0,   # reached checklist, failed the dilution check
+        "passed":             0,   # cleared all four legs
+    }
+
     def _stage1_worker(ticker):
         cik = ticker_cik_map.get(ticker.upper())
         if not cik:
-            return None
+            return {"_status": "no_cik", "ticker": ticker}
         return fetch_quality_edgar(ticker, cik, funnel_thresholds)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
@@ -976,19 +1091,39 @@ if run_screen:
             try:
                 data = future.result()
             except Exception as e:
-                data = {"_fetch_failed": True, "ticker": futures[future], "reason": str(e)}
-            if data is None:
+                data = {"_status": "fetch_failed", "ticker": futures[future], "reason": str(e)}
+
+            status = data.get("_status") if data else "no_cik"
+
+            if status == "no_cik":
+                waterfall["no_cik"] += 1
                 continue
-            if data.get("_fetch_failed"):
+            if status == "fetch_failed":
+                waterfall["fetch_failed"] += 1
                 fetch_failures.append(data)
                 continue
-            if skip_financials and data.get("is_financial"):
+            if status == "excluded_fcf":
+                waterfall["excluded_fcf"] += 1
                 continue
+
+            # status == "evaluated" from here on — reached the checklist
+            if skip_financials and data.get("is_financial"):
+                waterfall["excluded_financial"] += 1
+                continue
+
+            funnel = data.get("funnel", {})
+            if not funnel.get("roic_pass"):       waterfall["failed_roic"]       += 1
+            if not funnel.get("fcf_margin_pass"):  waterfall["failed_fcf_margin"] += 1
+            if not funnel.get("debt_pass"):        waterfall["failed_debt"]       += 1
+            if not funnel.get("dilution_pass"):    waterfall["failed_dilution"]   += 1
+
             if data.get("funnel_passed"):
+                waterfall["passed"] += 1
                 stage1_results.append(data)
 
     progress_bar.progress(1.0)
     st.session_state['ms_edgar_last_fetch_failures'] = fetch_failures
+    st.session_state['ms_edgar_last_waterfall']       = waterfall
     _fail_msg = ""
     if fetch_failures:
         _fail_msg = (
@@ -1000,6 +1135,36 @@ if run_screen:
         f"Buffett/Munger checklist (10-yr avg ROIC, 10-yr avg FCF margin, a debt hurdle, no dilution)."
         f"{_fail_msg}"
     )
+
+    # ── Waterfall breakdown — always shown, not just when there are failures ──
+    with st.expander(f"📊 Waterfall: how {total_tickers} tickers became {len(stage1_results)} survivors", expanded=bool(fetch_failures)):
+        reached_checklist = total_tickers - waterfall["no_cik"] - waterfall["fetch_failed"] - waterfall["excluded_fcf"]
+        wf_rows = [
+            ("Total scanned",                              total_tickers, None),
+            ("→ No CIK match in EDGAR",                    waterfall["no_cik"], total_tickers),
+            ("→ EDGAR fetch failed (rate-limited/timeout)", waterfall["fetch_failed"], total_tickers),
+            ("→ Excluded: latest-year FCF ≤ 0",             waterfall["excluded_fcf"], total_tickers),
+            ("= Reached the checklist",                     reached_checklist, total_tickers),
+            ("→ Excluded: financial firm",                  waterfall["excluded_financial"], reached_checklist),
+            ("→ Failed ROIC leg",                           waterfall["failed_roic"], reached_checklist),
+            ("→ Failed FCF Margin leg",                     waterfall["failed_fcf_margin"], reached_checklist),
+            ("→ Failed Debt leg (both hurdles)",            waterfall["failed_debt"], reached_checklist),
+            ("→ Failed Dilution leg",                       waterfall["failed_dilution"], reached_checklist),
+            ("= Passed all four legs",                      waterfall["passed"], reached_checklist),
+        ]
+        st.caption(
+            "Note: the four 'Failed X leg' rows are NOT mutually exclusive — a company can fail more than "
+            "one leg at once, so they won't sum to (Reached checklist − Passed). Financial-firm exclusion "
+            "happens independently of the checklist legs, so a financial firm's leg results are still "
+            "tallied even though it's excluded from the final survivor count."
+        )
+        _wf_df = pd.DataFrame([
+            {"Stage": label, "Count": count,
+             "% of denominator": f"{count/denom:.1%}" if denom else "N/A"}
+            for label, count, denom in wf_rows
+        ])
+        st.dataframe(_wf_df, hide_index=True, use_container_width=True)
+
     if fetch_failures:
         with st.expander(f"⚠️ {len(fetch_failures)} fetch failures (excluded from both the pass and fail counts)"):
             st.caption(
