@@ -20,7 +20,10 @@ import threading
 import requests
 import concurrent.futures
 import streamlit as st
-from edgar_concept_map import CONCEPT_MAP, FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
+from edgar_concept_map import (
+    CONCEPT_MAP, FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES,
+    BANK_SIC_CODES, INSURANCE_SIC_CODES, classify_financial_subtype,
+)
 
 EDGAR_BASE    = "https://data.sec.gov"
 SEC_BASE      = "https://www.sec.gov"
@@ -236,6 +239,11 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
         "sic":               sic,
         "is_financial":      sic in FINANCIAL_SIC_CODES if sic else False,
         "is_cyclical":       sic in CYCLICAL_SIC_CODES  if sic else False,
+        # "bank" | "insurance" | "other_financial" | None — see #36. Only
+        # "bank"/"insurance" get an alternative scoring path today;
+        # "other_financial" (brokers/REITs/real estate/investment offices)
+        # still respects the existing skip/exclude behavior.
+        "financial_subtype": classify_financial_subtype(sic),
         "last_annual_period": None,
         "fiscal_year_end":   None,
     }
@@ -487,6 +495,75 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     if cads_latest and cads_latest > 0 and int_pd:
         latest["interest_margin_cads"] = int_pd / cads_latest
 
+    # ── Financial firm derived metrics (latest period) — #36 ──────────────
+    # Computed whenever the underlying raw fields exist, which in practice
+    # means only for filers that actually tag them (banks and insurers).
+    # A non-financial company simply won't have interest_income/
+    # noninterest_income/premiums_earned/etc. tagged at all, so these stay
+    # absent for it rather than producing nonsense numbers — no is_financial
+    # gate needed here, the data availability does the gating.
+    int_inc      = latest.get("interest_income")
+    noninc       = latest.get("noninterest_income")
+    nonexp       = latest.get("noninterest_expense")
+    provision    = latest.get("provision_credit_losses")
+    total_assets = latest.get("total_assets")
+    premiums     = latest.get("premiums_earned")
+    ph_benefits  = latest.get("policyholder_benefits")
+    uw_exp       = latest.get("underwriting_expenses")
+
+    # ROE — return on equity, the standard profitability yardstick for a
+    # leveraged balance-sheet business, where ROIC (which treats leverage
+    # as a cost rather than the business model itself) doesn't apply the
+    # same way it does to an industrial or tech company.
+    if net_inc is not None and eq is not None and eq > 0:
+        latest["roe"] = net_inc / eq
+
+    # Equity / Assets — capital cushion / leverage proxy, substituting for
+    # Debt/FCF as the solvency signal. A debt-multiple gate is meaningless
+    # for a bank (deposits/borrowings ARE the raw material of the
+    # business), so this measures how much of the balance sheet is
+    # loss-absorbing equity instead.
+    if eq is not None and total_assets:
+        latest["equity_to_assets"] = eq / total_assets
+
+    # Net interest income + NIM proxy. True net interest margin divides by
+    # AVERAGE EARNING ASSETS, which EDGAR doesn't tag as a standalone
+    # concept anywhere — total assets is used as a workable stand-in here,
+    # clearly labeled "proxy" everywhere it's surfaced. It understates true
+    # NIM (total assets includes non-earning assets like goodwill and
+    # premises) but is consistent enough year-over-year and company-to-
+    # company to rank on.
+    if int_inc is not None and int_pd is not None:
+        nii = int_inc - int_pd
+        latest["net_interest_income"] = nii
+        if total_assets:
+            latest["nim_proxy"] = nii / total_assets
+
+        # Efficiency ratio — noninterest expense as a share of total
+        # revenue (net interest income + noninterest income). Lower is
+        # better; bank-land's version of a cost-discipline metric, since
+        # Gross Margin (excluded from scoring generally, per #31) doesn't
+        # exist as a concept for a bank at all.
+        if nonexp is not None:
+            total_rev = nii + (noninc or 0)
+            if total_rev > 0:
+                latest["efficiency_ratio"] = nonexp / total_rev
+
+    # Provision / Net Income — credit cost as a share of earnings. High or
+    # rising provisions relative to earnings are an early credit-quality
+    # warning sign.
+    if provision is not None and net_inc and net_inc > 0:
+        latest["provision_to_ni"] = provision / net_inc
+
+    # Combined ratio (insurers) — (losses incurred + underwriting expense)
+    # / premiums earned. Under 100% means the insurer made an underwriting
+    # profit; over 100% means it's relying on investment income from the
+    # float to be profitable overall — the classic Buffett/Berkshire
+    # distinction between a good insurer and a mediocre one.
+    if premiums and ph_benefits is not None:
+        combined_num = ph_benefits + (uw_exp or 0)
+        latest["combined_ratio"] = combined_num / premiums
+
     # 8. Compute the SAME derived metrics for every historical year, not just
     # the latest — this is what powers Compare Stocks' historical trend
     # charts (#60) for derived fields. Without this, history[] only ever
@@ -518,10 +595,22 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     gp_h     = _hist_map("gross_profit")
     cor_h    = _hist_map("cost_of_revenue")
 
-    all_ends = sorted(set(op_cf_h) | set(net_inc_h) | set(rev_h))
+    # Financial firm raw fields (#36) — same merge-by-end-date approach
+    int_inc_h     = _hist_map("interest_income")
+    noninc_h      = _hist_map("noninterest_income")
+    nonexp_h      = _hist_map("noninterest_expense")
+    provision_h   = _hist_map("provision_credit_losses")
+    total_assets_h = _hist_map("total_assets")
+    premiums_h    = _hist_map("premiums_earned")
+    ph_benefits_h = _hist_map("policyholder_benefits")
+    uw_exp_h      = _hist_map("underwriting_expenses")
+
+    all_ends = sorted(set(op_cf_h) | set(net_inc_h) | set(rev_h) | set(int_inc_h) | set(premiums_h))
 
     fcf_hist, gm_hist, roic_hist, dtf_hist, ic_hist, oe_hist = [], [], [], [], [], []
     fcfm_hist, cads_hist, dni_hist, dcads_hist = [], [], [], []
+    roe_hist, eq_assets_hist, nim_hist, eff_ratio_hist = [], [], [], []
+    prov_ni_hist, combined_ratio_hist = [], []
 
     for end in all_ends:
         period = end[:4]
@@ -609,6 +698,38 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
         if cads_val and cads_val > 0 and total_debt_y > 0:
             dcads_hist.append({"period": period, "end": end, "value": total_debt_y / cads_val})
 
+        # ── Financial firm derived metrics (#36) — same logic as latest-period
+        ta_y   = total_assets_h.get(end)
+        ii_y   = int_inc_h.get(end)
+        noninc_y = noninc_h.get(end)
+        nonexp_y = nonexp_h.get(end)
+        prov_y   = provision_h.get(end)
+        prem_y   = premiums_h.get(end)
+        phb_y    = ph_benefits_h.get(end)
+        uwe_y    = uw_exp_h.get(end)
+
+        if ni is not None and eq is not None and eq > 0:
+            roe_hist.append({"period": period, "end": end, "value": ni / eq})
+
+        if eq is not None and ta_y:
+            eq_assets_hist.append({"period": period, "end": end, "value": eq / ta_y})
+
+        if ii_y is not None and int_pd is not None:
+            nii_y = ii_y - int_pd
+            if ta_y:
+                nim_hist.append({"period": period, "end": end, "value": nii_y / ta_y})
+            if nonexp_y is not None:
+                total_rev_y = nii_y + (noninc_y or 0)
+                if total_rev_y > 0:
+                    eff_ratio_hist.append({"period": period, "end": end, "value": nonexp_y / total_rev_y})
+
+        if prov_y is not None and ni and ni > 0:
+            prov_ni_hist.append({"period": period, "end": end, "value": prov_y / ni})
+
+        if prem_y and phb_y is not None:
+            combined_ratio_hist.append({"period": period, "end": end,
+                                         "value": (phb_y + (uwe_y or 0)) / prem_y})
+
     if fcf_hist:   history["fcf"]                        = fcf_hist
     if gm_hist:    history["gross_margin"]                = gm_hist
     if roic_hist:  history["roic"]                        = roic_hist
@@ -619,6 +740,12 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     if cads_hist:  history["cash_available_debt_service"] = cads_hist
     if dni_hist:   history["debt_to_ni"]                  = dni_hist
     if dcads_hist: history["debt_to_cads"]                = dcads_hist
+    if roe_hist:          history["roe"]                  = roe_hist
+    if eq_assets_hist:    history["equity_to_assets"]      = eq_assets_hist
+    if nim_hist:          history["nim_proxy"]             = nim_hist
+    if eff_ratio_hist:    history["efficiency_ratio"]      = eff_ratio_hist
+    if prov_ni_hist:      history["provision_to_ni"]       = prov_ni_hist
+    if combined_ratio_hist: history["combined_ratio"]      = combined_ratio_hist
 
     return {
         "latest":  latest,
@@ -1457,6 +1584,239 @@ def evaluate_buffett_funnel(facts: dict, thresholds: dict = None) -> dict:
         "is_financial":         facts.get("meta", {}).get("is_financial", False),
         "is_cyclical":          facts.get("meta", {}).get("is_cyclical", False),
         "is_negative_equity":   facts.get("latest", {}).get("is_negative_equity", False),
+    }
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Bank / Insurer Alternative Scoring (#36)
+#
+# Standard ROIC/FCF-margin/Debt-FCF/Gross-Margin metrics above describe a
+# business that turns capital into products. A bank or insurer turns
+# capital into MORE capital via leverage/underwriting — the same metrics
+# either don't exist for them (no "gross margin" on a loan book) or
+# actively penalize the thing that makes them a bank/insurer in the first
+# place (leverage). This is a parallel funnel + scorer, not a patch on
+# the existing ones, scoped to the two subtypes Buffett/Berkshire's own
+# playbook actually covers — banks and insurers. Other financial SIC
+# codes (brokers, REITs, real estate, investment offices) are still
+# flagged is_financial=True and still respect the existing skip/exclude
+# toggle; they don't get an alt framework yet (see classify_financial_
+# subtype() in edgar_concept_map.py for why).
+# ═════════════════════════════════════════════════════════════════════
+
+FINANCIAL_WEIGHTS_BANK = {
+    "ROE":                  35,
+    "Efficiency Ratio":     25,
+    "Net Interest Margin":  20,
+    "Equity / Assets":      15,
+    "Provision / NI":        5,
+}
+
+FINANCIAL_WEIGHTS_INSURANCE = {
+    "ROE":              30,
+    "Combined Ratio":   40,
+    "Equity / Assets":  30,
+}
+
+FINANCIAL_THRESHOLDS = {
+    "roe_good":              0.10,
+    "roe_great":             0.15,
+    "nim_good":              0.020,   # NIM is a PROXY (NII / total assets, not average earning assets) — see nim_proxy in edgar_concept_map.py
+    "nim_great":             0.030,
+    "efficiency_good":       0.65,    # lower is better
+    "efficiency_great":      0.55,
+    "equity_assets_good":    0.08,
+    "equity_assets_great":   0.10,
+    "provision_ni_safe":     0.10,    # lower is better
+    "provision_ni_warning":  0.25,
+    "combined_ratio_great":  0.95,    # lower is better; under 1.00 = underwriting profit
+    "combined_ratio_good":   1.00,
+}
+
+FINANCIAL_FUNNEL_THRESHOLDS = {
+    "lookback_years":          10,
+    "min_history_years":       5,
+    "roe_avg_min":             0.10,
+    "equity_assets_min":       0.06,   # capital adequacy floor
+    "efficiency_ratio_max":    0.70,   # banks — latest-period, lower is better
+    "combined_ratio_max":      1.00,   # insurers — 10-yr avg, lower is better
+    "dilution_lookback_years": 5,
+}
+
+
+def score_financial_firm_breakdown(data: dict, subtype: str, weights: dict = None):
+    """
+    Alternative scoring path for bank/insurer tickers (#36) — parallels
+    score_stock_breakdown() but swaps in metrics that actually describe a
+    leveraged-balance-sheet business: ROE instead of ROIC, Efficiency
+    Ratio/Net Interest Margin instead of Gross Margin, Equity/Assets
+    instead of Debt/FCF, Combined Ratio for insurers instead of FCF Yield.
+    Same rebalance-to-100-across-available-criteria approach as the
+    standard scorer for the same reason: a missing metric shouldn't zero
+    out, the remaining criteria should carry the full 100 points.
+
+    `data` is a `latest`-shaped dict (same shape fetch_company_facts()
+    returns under "latest") — pass facts["latest"] directly.
+    `subtype` is "bank" or "insurance" (see classify_financial_subtype()).
+    Returns (rebalanced_score, criteria) — same shape as
+    score_stock_breakdown(), so UI code can reuse the same rendering.
+    Returns (None, []) for any other subtype — this function doesn't
+    attempt to score brokers/REITs/real estate/investment offices.
+    """
+    if subtype not in ("bank", "insurance"):
+        return None, []
+
+    w = weights or (FINANCIAL_WEIGHTS_BANK if subtype == "bank" else FINANCIAL_WEIGHTS_INSURANCE)
+    t = FINANCIAL_THRESHOLDS
+    criteria = []
+
+    # ROE — both subtypes. Standard profitability yardstick for a
+    # leveraged balance-sheet business, where ROIC (which treats leverage
+    # as a cost) doesn't apply the same way.
+    max_pts = w["ROE"]
+    roe = data.get("roe")
+    if roe is not None:
+        if roe >= t["roe_great"]:   pts = max_pts
+        elif roe >= t["roe_good"]:  pts = round(max_pts * 0.60)
+        elif roe > 0:               pts = round(max_pts * 0.20)
+        else:                       pts = 0
+    else:
+        pts = 0
+    criteria.append({"name": "ROE", "points_earned": pts, "points_max": max_pts, "missing": roe is None})
+
+    # Equity / Assets — both subtypes. Capital cushion / leverage proxy,
+    # substituting for Debt/FCF (a debt-multiple gate is meaningless for a
+    # bank — deposits/borrowings ARE the raw material of the business).
+    max_pts = w["Equity / Assets"]
+    eqa = data.get("equity_to_assets")
+    if eqa is not None:
+        if eqa >= t["equity_assets_great"]:  pts = max_pts
+        elif eqa >= t["equity_assets_good"]: pts = round(max_pts * 0.60)
+        elif eqa > 0:                        pts = round(max_pts * 0.25)
+        else:                                pts = 0
+    else:
+        pts = 0
+    criteria.append({"name": "Equity / Assets", "points_earned": pts, "points_max": max_pts, "missing": eqa is None})
+
+    if subtype == "bank":
+        max_pts = w["Efficiency Ratio"]
+        eff = data.get("efficiency_ratio")
+        if eff is not None:
+            if eff <= t["efficiency_great"]:   pts = max_pts
+            elif eff <= t["efficiency_good"]:  pts = round(max_pts * 0.55)
+            else:                              pts = round(max_pts * 0.15)
+        else:
+            pts = 0
+        criteria.append({"name": "Efficiency Ratio", "points_earned": pts, "points_max": max_pts, "missing": eff is None})
+
+        max_pts = w["Net Interest Margin"]
+        nim = data.get("nim_proxy")
+        if nim is not None:
+            if nim >= t["nim_great"]:   pts = max_pts
+            elif nim >= t["nim_good"]:  pts = round(max_pts * 0.55)
+            elif nim > 0:               pts = round(max_pts * 0.20)
+            else:                       pts = 0
+        else:
+            pts = 0
+        criteria.append({"name": "Net Interest Margin", "points_earned": pts, "points_max": max_pts, "missing": nim is None})
+
+        max_pts = w["Provision / NI"]
+        pni = data.get("provision_to_ni")
+        if pni is not None:
+            if pni <= t["provision_ni_safe"]:      pts = max_pts
+            elif pni <= t["provision_ni_warning"]: pts = round(max_pts * 0.50)
+            else:                                  pts = 0
+        else:
+            pts = 0
+        criteria.append({"name": "Provision / NI", "points_earned": pts, "points_max": max_pts, "missing": pni is None})
+
+    else:  # insurance
+        max_pts = w["Combined Ratio"]
+        cr = data.get("combined_ratio")
+        if cr is not None:
+            if cr <= t["combined_ratio_great"]:  pts = max_pts
+            elif cr <= t["combined_ratio_good"]:  pts = round(max_pts * 0.55)
+            else:                                 pts = round(max_pts * 0.15)
+        else:
+            pts = 0
+        criteria.append({"name": "Combined Ratio", "points_earned": pts, "points_max": max_pts, "missing": cr is None})
+
+    raw_score     = sum(c["points_earned"] for c in criteria)
+    missing_pts   = sum(c["points_max"] for c in criteria if c.get("missing"))
+    available_pts = 100 - missing_pts
+    rebalanced    = round(raw_score / available_pts * 100) if available_pts > 0 else raw_score
+    return rebalanced, criteria
+
+
+def evaluate_financial_firm_funnel(facts: dict, subtype: str, thresholds: dict = None) -> dict:
+    """
+    Pass/fail checklist for bank/insurer tickers (#36) — the alt-framework
+    counterpart to evaluate_buffett_funnel(). Same "does this business
+    clear the bar" question, different bar, since standard ROIC/FCF-
+    margin/debt checks don't mean anything for a leveraged balance-sheet
+    business.
+
+    Shared legs (both subtypes): 10-yr avg ROE > threshold, capital
+    cushion (latest equity/assets) > threshold, no dilution (shares
+    outstanding today <= 5 years ago).
+
+    Subtype-specific quality leg:
+    - Bank: latest-period efficiency ratio <= threshold (noninterest
+      expense / revenue — lower is better, single most-watched bank cost
+      metric).
+    - Insurance: 10-yr avg combined ratio <= threshold (losses +
+      underwriting expense / premiums — under 100% = underwriting
+      profit, over 100% means the insurer needs investment income from
+      the float to be profitable overall).
+
+    Returns a full breakdown dict, not just a bool, so the UI can show
+    which leg failed — same design intent as evaluate_buffett_funnel().
+    """
+    t       = thresholds or FINANCIAL_FUNNEL_THRESHOLDS
+    history = facts.get("history", {})
+    latest  = facts.get("latest", {})
+
+    roe_r    = _historical_average(history.get("roe", []), t["lookback_years"], t["min_history_years"])
+    roe_pass = bool(roe_r["sufficient"] and roe_r["avg"] is not None and roe_r["avg"] > t["roe_avg_min"])
+
+    eqa          = latest.get("equity_to_assets")
+    capital_pass = eqa is not None and eqa >= t["equity_assets_min"]
+
+    dil_r         = _dilution_check(history.get("diluted_shares", []), t["dilution_lookback_years"])
+    dilution_pass = dil_r["passed"] is True  # None (insufficient data) does not pass
+
+    if subtype == "bank":
+        eff = latest.get("efficiency_ratio")
+        quality_pass  = eff is not None and eff <= t["efficiency_ratio_max"]
+        quality_leg   = "efficiency_ratio"
+        quality_value = eff
+        quality_avg   = None
+    else:  # insurance
+        cr_r          = _historical_average(history.get("combined_ratio", []), t["lookback_years"], t["min_history_years"])
+        quality_pass  = bool(cr_r["sufficient"] and cr_r["avg"] is not None and cr_r["avg"] <= t["combined_ratio_max"])
+        quality_leg   = "combined_ratio_avg"
+        quality_value = cr_r["avg"]
+        quality_avg   = cr_r
+
+    overall_passed  = bool(roe_pass and capital_pass and dilution_pass and quality_pass)
+    years_used      = roe_r["years_used"]
+    limited_history = 0 < years_used < t["lookback_years"]
+
+    return {
+        "overall_passed":  overall_passed,
+        "subtype":         subtype,
+        "roe_avg":         roe_r,
+        "roe_pass":        roe_pass,
+        "capital_ratio":   eqa,
+        "capital_pass":    capital_pass,
+        "quality_leg":     quality_leg,     # "efficiency_ratio" | "combined_ratio_avg"
+        "quality_value":   quality_value,
+        "quality_avg":     quality_avg,     # full _historical_average() dict, insurers only
+        "quality_pass":    quality_pass,
+        "dilution":        dil_r,
+        "dilution_pass":   dilution_pass,
+        "limited_history": limited_history,
+        "years_used":      years_used,
     }
 
 

@@ -12,6 +12,7 @@ from superinvestor_utils import get_conviction_data, get_superinvestor_convictio
 from sec_utils import (
     get_cik, get_ticker_cik_map, fetch_company_facts_with_cik, DEFAULT_WEIGHTS,
     evaluate_buffett_funnel, FUNNEL_THRESHOLDS,
+    evaluate_financial_firm_funnel, score_financial_firm_breakdown,
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
@@ -321,6 +322,30 @@ def market_cap_tier(cap) -> str:
     return "Micro Cap (<$300M)"
 
 
+def _fetch_market_cap_and_sector(ticker: str):
+    """
+    Shared market cap / GICS sector lookup — used by both the standard
+    and bank/insurer alt-scoring paths in fetch_quality_edgar() so a
+    ticker's market-cap-tier and Sector filters work identically either
+    way. fast_info covers market cap cheaply; sector requires the fuller
+    .info call, which is slower — same cost/tradeoff noted where this
+    logic used to live inline.
+    """
+    market_cap = None
+    sector     = "Unknown"
+    try:
+        import yfinance as yf
+        yf_ticker  = yf.Ticker(ticker)
+        market_cap = getattr(yf_ticker.fast_info, "market_cap", None)
+        try:
+            sector = yf_ticker.info.get("sector") or "Unknown"
+        except Exception:
+            sector = "Unknown"
+    except Exception:
+        market_cap = None
+    return market_cap, sector
+
+
 def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -> dict:
     """
     Fetches fundamentals from EDGAR Company Facts using a pre-resolved CIK
@@ -331,6 +356,17 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
     single-period fields (roic, gross_margin, debt_to_fcf, interest_
     coverage) are still returned for reference/export — they are not
     part of the funnel gate itself (#31, #33, #35).
+
+    Bank/insurer tickers (financial_subtype "bank"/"insurance", #36) skip
+    this standard path entirely and route to evaluate_financial_firm_funnel()
+    + score_financial_firm_breakdown() instead — the FCF>0 pre-filter below
+    doesn't even apply to them, since "FCF" as op_cf+inv_cf is dominated by
+    loan/investment portfolio volume for a bank and isn't a meaningful cash
+    flow figure at all. Other financial SIC codes (brokers, REITs, real
+    estate, investment offices — financial_subtype "other_financial") still
+    go through the standard path below and still respect the "skip
+    financial firms" toggle upstream, same as before #36.
+
     Does NOT fetch price — that happens only for Stage 1 survivors.
     """
     facts = fetch_company_facts_with_cik(ticker, cik)
@@ -348,6 +384,62 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
 
     latest = facts.get("latest", {})
     meta   = facts.get("meta", {})
+
+    financial_subtype = meta.get("financial_subtype")
+    if financial_subtype in ("bank", "insurance"):
+        fin_funnel              = evaluate_financial_firm_funnel(facts, financial_subtype)
+        fin_score, fin_criteria = score_financial_firm_breakdown(latest, financial_subtype)
+        market_cap, sector      = _fetch_market_cap_and_sector(ticker)
+        long_term_debt          = latest.get("long_term_debt", 0) or 0
+        short_term_debt         = latest.get("short_term_debt", 0) or 0
+
+        return {
+            "_status":            "evaluated",
+            "ticker":             ticker,
+            "name":               meta.get("company_name", ticker),
+            "sic":                meta.get("sic"),
+            "is_financial":       True,
+            "is_cyclical":        meta.get("is_cyclical", False),
+            "is_negative_equity": latest.get("is_negative_equity", False),
+            "market_cap":         market_cap,
+            "sector":             sector,
+            "financial_subtype":  financial_subtype,
+            # Standard-framework fields don't apply to a bank/insurer —
+            # left None/False rather than omitted, so downstream code
+            # (results table columns, CSV export) doesn't KeyError
+            # expecting a key that's always present for non-financial rows.
+            "fcf": None, "roic": None, "gross_margin": None, "debt_to_fcf": None,
+            "interest_coverage": None, "is_net_creditor": False,
+            "owner_earnings": None,
+            "net_income":         latest.get("net_income"),
+            "revenues":           latest.get("revenue"),
+            "long_term_debt":     long_term_debt,
+            "total_debt":         long_term_debt + short_term_debt,
+            "fcf_margin": None, "cash_available_debt_service": None,
+            "debt_to_ni": None, "debt_to_cads": None, "interest_margin_cads": None,
+            # ── Bank/Insurer alt funnel + score (#36) ────────────────────
+            "funnel":               fin_funnel,
+            "funnel_passed":        fin_funnel["overall_passed"],
+            "financial_score":      fin_score,
+            "financial_criteria":   fin_criteria,
+            "roe_avg":              fin_funnel["roe_avg"]["avg"],
+            "roe_avg_years":        fin_funnel["roe_avg"]["years_used"],
+            "capital_ratio":        fin_funnel["capital_ratio"],
+            "quality_leg":          fin_funnel["quality_leg"],
+            "quality_value":        fin_funnel["quality_value"],
+            "dilution_passed":      fin_funnel["dilution_pass"],
+            "dilution_pct_change":  fin_funnel["dilution"]["pct_change"],
+            "limited_history":      fin_funnel["limited_history"],
+            "funnel_years_used":    fin_funnel["years_used"],
+            # Standard-funnel-only fields, kept present (as None) for the
+            # same KeyError-avoidance reason as above.
+            "roic_avg": None, "roic_avg_years": None,
+            "fcf_margin_avg": None, "fcf_margin_avg_years": None,
+            "debt_hurdle_cleared": None,
+            "roic_stale": False, "roic_stale_years": None,
+            "roic_last_reliable_period": None,
+            "_latest": latest,
+        }
 
     fcf            = latest.get("fcf")
     if fcf is None or fcf <= 0:
@@ -385,23 +477,9 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
 
     # Market cap & sector — fetched upfront for every Stage 1 ticker so
     # the market-cap-tier and Sector filters can apply before Stage 2
-    # pricing/scoring. fast_info covers market cap cheaply; sector
-    # requires the fuller .info call, which is slower — this is the
-    # cost of having Sector available before any scan completes, per
-    # the user's choice to prioritize full pre-scan filtering over
-    # Stage 1 speed.
-    market_cap = None
-    sector     = "Unknown"
-    try:
-        import yfinance as yf
-        yf_ticker  = yf.Ticker(ticker)
-        market_cap = getattr(yf_ticker.fast_info, "market_cap", None)
-        try:
-            sector = yf_ticker.info.get("sector") or "Unknown"
-        except Exception:
-            sector = "Unknown"
-    except Exception:
-        market_cap = None
+    # pricing/scoring. See _fetch_market_cap_and_sector() for the
+    # fast_info/.info cost tradeoff notes.
+    market_cap, sector = _fetch_market_cap_and_sector(ticker)
 
     return {
         "_status":           "evaluated",
@@ -409,6 +487,7 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
         "name":              meta.get("company_name", ticker),
         "sic":               meta.get("sic"),
         "is_financial":      meta.get("is_financial", False),
+        "financial_subtype": meta.get("financial_subtype"),
         "is_cyclical":       meta.get("is_cyclical", False),
         "is_negative_equity": latest.get("is_negative_equity", False),
         "market_cap":        market_cap,
@@ -550,6 +629,11 @@ def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresh
                 "excluded_fcf": 0, "excluded_financial": 0,
                 "failed_roic": 0, "failed_fcf_margin": 0,
                 "failed_debt": 0, "failed_dilution": 0, "passed": 0,
+                # Bank/insurer alt framework (#36) — separate leg counters
+                # since the checklist itself is different (ROE/quality/
+                # capital/dilution, not ROIC/FCF-margin/debt/dilution).
+                "failed_financial_roe": 0, "failed_financial_quality": 0,
+                "failed_financial_capital": 0, "failed_financial_dilution": 0,
             },
             "started_at": datetime.now(timezone.utc).isoformat(),
             "finished_at": None, "error": None,
@@ -614,8 +698,22 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
                         wf["excluded_fcf"] += 1
                     else:
                         # "evaluated" — reached the checklist
-                        if skip_financials and data.get("is_financial"):
+                        subtype = data.get("financial_subtype")
+                        if skip_financials and data.get("is_financial") and subtype not in ("bank", "insurance"):
+                            # Only brokers/REITs/real estate/investment
+                            # offices get hard-excluded now — banks and
+                            # insurers have their own alt framework (#36)
+                            # and are evaluated on their own terms below.
                             wf["excluded_financial"] += 1
+                        elif subtype in ("bank", "insurance"):
+                            funnel = data.get("funnel", {})
+                            if not funnel.get("roe_pass"):      wf["failed_financial_roe"]      += 1
+                            if not funnel.get("quality_pass"):  wf["failed_financial_quality"]  += 1
+                            if not funnel.get("capital_pass"):  wf["failed_financial_capital"]  += 1
+                            if not funnel.get("dilution_pass"): wf["failed_financial_dilution"] += 1
+                            if data.get("funnel_passed"):
+                                wf["passed"] += 1
+                                _get_scan_state()["stage1_results"].append(data)
                         else:
                             funnel = data.get("funnel", {})
                             if not funnel.get("roic_pass"):       wf["failed_roic"]       += 1
@@ -677,12 +775,16 @@ def _build_waterfall_rows(waterfall: dict, total_tickers: int) -> list:
         ("→ EDGAR fetch failed (rate-limited/timeout — transient)",    waterfall.get("fetch_failed", 0), total_tickers),
         ("→ Excluded: latest-year FCF ≤ 0",                            waterfall.get("excluded_fcf", 0), total_tickers),
         ("= Reached the checklist",                                    reached_checklist, total_tickers),
-        ("→ Excluded: financial firm",                                 waterfall.get("excluded_financial", 0), reached_checklist),
+        ("→ Excluded: broker/REIT/real estate/other financial",       waterfall.get("excluded_financial", 0), reached_checklist),
         ("→ Failed ROIC leg",                                          waterfall.get("failed_roic", 0), reached_checklist),
         ("→ Failed FCF Margin leg",                                    waterfall.get("failed_fcf_margin", 0), reached_checklist),
         ("→ Failed Debt leg (both hurdles)",                           waterfall.get("failed_debt", 0), reached_checklist),
         ("→ Failed Dilution leg",                                      waterfall.get("failed_dilution", 0), reached_checklist),
-        ("= Passed all four legs",                                     waterfall.get("passed", 0), reached_checklist),
+        ("→ Bank/Insurer (#36): failed ROE leg",                      waterfall.get("failed_financial_roe", 0), reached_checklist),
+        ("→ Bank/Insurer (#36): failed quality leg (efficiency/combined ratio)", waterfall.get("failed_financial_quality", 0), reached_checklist),
+        ("→ Bank/Insurer (#36): failed capital leg",                  waterfall.get("failed_financial_capital", 0), reached_checklist),
+        ("→ Bank/Insurer (#36): failed dilution leg",                 waterfall.get("failed_financial_dilution", 0), reached_checklist),
+        ("= Passed all legs (standard OR bank/insurer framework)",     waterfall.get("passed", 0), reached_checklist),
     ]
 
 
@@ -693,11 +795,14 @@ def _render_waterfall_and_failures(waterfall, total_tickers, num_passed, fetch_f
     with st.expander(f"📊 Waterfall: how {total_tickers} tickers became {num_passed} survivors", expanded=expanded_default):
         wf_rows = _build_waterfall_rows(waterfall, total_tickers)
         st.caption(
-            "Note: the four 'Failed X leg' rows are NOT mutually exclusive — a company can fail more than "
-            "one leg at once, so they won't sum to (Reached checklist − Passed). Financial-firm exclusion "
-            "happens independently of the checklist legs, so a financial firm's leg results are still "
-            "tallied even though it's excluded from the final survivor count. 'No XBRL data' and 'fetch "
-            "failed' are DIFFERENT problems — see the two expanders below."
+            "Note: the 'Failed X leg' rows are NOT mutually exclusive — a company can fail more than "
+            "one leg at once, so they won't sum to (Reached checklist − Passed). Banks and insurers "
+            "(#36) run through a separate framework — ROE/quality-leg/capital/dilution instead of "
+            "ROIC/FCF-margin/debt/dilution — since standard metrics don't describe a leveraged balance "
+            "sheet; their leg results are tallied separately but count toward the same 'Passed' total. "
+            "Brokers/REITs/real estate/investment offices still don't have an alt framework and are "
+            "excluded outright when the toggle is on. 'No XBRL data' and 'fetch failed' are DIFFERENT "
+            "problems — see the two expanders below."
         )
         _wf_df = pd.DataFrame([
             {"Stage": label, "Count": count,
@@ -943,80 +1048,143 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                 if dbg_facts.get("error"):
                     st.error(f"EDGAR fetch failed: {dbg_facts['error']}")
                 else:
-                    dbg_funnel  = evaluate_buffett_funnel(dbg_facts, funnel_thresholds)
                     dbg_latest  = dbg_facts.get("latest", {})
                     dbg_meta    = dbg_facts.get("meta", {})
                     dbg_history = dbg_facts.get("history", {})
-
-                    overall_icon = "✅" if dbg_funnel["overall_passed"] else "❌"
-                    st.markdown(f"### {overall_icon} {dbg_meta.get('company_name', dbg_ticker)} ({dbg_ticker})")
-                    _tag_bits = []
-                    if dbg_meta.get("is_financial"): _tag_bits.append("🏦 Financial firm")
-                    if dbg_meta.get("is_cyclical"):  _tag_bits.append("⚠️ Cyclical")
-                    if dbg_latest.get("is_negative_equity"): _tag_bits.append("📊 Negative Equity")
-                    if dbg_funnel["limited_history"]: _tag_bits.append(f"📏 Limited history ({dbg_funnel['years_used']}y)")
-                    if dbg_funnel["roic_stale"]:
-                        _tag_bits.append(f"🕰️ Stale ROIC (last reliable: {dbg_funnel['roic_last_reliable_period']}, {dbg_funnel['roic_stale_years']}y old)")
-                    if _tag_bits:
-                        st.caption(" · ".join(_tag_bits))
+                    dbg_subtype = dbg_meta.get("financial_subtype")
 
                     def _leg_row(label, passed, actual_str, rule_str, years_str=""):
                         icon = "✅" if passed else "❌"
                         st.markdown(f"{icon} **{label}** — {actual_str} (need {rule_str}){years_str}")
 
-                    st.markdown("#### Checklist Legs")
-                    _roic = dbg_funnel["roic_avg"]
-                    _leg_row(
-                        "10-yr Avg ROIC", dbg_funnel["roic_pass"],
-                        f"{_roic['avg']:.1%}" if _roic["avg"] is not None else "N/A",
-                        f"> {funnel_thresholds['roic_avg_min']:.0%}",
-                        f" · {_roic['years_used']} years used (min {funnel_thresholds['min_history_years']})",
-                    )
-                    _fcfm = dbg_funnel["fcf_margin_avg"]
-                    _leg_row(
-                        "10-yr Avg FCF Margin", dbg_funnel["fcf_margin_pass"],
-                        f"{_fcfm['avg']:.1%}" if _fcfm["avg"] is not None else "N/A",
-                        f"> {funnel_thresholds['fcf_margin_avg_min']:.0%}",
-                        f" · {_fcfm['years_used']} years used (min {funnel_thresholds['min_history_years']})",
-                    )
-                    _dni  = dbg_funnel["debt_to_ni"]
-                    _dcads = dbg_funnel["debt_to_cads"]
-                    _leg_row(
-                        "Debt Hurdle (either)", dbg_funnel["debt_pass"],
-                        f"Debt/NI {f'{_dni:.1f}x' if _dni is not None else 'N/A'} · "
-                        f"Debt/CADS {f'{_dcads:.1f}x' if _dcads is not None else 'N/A'}",
-                        f"either < {funnel_thresholds['debt_to_ni_max']:.1f}x / {funnel_thresholds['debt_to_cads_max']:.1f}x",
-                        f" · cleared: {dbg_funnel['debt_hurdle_cleared']}",
-                    )
-                    _dil = dbg_funnel["dilution"]
-                    _dil_pct = _dil.get("pct_change")
-                    _dil_pct_str = f"{_dil_pct:+.1%}" if _dil_pct is not None else "N/A"
-                    _leg_row(
-                        "No Dilution", dbg_funnel["dilution_pass"],
-                        f"shares chg {_dil_pct_str} over {_dil['years_compared'] or '?'}y",
-                        f"≤ 0% over {funnel_thresholds['dilution_lookback_years']}y",
-                    )
+                    if dbg_subtype in ("bank", "insurance"):
+                        # ── Bank/Insurer alt framework (#36) ────────────
+                        dbg_funnel = evaluate_financial_firm_funnel(dbg_facts, dbg_subtype)
+                        dbg_score, dbg_criteria = score_financial_firm_breakdown(dbg_latest, dbg_subtype)
 
-                    st.markdown("#### Raw History Depth (validates the tag-merge fix — should NOT be truncated for a long-tenured filer)")
-                    _hist_rows = []
-                    for field in ["roic", "fcf_margin", "revenue", "net_income", "diluted_shares"]:
-                        h = dbg_history.get(field, [])
-                        _hist_rows.append({
-                            "Field": field,
-                            "Years of History": len(h),
-                            "Earliest": h[0]["period"] if h else "N/A",
-                            "Latest": h[-1]["period"] if h else "N/A",
-                        })
-                    st.dataframe(pd.DataFrame(_hist_rows), hide_index=True, use_container_width=True)
+                        overall_icon = "✅" if dbg_funnel["overall_passed"] else "❌"
+                        _subtype_label = "🏦 Bank" if dbg_subtype == "bank" else "🛡️ Insurer"
+                        st.markdown(f"### {overall_icon} {dbg_meta.get('company_name', dbg_ticker)} ({dbg_ticker})")
+                        _tag_bits = [f"{_subtype_label} — alt scoring framework (#36)"]
+                        if dbg_funnel["limited_history"]: _tag_bits.append(f"📏 Limited history ({dbg_funnel['years_used']}y)")
+                        st.caption(" · ".join(_tag_bits))
+                        if dbg_score is not None:
+                            st.metric("Alt framework score", f"{dbg_score}/100")
 
-                    with st.expander("Full ROIC + FCF Margin history (year by year)"):
-                        _yr_col1, _yr_col2 = st.columns(2)
-                        with _yr_col1:
-                            st.caption("ROIC")
-                            st.dataframe(pd.DataFrame(dbg_history.get("roic", [])), hide_index=True, use_container_width=True)
-                        with _yr_col2:
-                            st.caption("FCF Margin")
-                            st.dataframe(pd.DataFrame(dbg_history.get("fcf_margin", [])), hide_index=True, use_container_width=True)
+                        st.markdown("#### Checklist Legs (bank/insurer framework)")
+                        _roe = dbg_funnel["roe_avg"]
+                        _leg_row(
+                            "10-yr Avg ROE", dbg_funnel["roe_pass"],
+                            f"{_roe['avg']:.1%}" if _roe["avg"] is not None else "N/A",
+                            "> 10%",
+                            f" · {_roe['years_used']} years used (min 5)",
+                        )
+                        _qv = dbg_funnel["quality_value"]
+                        _qv_str = f"{_qv:.1%}" if _qv is not None else "N/A"
+                        _q_rule = "≤ 70% (efficiency ratio)" if dbg_subtype == "bank" else "≤ 100% (10-yr avg combined ratio)"
+                        _leg_row(f"Quality leg ({dbg_funnel['quality_leg']})", dbg_funnel["quality_pass"], _qv_str, _q_rule)
+                        _cap = dbg_funnel["capital_ratio"]
+                        _leg_row(
+                            "Capital cushion (Equity / Assets)", dbg_funnel["capital_pass"],
+                            f"{_cap:.1%}" if _cap is not None else "N/A", "≥ 6%",
+                        )
+                        _dil = dbg_funnel["dilution"]
+                        _dil_pct = _dil.get("pct_change")
+                        _dil_pct_str = f"{_dil_pct:+.1%}" if _dil_pct is not None else "N/A"
+                        _leg_row(
+                            "No Dilution", dbg_funnel["dilution_pass"],
+                            f"shares chg {_dil_pct_str} over {_dil['years_compared'] or '?'}y",
+                            "≤ 0% over 5y",
+                        )
+
+                        if dbg_criteria:
+                            st.markdown("#### Score Breakdown")
+                            st.dataframe(pd.DataFrame(dbg_criteria), hide_index=True, use_container_width=True)
+
+                        st.markdown("#### Raw History Depth (bank/insurer fields)")
+                        _fin_hist_fields = ["roe", "equity_to_assets", "nim_proxy", "efficiency_ratio",
+                                             "provision_to_ni", "combined_ratio", "diluted_shares"]
+                        _hist_rows = []
+                        for field in _fin_hist_fields:
+                            h = dbg_history.get(field, [])
+                            _hist_rows.append({
+                                "Field": field,
+                                "Years of History": len(h),
+                                "Earliest": h[0]["period"] if h else "N/A",
+                                "Latest": h[-1]["period"] if h else "N/A",
+                            })
+                        st.dataframe(pd.DataFrame(_hist_rows), hide_index=True, use_container_width=True)
+
+                    else:
+                        dbg_funnel = evaluate_buffett_funnel(dbg_facts, funnel_thresholds)
+
+                        overall_icon = "✅" if dbg_funnel["overall_passed"] else "❌"
+                        st.markdown(f"### {overall_icon} {dbg_meta.get('company_name', dbg_ticker)} ({dbg_ticker})")
+                        _tag_bits = []
+                        if dbg_meta.get("is_financial"):
+                            _fin_label = {"other_financial": "🏦 Financial firm (broker/REIT/real estate — no alt scoring yet)"}.get(dbg_subtype, "🏦 Financial firm")
+                            _tag_bits.append(_fin_label)
+                        if dbg_meta.get("is_cyclical"):  _tag_bits.append("⚠️ Cyclical")
+                        if dbg_latest.get("is_negative_equity"): _tag_bits.append("📊 Negative Equity")
+                        if dbg_funnel["limited_history"]: _tag_bits.append(f"📏 Limited history ({dbg_funnel['years_used']}y)")
+                        if dbg_funnel["roic_stale"]:
+                            _tag_bits.append(f"🕰️ Stale ROIC (last reliable: {dbg_funnel['roic_last_reliable_period']}, {dbg_funnel['roic_stale_years']}y old)")
+                        if _tag_bits:
+                            st.caption(" · ".join(_tag_bits))
+
+                        st.markdown("#### Checklist Legs")
+                        _roic = dbg_funnel["roic_avg"]
+                        _leg_row(
+                            "10-yr Avg ROIC", dbg_funnel["roic_pass"],
+                            f"{_roic['avg']:.1%}" if _roic["avg"] is not None else "N/A",
+                            f"> {funnel_thresholds['roic_avg_min']:.0%}",
+                            f" · {_roic['years_used']} years used (min {funnel_thresholds['min_history_years']})",
+                        )
+                        _fcfm = dbg_funnel["fcf_margin_avg"]
+                        _leg_row(
+                            "10-yr Avg FCF Margin", dbg_funnel["fcf_margin_pass"],
+                            f"{_fcfm['avg']:.1%}" if _fcfm["avg"] is not None else "N/A",
+                            f"> {funnel_thresholds['fcf_margin_avg_min']:.0%}",
+                            f" · {_fcfm['years_used']} years used (min {funnel_thresholds['min_history_years']})",
+                        )
+                        _dni  = dbg_funnel["debt_to_ni"]
+                        _dcads = dbg_funnel["debt_to_cads"]
+                        _leg_row(
+                            "Debt Hurdle (either)", dbg_funnel["debt_pass"],
+                            f"Debt/NI {f'{_dni:.1f}x' if _dni is not None else 'N/A'} · "
+                            f"Debt/CADS {f'{_dcads:.1f}x' if _dcads is not None else 'N/A'}",
+                            f"either < {funnel_thresholds['debt_to_ni_max']:.1f}x / {funnel_thresholds['debt_to_cads_max']:.1f}x",
+                            f" · cleared: {dbg_funnel['debt_hurdle_cleared']}",
+                        )
+                        _dil = dbg_funnel["dilution"]
+                        _dil_pct = _dil.get("pct_change")
+                        _dil_pct_str = f"{_dil_pct:+.1%}" if _dil_pct is not None else "N/A"
+                        _leg_row(
+                            "No Dilution", dbg_funnel["dilution_pass"],
+                            f"shares chg {_dil_pct_str} over {_dil['years_compared'] or '?'}y",
+                            f"≤ 0% over {funnel_thresholds['dilution_lookback_years']}y",
+                        )
+
+                        st.markdown("#### Raw History Depth (validates the tag-merge fix — should NOT be truncated for a long-tenured filer)")
+                        _hist_rows = []
+                        for field in ["roic", "fcf_margin", "revenue", "net_income", "diluted_shares"]:
+                            h = dbg_history.get(field, [])
+                            _hist_rows.append({
+                                "Field": field,
+                                "Years of History": len(h),
+                                "Earliest": h[0]["period"] if h else "N/A",
+                                "Latest": h[-1]["period"] if h else "N/A",
+                            })
+                        st.dataframe(pd.DataFrame(_hist_rows), hide_index=True, use_container_width=True)
+
+                        with st.expander("Full ROIC + FCF Margin history (year by year)"):
+                            _yr_col1, _yr_col2 = st.columns(2)
+                            with _yr_col1:
+                                st.caption("ROIC")
+                                st.dataframe(pd.DataFrame(dbg_history.get("roic", [])), hide_index=True, use_container_width=True)
+                            with _yr_col2:
+                                st.caption("FCF Margin")
+                                st.dataframe(pd.DataFrame(dbg_history.get("fcf_margin", [])), hide_index=True, use_container_width=True)
 
 st.markdown("#### Ticker Universe")
 universe_choice = st.radio(
@@ -1040,8 +1208,14 @@ col1, col2, col3 = st.columns(3)
 with col1:
     top_n = st.number_input("Top results to show", min_value=5, max_value=50, value=15, step=5)
 with col2:
-    skip_financials = st.checkbox("Skip financial firms (banks/insurers)", value=True,
-                                   help="Financial firms use different balance sheet structures — flagged via SIC code.")
+    skip_financials = st.checkbox("Skip brokers/REITs/real estate/other financials", value=True,
+                                   help="Banks and insurers (#36) now run through their own alt scoring "
+                                        "framework — ROE, efficiency ratio or combined ratio, capital "
+                                        "cushion, dilution — instead of being excluded. This toggle now "
+                                        "only excludes financial SIC codes that don't have an alt "
+                                        "framework yet: brokers, REITs, real estate, investment offices. "
+                                        "Their balance sheets need their own metric sets (AUM-based, "
+                                        "FFO-based) not built yet.")
     flag_cyclicals  = st.checkbox("Flag cyclical firms", value=True,
                                    help="Cyclicals aren't excluded, just badged ⚠️ on their result card — a "
                                         "10-yr average still leans on wherever the cycle currently sits.")
@@ -1559,7 +1733,12 @@ if 'ms_edgar_results_df' in st.session_state:
                 st.markdown(f"**{ticker}**")
                 st.caption(row.get('name', ''))
                 st.caption(row.get('sub_industry') or row.get('sector', ''))
+                _fin_subtype = row.get('financial_subtype')
                 _badges = []
+                if _fin_subtype == "bank":
+                    _badges.append(f"🏦 Bank — alt score {row.get('financial_score', 'N/A')}/100")
+                elif _fin_subtype == "insurance":
+                    _badges.append(f"🛡️ Insurer — alt score {row.get('financial_score', 'N/A')}/100")
                 if row.get('is_cyclical') and flag_cyclicals: _badges.append("⚠️ Cyclical")
                 if row.get('is_negative_equity'):
                     _badges.append("📊 Negative Equity")
@@ -1569,6 +1748,13 @@ if 'ms_edgar_results_df' in st.session_state:
                     _badges.append(f"🕰️ Stale ROIC (last reliable: {row.get('roic_last_reliable_period','?')}, {row.get('roic_stale_years','?')}y old)")
                 if _badges:
                     st.caption(" · ".join(_badges))
+                if _fin_subtype in ("bank", "insurance"):
+                    _q_label = "Efficiency Ratio" if _fin_subtype == "bank" else "Combined Ratio (10yr avg)"
+                    st.caption(
+                        f"ROE (10yr avg): {fmt(row.get('roe_avg'), 'pct')} · "
+                        f"{_q_label}: {fmt(row.get('quality_value'), 'pct')} · "
+                        f"Equity/Assets: {fmt(row.get('capital_ratio'), 'pct')}"
+                    )
             with c3: st.metric("ROIC (10yr avg)",      fmt(row.get('roic_avg'), "pct"),
                                 help=f"{row.get('roic_avg_years','?')} years of history used")
             with c4: st.metric("FCF Margin (10yr avg)", fmt(row.get('fcf_margin_avg'), "pct"),
@@ -1623,12 +1809,14 @@ if 'ms_edgar_results_df' in st.session_state:
 
     st.markdown("### 💾 Export Results")
     _export_cols = ['ticker','name','sector','industry','sub_industry',
+                     'financial_subtype','financial_score','roe_avg','quality_leg','quality_value','capital_ratio',
                      'roic_avg','roic_avg_years','fcf_margin_avg','fcf_margin_avg_years',
                      'debt_to_ni','debt_to_cads','debt_hurdle_cleared',
                      'dilution_passed','dilution_pct_change','limited_history','funnel_years_used',
                      'is_cyclical','is_negative_equity','roic_stale','roic_stale_years','roic_last_reliable_period',
                      'fcf_yield','price_owner_earn','dividend_yield','price','market_cap']
     _export_names = ['Ticker','Name','Sector','Industry','Sub-Industry',
+                      'Financial Subtype','Financial Alt Score','ROE (10yr avg)','Quality Leg','Quality Value','Equity/Assets',
                       'ROIC (10yr avg)','ROIC Years Used','FCF Margin (10yr avg)','FCF Margin Years Used',
                       'Debt/Net Income','Debt/CADS','Debt Hurdle Cleared',
                       'Dilution Passed','Shares Chg (5yr)','Limited History','Funnel Years Used',

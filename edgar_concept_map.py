@@ -202,6 +202,58 @@ CONCEPT_MAP = {
         "PropertyPlantAndEquipmentNet",
     ],
 
+    # ── Financial Firm Metrics (banks/insurers) — punch list #36 ──────────────
+    # Standard FCF/ROIC/Gross-Margin/Debt-FCF metrics above don't describe a
+    # bank or insurer's business model (their "inventory" is money; leverage
+    # is the business, not something to penalize). These raw fields feed a
+    # separate scoring path — evaluate_financial_firm_funnel() and
+    # score_financial_firm_breakdown() in sec_utils.py — used only for
+    # tickers classified as "bank" or "insurance" via classify_financial_
+    # subtype() below. Every tag here was verified against real filings
+    # (JPMorgan Chase CIK 0000019617, Progressive Corp CIK 0000080661) before
+    # being added, not guessed from the XBRL taxonomy docs alone.
+
+    "interest_income": [
+        # Bank tag: total interest + dividend income on loans/securities/etc.
+        "InterestAndDividendIncomeOperating",
+        "InterestIncomeOperating",
+        "InterestAndFeeIncomeLoansAndLeases",
+    ],
+
+    "noninterest_income": [
+        "NoninterestIncome",
+    ],
+
+    "noninterest_expense": [
+        "NoninterestExpense",
+    ],
+
+    "provision_credit_losses": [
+        "ProvisionForLoanLeaseAndOtherLosses",
+        "ProvisionForLoanAndLeaseLosses",
+        # CECL-era tag (post-2020 for most bank filers)
+        "ProvisionForCreditLossExpenseReversal",
+        # Non-bank fallback (older filers, finance subsidiaries)
+        "ProvisionForDoubtfulAccounts",
+    ],
+
+    "premiums_earned": [
+        "PremiumsEarnedNetPropertyAndCasualty",
+        "PremiumsEarnedNet",
+    ],
+
+    "policyholder_benefits": [
+        "PolicyholderBenefitsAndClaimsIncurredNet",
+        "PolicyholderBenefitsAndClaimsIncurredGross",
+        "IncurredClaimsPropertyCasualtyAndLiability",
+    ],
+
+    "underwriting_expenses": [
+        "OtherUnderwritingExpense",
+        "PolicyAcquisitionCostsAndOtherInsuranceExpense",
+        "AmortizationOfDeferredPolicyAcquisitionCosts",
+    ],
+
 }
 
 
@@ -218,6 +270,19 @@ DERIVED_FIELDS = {
     "int_coverage":  "op_income / interest_paid  (or interest_expense as fallback)",
     "owner_earn":    "net_income + dna - capex  (Buffett definition)",
     "net_debt":      "long_term_debt + short_term_debt - cash",
+    # ── Financial firm derived fields (#36) — computed only for bank/insurer
+    # subtypes, in place of the metrics above which don't apply to them.
+    "roe":              "net_income / total_equity",
+    "equity_to_assets": "total_equity / total_assets  (capital cushion / leverage proxy)",
+    "net_interest_income": "interest_income - interest_expense",
+    "nim_proxy":        "net_interest_income / total_assets  (proxy — EDGAR has no "
+                         "'average earning assets' tag, so total assets stands in; "
+                         "labeled as an approximation everywhere it's shown)",
+    "efficiency_ratio": "noninterest_expense / (net_interest_income + noninterest_income)  "
+                         "(bank cost discipline — lower is better)",
+    "provision_to_ni":  "provision_credit_losses / net_income  (credit cost as a share of earnings)",
+    "combined_ratio":   "(policyholder_benefits + underwriting_expenses) / premiums_earned  "
+                         "(insurer underwriting profitability — under 100% = underwriting profit)",
 }
 
 
@@ -243,6 +308,54 @@ FINANCIAL_SIC_CODES = {
     "6726",                  # Investment offices (holding companies)
     "6798",                  # REITs
 }
+
+
+# ── Financial firm subtypes — banks & insurers ─────────────────────────────
+# Subsets of FINANCIAL_SIC_CODES with an alternative scoring path actually
+# built (#36 v1, scoped to Buffett/Berkshire's own playbook — banks and
+# insurers). Other financial SIC codes above (brokers, real estate,
+# investment offices, REITs) are still flagged is_financial=True and still
+# respect the Market Screener "skip financial firms" toggle, but don't get
+# an alt score yet — each needs its own metric set (AUM-based for brokers,
+# FFO for REITs) not built here. Revisit as a future punch list item if
+# wanted.
+
+BANK_SIC_CODES = {
+    "6020", "6021", "6022",  # State & national commercial banks
+    "6035", "6036",          # Savings institutions
+    "6099",                  # Functions related to depository banking
+    "6110", "6120", "6141",  # Personal/mortgage/consumer credit
+    "6153", "6159",          # Short-term business credit
+    "6199",                  # Finance services
+}
+
+INSURANCE_SIC_CODES = {
+    "6311", "6321", "6324",  # Insurance carriers
+    "6331", "6351", "6361",  # Fire, marine, casualty insurance
+    "6411",                  # Insurance agents
+}
+
+
+def classify_financial_subtype(sic: str):
+    """
+    Returns "bank", "insurance", "other_financial", or None (not a
+    financial firm at all) for a given 4-digit SIC code string.
+
+    "other_financial" covers brokers, real estate, investment offices, and
+    REITs — is_financial is True for these but there's no alt scoring path
+    for them yet, so callers should fall back to the existing skip/exclude
+    behavior rather than trying to score them under the bank or insurer
+    framework (neither fits).
+    """
+    if not sic:
+        return None
+    if sic in BANK_SIC_CODES:
+        return "bank"
+    if sic in INSURANCE_SIC_CODES:
+        return "insurance"
+    if sic in FINANCIAL_SIC_CODES:
+        return "other_financial"
+    return None
 
 
 # ── Cyclical firm SIC codes ───────────────────────────────────────────────────
