@@ -85,8 +85,7 @@ with st.sidebar:
     # before the login tab is even open.
     #
     # Deep-links into Claude Desktop (#74) — claude://cowork/new opens a
-    # new Cowork session with a prefilled prompt and an attached folder.
-    # Support doc:
+    # new Cowork session with a prefilled prompt. Support doc:
     # https://support.claude.com/en/articles/14729294-open-claude-desktop-with-a-link
     _ms_refresh_prompt = (
         "Refresh Morgan Stanley data for Voskuil FP 1.0. "
@@ -109,17 +108,20 @@ with st.sidebar:
         "commit and push. Report back when done. See SESSION_NOTES.md in "
         "the repo for the exact workflow and gotchas from last time -- "
         "e.g. the Realized G/L year dropdown is a native <select> that "
-        "needs a JS value change, not clicks."
+        "needs a JS value change, not clicks. You'll need access to my "
+        "Downloads folder (~/Downloads) at some point to pick up the "
+        "downloaded files -- request it whenever it's convenient, no need "
+        "to do that before opening the MS Online tab."
     )
-    # NOTE: this hardcodes the owner's actual Mac path rather than using
-    # Path.home() -- this code executes server-side on Streamlit Cloud, so
-    # Path.home() would resolve to the *server's* home directory, not the
-    # user's Mac, even though the "folder" param needs to name a path on
-    # whatever machine actually opens the claude:// link (the user's Mac).
-    _ms_refresh_url = (
-        "claude://cowork/new?q=" + quote(_ms_refresh_prompt)
-        + "&folder=" + quote("/Users/JohnV/Downloads")
-    )
+    # Deliberately NOT passing folder=/Users/JohnV/Downloads here. Claude
+    # Desktop's "Another app attached '<folder>'" confirmation dialog for
+    # the folder param clears the prefilled composer text when you click
+    # Continue -- confirmed live: text was visible behind the dialog, then
+    # gone after confirming. The folder attach isn't worth losing the
+    # prompt over; the prompt itself now asks Claude to request Downloads
+    # access mid-conversation instead (same request_cowork_directory flow
+    # used elsewhere), which doesn't have this bug.
+    _ms_refresh_url = "claude://cowork/new?q=" + quote(_ms_refresh_prompt)
     # A raw <a href="claude://..."> click, rather than st.link_button
     # (which opens links via window.open()), turned out to matter here:
     # window.open()'s handoff to the OS for non-http(s) schemes is
@@ -141,8 +143,8 @@ with st.sidebar:
         "1) Your browser asks permission to open Claude Desktop — click Allow. "
         "2) Claude opens with the task already typed in — **you still have to press "
         "Enter/click Send yourself, it won't run on its own.** "
-        "3) Once sent, it opens the MS Online login page, you log in and tell Claude, "
-        "and the rest runs on its own."
+        "3) It'll open the MS Online login page and may ask for Downloads folder "
+        "access — approve both, log in, tell Claude, and the rest runs on its own."
     )
 
     with st.expander("Manual fallback (no Claude)"):

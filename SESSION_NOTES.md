@@ -346,3 +346,30 @@ caption to spell out all 3 steps explicitly, including "you still have to press 
 yourself, it won't run on its own" in bold.
 
 Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 note updated again).
+
+---
+
+## Session (cont'd): #74 — real bug found via screenshot: folder= param clears the composer
+
+Third live test, and this time the owner sent a screenshot, which made the actual bug obvious
+immediately instead of requiring more guessing: a "Another app attached 'Downloads'" confirmation
+dialog (Claude Desktop's built-in confirmation for the `folder=` deep-link parameter) appeared
+directly on top of the correctly-prefilled composer. Clicking **Continue** to approve the folder
+attach cleared the composer text entirely — nothing left to send. The prefill itself had been
+working the whole time (visible behind the dialog in the screenshot); the folder-attach
+confirmation flow just has a side effect of wiping it when confirmed.
+
+Fix: dropped `folder=` from the deep link entirely. The URL is now just
+`claude://cowork/new?q=<prompt>` — no folder attach, no confirmation dialog, nothing to clear the
+composer. The prompt text itself now tells Claude to request Downloads folder access
+mid-conversation instead (the same `request_cowork_directory` flow already used elsewhere this
+session) — that happens *after* the message is already sent, so it can't clobber anything.
+
+**Pattern worth remembering:** a screenshot cut straight through two rounds of "sounds
+plausible" theorizing (cold-start deep-link bugs, composer-not-submitted, etc.) that were
+reasonable guesses but wrong. When a user reports "it doesn't work" and text is involved, ask to
+see it rather than reasoning from a text description alone if there's any ambiguity — this is
+the second time this exact "just ask/look before touching code again" instinct paid off in this
+session (the first being the "nothing ran" report that turned out to be an unsent message).
+
+Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 note updated again).
