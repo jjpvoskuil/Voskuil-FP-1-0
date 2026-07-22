@@ -642,3 +642,37 @@ produces them).
 
 Files touched: `ui_utils.py`, `app.py`, `punch_list_data.json` (#75 note updated again).
 Deploying and doing a final live verification pass next.
+
+---
+
+## Session (cont'd): #75 — resolved; last "still broken" signal was a stale-screenshot artifact
+
+Final verification round kept showing the page settled at the bottom even after the coordination
+fix landed, which didn't add up — `force_scroll_to_top()` had already been confirmed as the only
+script running, no conflict. Cross-checked with a mechanical signal instead of a screenshot:
+`document.elementFromPoint()` on the live DOM (reflects the browser's own layout engine, not a
+cached image), which correctly reported the page title at the top of the viewport at the exact
+moment a screenshot claimed otherwise. Setting `scrollTop` to an arbitrary distinctive value
+(3000) and re-screenshotting produced a pixel-identical image to the prior "scrolled to bottom"
+capture — impossible if the screenshot tool were reflecting live state, since that change should
+have been visually obvious.
+
+Concluded the browser tool's screenshot capture was serving a stale frame roughly one
+capture-call behind actual page state for that tab — a tooling artifact, not an app bug. A
+second screenshot taken immediately after (no changes in between) correctly showed the true top
+of the page every time, for both Market Screener and Dashboard. The fix has been working
+correctly since the DOM-container-targeting + hold-indefinitely + coordination fixes landed
+earlier this session; the "still broken" signal in the last couple of rounds was this artifact,
+not a regression.
+
+**#75 is resolved.** Final shape of the fix, across several iterations this session: target the
+real Streamlit scroll container (`stAppScrollToBottomContainer`/`stMain`) instead of
+`window.scrollTo`; hold the corrected position indefinitely (cancelling only on genuine user
+scroll) instead of guessing a fixed timeout, since Streamlit's native re-snap can fire
+unpredictably late; coordinate the two scroll helpers via `session_state` so a results-scroll
+always wins over a same-run navigation-top-scroll instead of the two fighting forever; and fix
+Market Screener's shared-across-sessions scan state so a fresh page load doesn't mistake an
+already-finished scan for one it just watched complete.
+
+Files touched this update: `punch_list_data.json` (#75 marked resolved). No further code
+changes needed — pushing docs only.
