@@ -54,5 +54,11 @@ st.session_state["_last_page_key"] = _current_page_key
 
 pg.run()
 
-if _navigated:
+# If the page itself just triggered a results-anchor scroll on this same
+# run (e.g. arriving here via navigation right as a background scan
+# finishes ingesting), let that win instead of also forcing the literal
+# page top -- see scroll_to_element()'s docstring in ui_utils.py for why
+# running both at once would fight forever instead of settling anywhere.
+_page_scrolled_to_results = st.session_state.pop("_scroll_to_element_fired", False)
+if _navigated and not _page_scrolled_to_results:
     force_scroll_to_top()

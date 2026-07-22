@@ -613,3 +613,32 @@ re-testing the exact page/scenario the user named after each fix, not just decla
 
 Files touched: `app_pages/8_Market_Screener_EDGAR.py`, `punch_list_data.json` (#75 note updated
 again). Deploying and verifying live next.
+
+---
+
+## Session (cont'd): #75 — actual root cause found: our own two scroll fixes fighting each other
+
+Re-tested Market Screener after the "watched_active_scan" fix and it still oscillated between top
+and bottom instead of settling — a fresh JS poll showed `scrollTop` correctly at 0 with the page
+title visible one instant, then a screenshot moments later showed results-section content
+instead, over and over.
+
+Root cause, finally isolated: on any run where a genuine navigation happens AND the page's own
+script triggers `scroll_to_element()` for freshly-ingested results in that same run (e.g.
+arriving at Market Screener right as a long-running background scan finishes), `app.py`'s
+`force_scroll_to_top()` and the page's `scroll_to_element()` both fire — each starting its own
+indefinite hold-until-user-scrolls correction loop, targeting two different positions (absolute
+top vs. the results anchor). Neither loop knew about the other, so they fought forever, each
+overwriting the other's correction on every tick. This was a bug entirely of our own making —
+the "hold indefinitely" design from the last two fixes, stacked on top of each other, not any
+further Streamlit platform quirk.
+
+Fixed with simple Python-side coordination: `scroll_to_element()` now also sets
+`st.session_state['_scroll_to_element_fired']`; `app.py` reads and clears that flag right after
+`pg.run()` and skips its own `force_scroll_to_top()` call if it's set — so results-scroll always
+wins over navigation-top-scroll when both would otherwise apply on the same run, matching what
+the user actually wants (see the results, not the literal page top, right after an action
+produces them).
+
+Files touched: `ui_utils.py`, `app.py`, `punch_list_data.json` (#75 note updated again).
+Deploying and doing a final live verification pass next.

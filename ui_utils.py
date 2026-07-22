@@ -55,6 +55,7 @@ the current render of the page does, and backs off immediately the
 moment the user actually wants to scroll.
 """
 
+import streamlit as st
 import streamlit.components.v1 as components
 
 # Shared JS: locate the real scrolling container inside the app's own
@@ -137,7 +138,22 @@ def scroll_to_element(anchor_id: str):
     re-applying scrollIntoView() for a fixed window (in case content above
     the anchor is still growing and shifting its position), but backs off
     immediately if the user manually scrolls.
+
+    Also sets st.session_state['_scroll_to_element_fired'] -- app.py reads
+    (and clears) this after the page script finishes to decide whether to
+    ALSO call force_scroll_to_top() for a navigation that happened on the
+    same run. Both functions hold their target indefinitely once fired
+    (see module docstring), so if a genuine navigation and a "results just
+    landed" event coincide on the same run -- e.g. arriving at Market
+    Screener while a background scan happens to finish ingesting on that
+    exact run -- calling both would mean two independent corrective loops
+    permanently fighting each other over two different scroll targets,
+    producing a visible flicker between them forever. The results scroll
+    wins in that case (matching what the user actually asked for: see the
+    top of the results, not the literal top of the page), so app.py skips
+    its own top-scroll whenever this fired first.
     """
+    st.session_state["_scroll_to_element_fired"] = True
     components.html(
         f"""<script>
         {_GET_SCROLL_CONTAINER_JS}
