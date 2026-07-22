@@ -701,3 +701,24 @@ the right spot, no matter how long Streamlit's own native behavior takes to fire
 Files touched: `ui_utils.py`, `app.py`, `punch_list_data.json` (#75 note updated again).
 py_compile clean; AppTest confirms all pages still load without exception. Deploying and
 verifying live next.
+
+---
+
+## Session (cont'd): #75 — Dashboard still bouncing a couple times before settling
+
+Market Screener confirmed clean, but Dashboard still visibly scrolled up and down a couple times
+before settling, even with the hide-until-corrected mechanism from the previous fix. Cause:
+Dashboard is heavier (holdings scoring, EDGAR calls, a Plotly donut chart with its own async
+layout pass after mount), so it can trigger Streamlit's native re-snap-to-bottom several times
+right after our first correction — each one a brief, visible bounce, since we were revealing as
+soon as the *first* correction succeeded instead of waiting to see if something would
+immediately re-fight it.
+
+Fixed by requiring the position to hold steady on its own (no re-forcing needed) for 6
+consecutive 100ms checks (~600ms of quiet) while still hidden, in both `force_scroll_to_top()`
+and `scroll_to_element()`, before revealing — so any quick native re-triggers get absorbed and
+corrected invisibly instead of being seen. A 4-second hard cap on hidden duration is a safety
+net in case something never truly stabilizes.
+
+Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). py_compile clean;
+AppTest confirms all pages load without exception. Deploying and verifying live next.
