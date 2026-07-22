@@ -27,14 +27,21 @@ the main content in a special section with
 data-testid="stAppScrollToBottomContainer" that has its OWN overflow-y:
 auto (the document/window itself doesn't scroll at all in this layout).
 That container is a chat-app-style "stick to bottom" widget -- Streamlit's
-own frontend forces it to auto-scroll to the bottom on mount and
-re-asserts that any time content resizes while it thinks the user is "at
-bottom", via an internal polling loop that keeps running for a second or
-two after the page settles. A single corrective scrollTop=0 fired once
-loses that race. Pages without st.chat_input get a plain
-data-testid="stMain" section instead, with no such behavior -- included
-below as a fallback selector so this keeps working if a page's chat_input
-is ever removed.
+own frontend forces it to auto-scroll to the bottom on mount and keeps
+re-asserting that as long as the container's content keeps growing in
+height (e.g. while a page like Dashboard is still fetching/scoring
+holdings and appending elements), via an internal polling loop. Pages
+without st.chat_input get a plain data-testid="stMain" section instead,
+with no such behavior -- included below as a fallback selector so this
+keeps working if a page's chat_input is ever removed.
+
+Because that native behavior keeps re-asserting itself for as long as
+content keeps growing (not a fixed delay), the corrective loops below are
+content-stabilization-based rather than a fixed timeout: keep forcing the
+scroll position on every tick until the container's scrollHeight hasn't
+changed for about a second (i.e. the page has actually finished
+rendering), then stop -- with a generous hard cap as a safety net so a
+page that never truly stabilizes can't pin the scroll position forever.
 """
 
 import streamlit.components.v1 as components
@@ -63,9 +70,10 @@ def force_scroll_to_top():
     scroll position on the real scrolling container (see module docstring
     -- it's a specific inner <section>, not the window/document itself).
     Streamlit's own "scroll chat_input into view on mount" behavior keeps
-    re-asserting itself for a second or two via its own polling loop, so
-    this re-applies scrollTop=0 on an interval for a few seconds rather
-    than firing once, then stops -- after that the user is free to scroll
+    re-asserting itself for as long as page content keeps growing (some
+    pages fetch/score data for several seconds after first paint), so
+    this keeps forcing scrollTop=0 until the container's height has been
+    stable for ~1s, then stops -- after that the user is free to scroll
     wherever they want. height=0 keeps the iframe invisible and out of
     the page's layout.
     """
@@ -73,12 +81,21 @@ def force_scroll_to_top():
         f"""<script>
         {_GET_SCROLL_CONTAINER_JS}
         window.parent.scrollTo(0, 0);
-        var _start = Date.now();
+        var _lastHeight = -1;
+        var _stableTicks = 0;
         var _iv = setInterval(function() {{
             var c = _getScrollContainer();
-            if (c && c.scrollTop !== 0) {{ c.scrollTop = 0; }}
-            if (Date.now() - _start > 3000) {{ clearInterval(_iv); }}
-        }}, 50);
+            if (!c) return;
+            if (c.scrollTop !== 0) {{ c.scrollTop = 0; }}
+            if (c.scrollHeight === _lastHeight) {{
+                _stableTicks++;
+            }} else {{
+                _stableTicks = 0;
+                _lastHeight = c.scrollHeight;
+            }}
+            if (_stableTicks > 10) {{ clearInterval(_iv); }}
+        }}, 100);
+        setTimeout(function() {{ clearInterval(_iv); }}, 15000);
         </script>""",
         height=0,
     )
@@ -104,17 +121,29 @@ def scroll_to_element(anchor_id: str):
     Same re-assertion approach as force_scroll_to_top(): scrollIntoView()
     correctly walks up to the real scrolling container on its own, but a
     single call can still lose the race against Streamlit's own
-    scroll-to-bottom-on-mount behavior on chat_input pages, so this
-    repeats the call for a couple seconds before giving up control.
+    scroll-to-bottom-on-mount behavior on chat_input pages while results
+    are still rendering, so this keeps re-applying it until the results
+    container's height has stabilized.
     """
     components.html(
         f"""<script>
-        var _start = Date.now();
+        {_GET_SCROLL_CONTAINER_JS}
+        var _lastHeight = -1;
+        var _stableTicks = 0;
         var _iv = setInterval(function() {{
             var el = window.parent.document.getElementById("{anchor_id}");
             if (el) {{ el.scrollIntoView({{behavior: "smooth", block: "start"}}); }}
-            if (Date.now() - _start > 2000) {{ clearInterval(_iv); }}
-        }}, 200);
+            var c = _getScrollContainer();
+            var h = c ? c.scrollHeight : -1;
+            if (h === _lastHeight) {{
+                _stableTicks++;
+            }} else {{
+                _stableTicks = 0;
+                _lastHeight = h;
+            }}
+            if (_stableTicks > 10) {{ clearInterval(_iv); }}
+        }}, 100);
+        setTimeout(function() {{ clearInterval(_iv); }}, 15000);
         </script>""",
         height=0,
     )

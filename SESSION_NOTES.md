@@ -512,3 +512,27 @@ checks, the fastest path to ground truth is looking at the live app directly (Cl
 reading the actual frontend bundle) rather than iterating on more Python-side guesses.
 
 Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again).
+
+---
+
+## Session (cont'd): #75 — flat timeout wasn't long enough, switched to stabilization-based
+
+Deployed the stAppScrollToBottomContainer fix and re-checked live via Claude in Chrome — the new
+code WAS running (verified by reading the injected component's srcdoc for the new marker
+strings), but Dashboard still settled scrolled to the bottom on a fresh load.
+
+Root cause of the remaining gap: the first version used a flat 3-second correction window, but
+Dashboard specifically keeps growing in height for longer than that while it fetches/scores
+holdings and appends elements sequentially — Streamlit's native "stick to bottom" behavior keeps
+re-triggering for as long as content keeps growing, not just for a fixed couple of seconds. A
+timeout that's shorter than the page's actual render time hands control back before the page is
+done.
+
+Replaced the fixed timeout in both `force_scroll_to_top()` and `scroll_to_element()` with a
+content-stabilization loop: keep forcing the scroll position on every 100ms tick until the
+container's `scrollHeight` hasn't changed for ~1 second (10 consecutive stable ticks), then stop
+— with a 15s hard cap as a safety net. This adapts to however long each page actually takes to
+render instead of guessing a fixed number.
+
+Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). Re-verifying live
+after this deploy.
