@@ -1,5 +1,10 @@
 import streamlit as st
-from ui_utils import force_scroll_to_top, hide_main_for_scroll_fix, mark_render_complete
+from ui_utils import (
+    force_scroll_to_top,
+    hide_main_for_scroll_fix,
+    install_instant_nav_hide,
+    mark_render_complete,
+)
 
 # ── Initialize user profile defaults at app startup ──────────────────────
 # These are overwritten when the Financial Modeler page is visited.
@@ -52,12 +57,22 @@ _current_page_key = pg.url_path
 _navigated = st.session_state.get("_last_page_key") != _current_page_key
 st.session_state["_last_page_key"] = _current_page_key
 
-# Hide the main content the instant it exists, before the page script
-# even runs -- Streamlit's own auto-scroll-to-bottom behavior (see
-# ui_utils.py) paints before our corrective JS gets a chance to run
-# otherwise, producing a visible "lands at bottom, jumps to top" flash.
-# Whichever of force_scroll_to_top()/scroll_to_element() ends up firing
-# below is responsible for revealing it again once corrected.
+# Primary hide trigger: a client-side click listener that hides the
+# instant a sidebar nav link is clicked, before Streamlit's own routing
+# starts and with no server round-trip -- see install_instant_nav_hide()
+# docstring in ui_utils.py for why the alternative (a server-sent CSS
+# delta, however early in script order) turned out not to be reliably
+# fast enough on a real connection. Called every run, unconditionally --
+# cheap, and it only actually attaches its listener once per session.
+install_instant_nav_hide()
+
+# Secondary/fallback hide trigger for navigations that don't go through
+# a sidebar click (browser back/forward, a deep link) -- same latency
+# caveat as before applies here, but it's a much rarer path than a
+# direct nav-link click. Whichever of force_scroll_to_top()/
+# scroll_to_element() ends up firing below is responsible for revealing
+# it again once corrected, regardless of which of the two hide triggers
+# (if either) actually fired for this run.
 if _navigated:
     hide_main_for_scroll_fix()
 

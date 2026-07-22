@@ -107,6 +107,35 @@ container's scrollHeight, not just on scroll corrections -- a late
 Plotly chart layout pass can keep resizing the container for a bit after
 its DOM node lands without necessarily provoking a scroll event in
 between, and that's still "not actually settled yet."
+
+STILL not fixed for real for this specific user (confirmed by a second,
+independent recording after the above shipped -- the bounce got
+*longer*, not shorter). Root-caused for real this time with a
+millisecond-resolution trace captured directly in their own browser
+console (see dashboard_scroll_diagnostic_v2.js, a one-off diagnostic
+script, not part of the app): the hide <style> tag inserted by
+hide_main_for_scroll_fix() -- sent as the very first delta of the run,
+before pg.run() even starts -- was not actually taking visible effect
+in their browser until ~800ms AFTER the new page's content had already
+started rendering and growing on screen (container height climbing from
+877 -> 7066 while still measured "visible"). Being first in Python
+script order guarantees nothing about when the browser actually APPLIES
+a given delta relative to later ones -- delivery/paint timing over a
+real connection is not the same thing as script order, and every prior
+round of this fix assumed it was.
+
+Fixed by no longer waiting on the server for the hide trigger at all.
+install_instant_nav_hide() attaches a capture-phase click listener
+directly on the persistent parent document (not torn down between
+Streamlit reruns, unlike this function's own iframe) that fires the
+instant a sidebar nav link is clicked -- before Streamlit's own routing
+even begins, with zero server round-trip. The reveal side is unchanged
+(still the marker + quiet + height-stability gate above), so the only
+thing that moved is WHEN hiding starts, from "whenever the server's CSS
+delta happens to get applied" to "synchronously, in the same click
+event". hide_main_for_scroll_fix() is kept as a secondary fallback for
+non-click navigations (browser back/forward, deep links) where there's
+no click to hook.
 """
 
 import streamlit as st
@@ -171,6 +200,14 @@ _MAX_HIDE_MS = 12000
 # applied the right scroll position.
 _HIDE_STYLE_ID = "_ui_scroll_fix_hide"
 
+# Shared class on every hide <style> tag, whichever of the two paths
+# inserted it (server-side hide_main_for_scroll_fix() or the client-side
+# instant-hide click listener below) -- reveal removes ALL elements with
+# this class rather than relying on getElementById(), which only ever
+# finds the first match, in case both paths happen to fire for the same
+# navigation and leave two tags with the same id.
+_HIDE_STYLE_CLASS = "_ui_scroll_fix_hide_el"
+
 
 def hide_main_for_scroll_fix():
     """
@@ -194,10 +231,91 @@ def hide_main_for_scroll_fix():
     longer than each function's own hard cap.
     """
     st.markdown(
-        f'<style id="{_HIDE_STYLE_ID}">'
+        f'<style id="{_HIDE_STYLE_ID}" class="{_HIDE_STYLE_CLASS}">'
         '[data-testid="stAppScrollToBottomContainer"], [data-testid="stMain"]'
         " { visibility: hidden !important; } </style>",
         unsafe_allow_html=True,
+    )
+
+
+# Selector for the sidebar's own page links, found by inspecting the
+# live app's DOM: <a data-testid="stSidebarNavLink" href="...">.
+_NAV_LINK_SELECTOR = 'a[data-testid="stSidebarNavLink"]'
+
+
+def install_instant_nav_hide():
+    """
+    Primary hide trigger (see module docstring for why the server-sent
+    CSS approach alone wasn't enough): attaches a capture-phase click
+    listener directly on the persistent parent document -- NOT on
+    anything inside this function's own components.html() iframe, which
+    gets destroyed on every single rerun -- so it fires the instant a
+    sidebar nav link is clicked, before Streamlit's own routing even
+    starts and with zero server round-trip. That's the only way to
+    guarantee hiding happens before the new page's content can be seen
+    rendering, since script order on the Python side says nothing about
+    when the browser actually applies a given delta relative to later
+    ones over a real connection (confirmed directly: a millisecond trace
+    from the affected user's own browser console showed the server-sent
+    hide style not visibly taking effect until ~800ms after the new
+    page's content had already started growing on screen).
+
+    Call this unconditionally, every rerun, from app.py, before pg.run()
+    -- cheap (a few dozen bytes of JS), and idempotent by design: it
+    checks a flag on the parent window so the listener only ever gets
+    attached once per browser session no matter how many times this
+    function itself gets called (once per rerun, since the iframe it
+    runs in is destroyed and recreated each time).
+
+    Skips hiding entirely if the clicked link's path matches the current
+    page (i.e. clicking the already-active page isn't a real navigation)
+    -- mirrors the _navigated check in app.py, just evaluated client-side
+    since there's no time to round-trip to the server first.
+
+    Includes its own independent safety-net timeout that force-removes
+    the hide style after a generous delay regardless of what happens
+    next, in case the page that was about to load never ends up calling
+    force_scroll_to_top()/scroll_to_element() to clean up after itself
+    (e.g. a script error) -- the page can never get stuck invisible.
+    """
+    components.html(
+        f"""<script>
+        (function() {{
+            var doc = window.parent.document;
+            var HIDE_ID = "{_HIDE_STYLE_ID}";
+            var HIDE_CLASS = "{_HIDE_STYLE_CLASS}";
+
+            function insertHide() {{
+                if (doc.querySelector("." + HIDE_CLASS)) return;
+                var style = doc.createElement("style");
+                style.id = HIDE_ID;
+                style.className = HIDE_CLASS;
+                style.textContent =
+                    '[data-testid="stAppScrollToBottomContainer"], '
+                    + '[data-testid="stMain"] {{ visibility: hidden !important; }}';
+                doc.head.appendChild(style);
+                setTimeout(function() {{
+                    doc.querySelectorAll("." + HIDE_CLASS).forEach(function(el) {{ el.remove(); }});
+                }}, {_MAX_HIDE_MS} + 3000);
+            }}
+
+            function onNavClick(e) {{
+                var a = e.target.closest ? e.target.closest('{_NAV_LINK_SELECTOR}') : null;
+                if (!a) return;
+                var url;
+                try {{ url = new URL(a.getAttribute("href"), window.parent.location.href); }}
+                catch (err) {{ return; }}
+                if (url.pathname === window.parent.location.pathname) return;
+                insertHide();
+            }}
+
+            if (!window.parent.__scrollFixNavHideInstalled) {{
+                window.parent.__scrollFixNavHideInstalled = true;
+                doc.addEventListener("click", onNavClick, true);
+            }}
+        }})();
+        </script>""",
+        height=0,
     )
 
 
@@ -228,17 +346,19 @@ def mark_render_complete():
     )
 
 
-# Shared JS: remove the hiding rule installed by hide_main_for_scroll_fix()
-# above, if present. Safe to call even if it was never inserted (e.g. a
-# page calls scroll_to_element() on a run that wasn't a navigation, so
-# app.py never called hide_main_for_scroll_fix()).
+# Shared JS: remove every hiding rule currently installed, whichever path
+# put it there (server-side hide_main_for_scroll_fix() or the client-side
+# instant-hide click listener in install_instant_nav_hide()). Removes ALL
+# matches by class rather than a single getElementById() lookup, in case
+# both paths happened to fire for the same navigation. Safe to call even
+# if nothing was ever inserted (e.g. a page calls scroll_to_element() on
+# a run that wasn't a navigation).
 _REVEAL_JS = """
 function _revealMain() {
     var doc = window.parent.document;
-    var style = doc.getElementById("%s");
-    if (style) { style.remove(); }
+    doc.querySelectorAll(".%s").forEach(function(el) { el.remove(); });
 }
-""" % _HIDE_STYLE_ID
+""" % _HIDE_STYLE_CLASS
 
 
 def force_scroll_to_top():
