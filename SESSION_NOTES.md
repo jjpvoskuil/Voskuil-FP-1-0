@@ -396,3 +396,54 @@ PAT; verified it with the same push+delete-throwaway-branch check used at sessio
 trusting it for further work.
 
 Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 note updated again).
+
+---
+
+## Session (cont'd): #75 — fixed disruptive auto-scroll (nav-only top, action-only results-scroll)
+
+Owner reported pages sometimes auto-scrolling to the bottom, and asked for two things instead:
+navigating to a page should land at the top; clicking an analyze/update-type button should show
+the top of that action's fresh results, with free scrolling afterward (no forced repositioning
+on later interactions).
+
+Root cause: `ui_utils.force_scroll_to_top()` was called unconditionally at the end of every
+script run on 4 pages (Dashboard, Equity Scout EDGAR, Market Screener EDGAR, Compare Stocks
+EDGAR) — so *any* rerun (button click, chat message, sort click, slider drag) yanked the
+viewport back to (0,0), racing against Streamlit's own scroll behavior (e.g. chat input reveal)
+and sometimes losing that race, leaving the user scrolled to the bottom instead. Same root cause
+behind both complaints.
+
+Fix — split into two purpose-built mechanisms in `ui_utils.py`:
+- `force_scroll_to_top()` is now called centrally from `app.py` only, gated on comparing
+  `st.navigation()`'s current page `.url_path` against the last-rendered `url_path` stored in
+  `session_state["_last_page_key"]` — fires once per genuine navigation, never on an in-page
+  rerun. This covers all 8 live pages automatically since it lives in app.py, not per-page.
+- New `scroll_to_element(anchor_id)` scrolls a specific marker element into view instead of the
+  absolute top. Wired into:
+  - **Dashboard**: anchor placed right before the holdings results table; triggered only when
+    `run_scoring` (the "Score All Holdings" button) was truthy *this run*.
+  - **Equity Scout EDGAR**: anchor placed right before the analysis results header; triggered
+    only via a new `_just_analyzed` flag, set `True` only inside the `if analyze and
+    ticker_input:` branch that computes *fresh* results — deliberately distinct from "`_cache_key`
+    in `session_state`" (true on almost every subsequent rerun, which would have wrongly
+    re-triggered the scroll on unrelated interactions like the chat).
+- **Market Screener EDGAR** and **Compare Stocks EDGAR**: removed the `force_scroll_to_top`
+  import and trailing call (stops the disruptive behavior) but did *not* get a dedicated
+  results-anchor in this pass. Market Screener's scan runs via a background-thread/live-polling
+  rerun loop that would need more careful investigation before safely adding a mid-scan anchor
+  trigger. Compare Stocks has no in-page action button (entered via `switch_page` from Market
+  Screener with results computed on load), so the centralized app.py nav-scroll-to-top already
+  covers it correctly as-is.
+
+Verification: `python3 -m py_compile` on all 6 touched files; `streamlit.testing.v1.AppTest`
+confirmed app.py's page-key comparison stays stable across in-page reruns (i.e.
+`force_scroll_to_top` would NOT re-fire on a non-navigation rerun) and that both Dashboard and
+Equity Scout EDGAR load cleanly with their action buttons present and no exceptions.
+
+Scoping note for the owner: Market Screener and Compare Stocks only got the "stop forcing
+scroll" half of the fix, not a dedicated jump-to-results anchor — worth a follow-up pass if
+those pages' results also deserve the auto-scroll-into-view treatment.
+
+Files touched: `ui_utils.py`, `app.py`, `app_pages/0_Dashboard.py`,
+`app_pages/7_Equity_Scout_EDGAR.py`, `app_pages/8_Market_Screener_EDGAR.py`,
+`app_pages/9_Compare_Stocks_EDGAR.py`, `punch_list_data.json` (#75 added).

@@ -1,4 +1,5 @@
 import streamlit as st
+from ui_utils import force_scroll_to_top
 
 # ── Initialize user profile defaults at app startup ──────────────────────
 # These are overwritten when the Financial Modeler page is visited.
@@ -36,4 +37,22 @@ pg = st.navigation([
     # st.Page("app_pages/1_Equity_Scout.py",      title="Equity Scout",         icon="🔍"),   # retired — code kept for reference
     # st.Page("app_pages/2_Market_Screener.py",   title="Market Screener",      icon="📡"),   # retired — code kept for reference
 ])
+
+# ── Scroll to top on page navigation only (#76) ───────────────────────────
+# Streamlit's st.navigation is a single-page-app model -- switching pages
+# does NOT reset browser scroll position on its own the way a traditional
+# multi-page site's full page load would. Previously each page called a
+# scroll-to-top fix unconditionally at the end of its own script, which
+# fired on every single rerun (any button click, chat message, sort
+# click...), not just navigation -- fighting the user's own scrolling.
+# Centralized here instead: compare the page actually being rendered this
+# run against the last one recorded in session_state, and only scroll to
+# top when they differ, i.e. a genuine navigation just happened.
+_current_page_key = pg.url_path
+_navigated = st.session_state.get("_last_page_key") != _current_page_key
+st.session_state["_last_page_key"] = _current_page_key
+
 pg.run()
+
+if _navigated:
+    force_scroll_to_top()

@@ -16,7 +16,6 @@ from sec_utils import (
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
-from ui_utils import force_scroll_to_top
 import concurrent.futures
 
 st.set_page_config(page_title="Market Screener — EDGAR", layout="wide")
@@ -1990,4 +1989,3 @@ else:
     *Fundamentals sourced directly from SEC EDGAR Company Facts API — free, no rate-limit risk at this scale, no third-party normalization layer.*
     """)
 
-force_scroll_to_top()

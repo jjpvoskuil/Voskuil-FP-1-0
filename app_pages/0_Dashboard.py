@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
-from ui_utils import force_scroll_to_top
+from ui_utils import scroll_to_element
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
 from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS
 from github_store import github_get_json, github_put_json
@@ -638,6 +638,12 @@ if df_holdings_raw is not None:
 
     st.divider()
 
+    # Results anchor (#76): scrolled into view below, only on the run
+    # where "Score All Holdings" was actually just clicked -- not on
+    # every later rerun (sorting, chat, etc.), so the user stays free to
+    # scroll wherever they want after that.
+    st.markdown('<div id="ms-scoring-results"></div>', unsafe_allow_html=True)
+
     # ── Build display dataframe ────────────────────────────────────────
     display_df = consolidated.copy()
     display_df['Score_Num'] = display_df['Symbol'].apply(
@@ -800,6 +806,8 @@ if df_holdings_raw is not None:
                 st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")
 
     st.caption("Foreign ADRs and companies without SEC EDGAR filings will show as unscored — see the summary message above for a count.")
+    if run_scoring:
+        scroll_to_element("ms-scoring-results")
     st.divider()
 
     # ── Ask Claude — Portfolio Analysis ───────────────────────────────
@@ -953,4 +961,3 @@ if df_holdings_raw is not None:
             st.session_state["dive_ticker"] = selected_symbol
             st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")
 
-force_scroll_to_top()

@@ -25,7 +25,6 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display
 from claude_utils import ask_claude_about_equity, get_user_profile
-from ui_utils import force_scroll_to_top
 
 st.set_page_config(page_title="Compare Stocks — EDGAR", layout="wide")
 
@@ -491,4 +490,3 @@ if st.session_state.get(cmp_convo_key):
         st.session_state["cmp_filings"]   = {}
         st.rerun()
 
-force_scroll_to_top()

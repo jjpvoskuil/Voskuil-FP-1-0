@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS, score_financial_firm_display
 from claude_utils import ask_claude_about_equity
-from ui_utils import force_scroll_to_top
+from ui_utils import scroll_to_element
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
 
 POLY_URL = "https://api.polygon.io"
@@ -401,7 +401,13 @@ if auto_analyze and url_ticker and not analyze:
 _cache_key = f"es_edgar_results_{ticker_input}" if ticker_input else None
 
 # ── Run analysis — both sources fire on single button click ───────────────────
+# _just_analyzed (#76) tracks whether THIS run is the one that actually
+# computed fresh results, vs. the elif branch below just redisplaying
+# cached results on an unrelated rerun (chat, etc.) -- only the former
+# should scroll the results into view.
+_just_analyzed = False
 if analyze and ticker_input:
+    _just_analyzed = True
     total_weight = sum(st.session_state.get("committed_weights", DEFAULT_WEIGHTS).values())
     if total_weight != 100:
         st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
@@ -462,6 +468,10 @@ elif _cache_key and _cache_key in st.session_state:
 
 # ── Render results ────────────────────────────────────────────────────────────
 if _cache_key and _cache_key in st.session_state:
+
+    st.markdown('<div id="es-analysis-results"></div>', unsafe_allow_html=True)
+    if _just_analyzed:
+        scroll_to_element("es-analysis-results")
 
     st.markdown(f"## {data.get('name', ticker_input)}")
     price_str  = f"${data.get('price', 0) or 0:,.2f} per share" if data.get("price") else "Price unavailable"
@@ -1090,4 +1100,3 @@ else:
     
     """)
 
-force_scroll_to_top()
