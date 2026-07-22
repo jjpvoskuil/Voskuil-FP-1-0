@@ -647,6 +647,15 @@
       "priority": "Medium",
       "done": true,
       "created": "2026-07-22"
+    },
+    {
+      "id": 74,
+      "title": "Add 'Refresh MS Data via Claude' deep-link button to Dashboard sidebar",
+      "note": "Follow-up to #73. Owner asked for a button on the Dashboard page that kicks off the MS data refresh macro, and specifically wanted it to feel like part of the app's workflow rather than switching over to a chat manually. Corrected an important misconception along the way: the DEPLOYED Streamlit Cloud app itself can never drive a real browser or log into Morgan Stanley -- it's a sandboxed server process with no browser of its own and no access to the Claude in Chrome extension (that only exists inside an interactive Claude Desktop/Cowork session on the owner's own machine). A 'Claude agent embedded in the page' doesn't change that -- it would still need either a separate hosted-browser service (new infra, ongoing cost, still needs the owner for MS Online login/MFA) or Plaid (already attempted, see #13 -- MS refused the connection, and even if unblocked Plaid only covers balances/transactions, not Holdings or Realized G/L). Landed on Anthropic's documented claude:// URL scheme instead (support.claude.com/en/articles/14729294): claude://cowork/new?q=...&folder=... opens a new Cowork session in Claude Desktop with a prefilled prompt and an attached folder. Added a 'Refresh MS Data via Claude' st.link_button to the Dashboard sidebar's MS Data section, pre-loaded with the exact refresh instructions (clone the repo, drive MS Online via Chrome, convert/validate/push -- referencing SESSION_NOTES.md for the full workflow and gotchas from #73) and the owner's Downloads folder pre-attached. Verified with streamlit.testing.v1.AppTest that the button renders with the correct URL and that the prompt/folder round-trip correctly through URL encoding. Caught and fixed a real bug before it shipped: the folder path can't come from Path.home() in this code, since that function runs SERVER-SIDE on Streamlit Cloud and would resolve to the server's own home directory, not the owner's Mac -- hardcoded /Users/JohnV/Downloads instead, same as other owner-specific constants already in this single-user app. The manual fallback (download the 5 files yourself, run run_push.command) is still available in a collapsed expander below the button. Not independently click-verified end-to-end in this session (this session's own sandboxed browser tooling can't cleanly fire a custom-protocol link the same way a real click would, and forcing it tripped an unrelated safety guardrail) -- first real click should show an OS/browser prompt asking to open Claude Desktop, which is expected.",
+      "phase": "Aesthetics and UX",
+      "priority": "Medium",
+      "done": true,
+      "created": "2026-07-22"
     }
   ],
   "phases": [

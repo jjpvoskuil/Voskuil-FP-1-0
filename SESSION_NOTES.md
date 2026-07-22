@@ -251,3 +251,44 @@ Files touched: `ms_holdings.csv`, `ms_transactions_ytd.csv`, `ms_transactions_pr
 `ms_realized_gl_current.csv`, `ms_realized_gl_prior.csv` (all refreshed with live data),
 `rename_files.py`, `push_files.py`, `run_push.command` (new), `run_push.bat`,
 `app_pages/0_Dashboard.py` (sidebar instructions), `ARCHITECTURE.md`, `punch_list_data.json`.
+
+---
+
+## Session (cont'd): #74 — "Refresh MS Data via Claude" button on the Dashboard
+
+Owner asked for a button on the Dashboard that runs the #73 macro directly, wanting it to feel
+like part of the app rather than a separate manual step of opening a chat. Worth recording the
+reasoning trail here since it corrects a mental-model gap that could easily recur:
+
+The deployed Streamlit Cloud app is a sandboxed server process. It cannot open a browser, cannot
+see the owner's screen, and has no access to the Claude in Chrome extension — that tool only
+exists inside an interactive Claude Desktop/Cowork session running on the owner's own machine. An
+"embedded Claude agent" on the page doesn't sidestep this: it would still need either a separate
+hosted-browser service (real new infrastructure, ongoing cost, and still needs the owner present
+for MS Online's login/MFA) or Plaid (already tried — see #13, Morgan Stanley refused the
+connection, and even working Plaid only covers balances/transactions, never Holdings or Realized
+G/L, so the CSV macro would stay necessary regardless).
+
+The actual answer: Claude Desktop supports a `claude://` URL scheme
+(support.claude.com/en/articles/14729294-open-claude-desktop-with-a-link).
+`claude://cowork/new?q=<prompt>&folder=<path>` opens a new Cowork session with the prompt
+pre-filled and a folder pre-attached. Added an `st.link_button` to the Dashboard sidebar that
+builds exactly this URL, with the prompt containing the full refresh instructions (clone the
+repo, drive MS Online via Chrome, convert/validate/push, pointing to SESSION_NOTES.md for the
+detailed gotchas from #73) and `/Users/JohnV/Downloads` pre-attached as the folder.
+
+Caught one real bug before it shipped: initially built the folder path with `Path.home()`, which
+would resolve to the *Streamlit Cloud server's* home directory (since that Python code runs
+server-side), not the owner's Mac — even though the whole point of the `folder` param is to name
+a path on whatever machine actually opens the link. Fixed by hardcoding `/Users/JohnV/Downloads`
+directly, consistent with how this single-user app already hardcodes other owner-specific values.
+
+Verified with `AppTest` that the button renders with the correct `claude://cowork/new?q=...`
+URL and that the prompt/folder survive URL-encoding round-trip intact. Did NOT get a fully live
+click-through verification in this session — this session's own sandboxed browser tooling
+mangles custom-protocol URLs (the navigate tool silently prepends `https://`) and a manual
+JS-click workaround tripped an unrelated safety guardrail — so the very first real click from the
+owner's own Dashboard should be treated as the actual first test. Expected behavior: the browser
+will ask permission to open Claude Desktop the first time; that's normal.
+
+Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 added and closed).

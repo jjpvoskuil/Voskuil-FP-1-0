@@ -5,6 +5,7 @@ import requests
 import time
 import sys, os
 from datetime import datetime, timezone
+from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
 from ui_utils import force_scroll_to_top
@@ -75,23 +76,53 @@ with st.sidebar:
         st.caption("📅 No data uploaded yet")
     else:
         st.caption("📅 Last updated: unknown")
-    st.info(
-        "**To refresh MS data:**\n\n"
-        "**Option A —** log into MS Online, then ask Claude (Cowork, with "
-        "Chrome access) to \"refresh MS data\" — it navigates Holdings/"
-        "Activity/Realized G&L, downloads all 5 files, and pushes them here "
-        "for you.\n\n"
-        "**Option B (manual) —** log into MS Online, download these 5 files "
-        "to your Downloads folder:\n"
-        "   - Holdings\n"
-        "   - Activity → Current Year\n"
-        "   - Activity → Prior Year\n"
-        "   - Realized G/L → Current Year\n"
-        "   - Realized G/L → Prior Year\n\n"
-        "then double-click **run_push.command** in the repo folder (Mac). "
-        "Then reload this page.",
-        icon="💡"
+    st.caption("**Step 1:** log into MS Online in Chrome yourself (Claude never handles your credentials).")
+
+    # Deep-links into Claude Desktop (#74) — claude://cowork/new opens a new
+    # Cowork session with a prefilled prompt and an attached folder, so
+    # clicking this button is "step 2" instead of manually opening Claude
+    # and re-typing the request each time. Support doc:
+    # https://support.claude.com/en/articles/14729294-open-claude-desktop-with-a-link
+    _ms_refresh_prompt = (
+        "Refresh Morgan Stanley data for Voskuil FP 1.0. I'm already logged "
+        "into MS Online in Chrome. Please: clone jjpvoskuil/Voskuil-FP-1-0 "
+        "(ask me for a fresh GitHub PAT), then using Claude in Chrome "
+        "navigate Accounts > Holdings, Accounts > Activity (Current Year, "
+        "then Prior Year), and Accounts > Realized Gain/Loss > Details "
+        "(Current Year, then Previous Year), and download all 5 files. "
+        "Convert them to CSV matching the existing ms_*.csv files in the "
+        "repo, validate the conversion by running app_pages/0_Dashboard.py "
+        "through streamlit.testing.v1.AppTest (no exceptions, sane totals), "
+        "then commit and push. See SESSION_NOTES.md in the repo for the "
+        "exact workflow and gotchas from last time — e.g. the Realized G/L "
+        "year dropdown is a native <select> that needs a JS value change, "
+        "not clicks."
     )
+    # NOTE: this hardcodes the owner's actual Mac path rather than using
+    # Path.home() -- this code executes server-side on Streamlit Cloud, so
+    # Path.home() would resolve to the *server's* home directory, not the
+    # user's Mac, even though the "folder" param needs to name a path on
+    # whatever machine actually opens the claude:// link (the user's Mac).
+    _ms_refresh_url = (
+        "claude://cowork/new?q=" + quote(_ms_refresh_prompt)
+        + "&folder=" + quote("/Users/JohnV/Downloads")
+    )
+    st.link_button("🔄 Step 2: Refresh MS Data via Claude", _ms_refresh_url, use_container_width=True,
+                   help="Opens a new Claude Cowork session with the refresh task pre-loaded. "
+                        "Your browser may ask permission to open Claude Desktop the first time.")
+    st.caption("First time: your browser will ask to open Claude Desktop — allow it.")
+
+    with st.expander("Manual fallback (no Claude)"):
+        st.markdown(
+            "Log into MS Online, download these 5 files to your Downloads folder:\n"
+            "   - Holdings\n"
+            "   - Activity → Current Year\n"
+            "   - Activity → Prior Year\n"
+            "   - Realized G/L → Current Year\n"
+            "   - Realized G/L → Prior Year\n\n"
+            "then double-click **run_push.command** in the repo folder (Mac). "
+            "Then reload this page."
+        )
     st.divider()
 
 # ─────────────────────────────────────────────
