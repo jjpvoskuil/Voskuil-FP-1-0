@@ -5,7 +5,6 @@ All Activity Types,,,,,,,,,,,,,,,
 Account Activity for All Accounts from Prior Year,,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,,
 Activity Date,Transaction Date,Account,Institution Name,Activity,Check Number,Card Number,Description,Symbol,Cusip,Category,Memo,Tags,Quantity,Price($),Amount($)
-12/31/2025,12/31/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/30,,,Savings,,,0,0,0.26
 12/31/2025,12/31/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/31/25,,,Savings,,,0,0,-1.14
 12/31/2025,12/31/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,3 MASS-COMMUNITAS MGMT Bill Payment,,,Other Bills,,,0,0,-747
 12/31/2025,12/31/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR GENERAL  12/31 #XXXXX5209 MOBILE PURCHASE            
@@ -17,6 +16,7 @@ XXXXX6287 ",,,Other Expenses,,,0,0,-20.78
 12/31/2025,12/31/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1231 AMAZON MKTPL*Z12UC4683                      
 Amzn.com/billWA XXXXX1653XXXXX
 XXXXX0660 ",,,General Merchandise,,,0,0,-10.59
+12/31/2025,12/31/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/30,,,Savings,,,0,0,0.26
 12/31/2025,12/31/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
 (Period 12/01-12/31)",MSPBNA,061871976,Investment Income,,,0,0,0.15
 12/31/2025,12/31/2025,Portfolio Management - 0827,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
@@ -40,9 +40,6 @@ XXXXX0660 ",,,General Merchandise,,,0,0,-10.59
 12/31/2025,12/31/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,MARTIN MARIETTA MATERIALS,MLM,573284106,Investment Income,,,0,0,5.81
 12/30/2025,12/30/2025,Advantage Savings - 1338,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
 Confirmation# XXXXX69486",,,Transfers,,,0,0,400
-12/30/2025,12/30/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
-Confirmation# XXXXX59518",,,Transfers,,,0,0,1000
-12/30/2025,12/30/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/29,,,Savings,,,0,0,4.9
 12/30/2025,12/30/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371pu222          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,11000
@@ -60,9 +57,9 @@ Nolin River Hardw  CUB RUNN
 12/30/2025,12/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1230 APPLE COM BILL                              
 CUPERTINO    CA XXXXXXXXXXXXXX
 X00996080 RECURRING ",,,Electronics,,,0,0,-0.99
-12/29/2025,12/29/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/26,,,Savings,,,0,0,2.87
-12/29/2025,12/29/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.01
-12/29/2025,12/29/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
+12/30/2025,12/30/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
+Confirmation# XXXXX59518",,,Transfers,,,0,0,1000
+12/30/2025,12/30/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/29,,,Savings,,,0,0,4.9
 12/29/2025,12/29/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"BKOFAMERICA MOBILE 12/29 XXXXX14717 DEPOSIT                 
                    *MOBILE    
    TN ",,,Deposits,,,0,0,10.54
@@ -97,12 +94,12 @@ XXXXX0143 ",,,Groceries,,,0,0,-127.05
 12/29/2025,12/29/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"VENMO            DES:CASHOUT    ID:XXXXX89940441            
  INDN:JEANNE VOSKUIL          
 CO ID:XXXXX81992 PPD ",,,Transfers,,,0,0,3.99
+12/29/2025,12/29/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/26,,,Savings,,,0,0,2.87
+12/29/2025,12/29/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.01
+12/29/2025,12/29/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
 12/29/2025,12/29/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 256723735",,,ATM/Cash Withdrawals,,,0,0,-11000
-12/26/2025,12/26/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX62738",,,Transfers,,,0,0,-300
-12/26/2025,12/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/24,,,Savings,,,0,0,3.44
 12/26/2025,12/26/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"BKOFAMERICA MOBILE 12/25 XXXXX65585 DEPOSIT                 
                    *MOBILE    
    TN ",,,Deposits,,,0,0,2.5
@@ -129,6 +126,9 @@ XXX-XXX-0010 CA XXXXX2953XXXXX
 XXXXX3361 RECURRING ",,,Healthcare/Medical,,,0,0,-5.99
 12/26/2025,12/26/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX62738",,,Transfers,,,0,0,300
+12/26/2025,12/26/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX62738",,,Transfers,,,0,0,-300
+12/26/2025,12/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/24,,,Savings,,,0,0,3.44
 12/26/2025,12/26/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,INVESCO OPTIMUM YIELD DIVERSIF,PDBC,46090F100,Investment Income,,,0,0,1647.93
 12/26/2025,12/26/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,NVIDIA CORPORATION,NVDA,67066G104,Investment Income,,,0,0,4.84
 12/26/2025,12/26/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,NVIDIA CORPORATION,NVDA,67066G104,Investment Income,,,0,0,6.13
@@ -136,7 +136,6 @@ Confirmation# XXXXX62738",,,Transfers,,,0,0,300
 12/26/2025,12/26/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,NVIDIA CORPORATION,NVDA,67066G104,Investment Income,,,0,0,0.98
 12/24/2025,12/24/2025,Advantage Savings - 1338,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
 Confirmation# XXXXX34694",,,Transfers,,,0,0,-400
-12/24/2025,12/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/23,,,Savings,,,0,0,0.46
 12/24/2025,12/24/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/24/25,,,Savings,,,0,0,-3.44
 12/24/2025,12/24/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"VERIZON WIRELESS DES:PAYMENTS   ID:XXXXXXXXXX00001          
  INDN:XXXXX0004902XXXXX00001  
@@ -160,7 +159,7 @@ XXXXX0365 ",,,Groceries,,,0,0,-68.28
 BENTONVILLE  AR",,,General Merchandise,,,0,0,-108.72
 12/24/2025,12/24/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 1338                       
 Confirmation# XXXXX34694",,,Transfers,,,0,0,400
-12/23/2025,12/23/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/22,,,Savings,,,0,0,7.61
+12/24/2025,12/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/23,,,Savings,,,0,0,0.46
 12/23/2025,12/23/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/23/25,,,Savings,,,0,0,-0.46
 12/23/2025,12/23/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1223 AMAZON DIGITAL                              
 WWW.AMAZON.COWA XXXXX3453XXXXX
@@ -171,6 +170,7 @@ XXXXX5430 ",,,Personal Care,,,0,0,-7.88
 12/23/2025,12/23/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MOBILE PURCHASE 1221  ACE HARDWARE #384                     
 LEITCHFIELD  KY XXXXX3353XXXXX
 XXXXX4951 ",,,Home Improvement,,,0,0,-37
+12/23/2025,12/23/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/22,,,Savings,,,0,0,7.61
 12/23/2025,12/23/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,78.15
 12/23/2025,12/23/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,125.04
 12/23/2025,12/23/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,5.21
@@ -179,7 +179,6 @@ XXXXX4951 ",,,Home Improvement,,,0,0,-37
 12/23/2025,12/23/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,STATE STREET DOUBLELINE TOTAL,TOTL,78467V848,Investment Income,,,0,0,12.99
 12/23/2025,12/23/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,VANGUARD FTSE EMERGING MARKETS,VWO,922042858,Investment Income,,,0,0,197.21
 12/23/2025,12/23/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,VANGUARD FTSE EMERGING MARKETS,VWO,922042858,Investment Income,,,0,0,24.78
-12/22/2025,12/22/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/19,,,Savings,,,0,0,4.93
 12/22/2025,12/22/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/22/25,,,Savings,,,0,0,-7.61
 12/22/2025,12/22/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHASE CREDIT CRD DES:EPAY       ID:XXXXX44818               
  INDN:JOHN VOSKUIL            
@@ -242,12 +241,10 @@ XXXXX8229 RECURRING ",,,Pets/Pet Care,,,0,0,-59.35
 12/22/2025,12/22/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MOBILE PURCHASE 1218  QT 245                                
 INDEPENDENCE MO XXXXX1653XXXXX
 XXXXX4831 ",,,Groceries,,,0,0,-4.67
+12/22/2025,12/22/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/19,,,Savings,,,0,0,4.93
 12/22/2025,12/22/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,91.26
 12/22/2025,12/22/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,1.08
 12/22/2025,12/22/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,5.94
-12/19/2025,12/19/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX44823",,,Transfers,,,0,0,-1300
-12/19/2025,12/19/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/18,,,Savings,,,0,0,5.32
 12/19/2025,12/19/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/19/25,,,Savings,,,0,0,-4.93
 12/19/2025,12/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,EDGE UTILITIES  Bill Payment,,,Utilities,,,0,0,-17
 12/19/2025,12/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"Nolin River Ha  12/19 #XXXXX2745 MOBILE PURCHASE            
@@ -277,6 +274,9 @@ Amzn.com/billWA XXXXX1653XXXXX
 XXXXX7232 ",,,General Merchandise,,,0,0,-53.84
 12/19/2025,12/19/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX44823",,,Transfers,,,0,0,1300
+12/19/2025,12/19/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX44823",,,Transfers,,,0,0,-1300
+12/19/2025,12/19/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/18,,,Savings,,,0,0,5.32
 12/19/2025,12/19/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,ISHARES INC MSCI JAPAN ETF,EWJ,46434G822,Investment Income,,,0,0,1992.95
 12/19/2025,12/19/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,ISHARES INC MSCI JAPAN ETF,EWJ,46434G822,Investment Income,,,0,0,2690.95
 12/19/2025,12/19/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,ISHARES INC MSCI JAPAN ETF,EWJ,46434G822,Investment Income,,,0,0,64.29
@@ -299,7 +299,6 @@ Confirmation# XXXXX44823",,,Transfers,,,0,0,1300
 12/19/2025,12/19/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,ISHARES MSCI EMU ETF,EZU,464286608,Investment Income,,,0,0,902.9
 12/19/2025,12/19/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,ISHARES MSCI EMU ETF,EZU,464286608,Investment Income,,,0,0,13.42
 12/19/2025,12/19/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,ISHARES MSCI EMU ETF,EZU,464286608,Investment Income,,,0,0,137.27
-12/18/2025,12/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/17,,,Savings,,,0,0,4.81
 12/18/2025,12/18/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/18/25,,,Savings,,,0,0,-5.32
 12/18/2025,12/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"QT 245 OUTSIDE  12/18 #XXXXX2370 PURCHASE                   
 QT 245 OUTSIDE     INDEPENDENC
@@ -322,6 +321,7 @@ XXXXX0018 ",,,Restaurants/Dining,,,0,0,-100.13
 12/18/2025,12/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid Adj,,,"UBER   * EATS   12/18 #000PTDELD REFUND                     
 405 Howard St      San Francis
 co CA ",,,Travel,,,0,0,40.34
+12/18/2025,12/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/17,,,Savings,,,0,0,4.81
 12/18/2025,12/18/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,120.8
 12/18/2025,12/18/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,4.53
 12/18/2025,12/18/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,13.59
@@ -334,7 +334,6 @@ From XXX-XX0827",,,Transfers,,,0,0,20000
 12/18/2025,12/18/2025,Portfolio Management - 0827,Morgan Stanley,CASH TRANSFER,,,"FUNDS TRANSFERRED
 Confirmation - #D34QDK7KA
 To XXX-XX0837",,,Transfers,,,0,0,-20000
-12/17/2025,12/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/16,,,Savings,,,0,0,4.04
 12/17/2025,12/17/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/17/25,,,Savings,,,0,0,-4.81
 12/17/2025,12/17/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  1217 VENMO *Amber Y                              
 New York     NY",,,Transfers,,,0,0,-210
@@ -368,11 +367,11 @@ XXXXX3814 ",,,Other Expenses,,,0,0,-26
 12/17/2025,12/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1216 Amazon.com*U61GJ7US3                        
 Amzn.com/billWA XXXXX1653XXXXX
 XXXXX1489 ",,,General Merchandise,,,0,0,-92.74
+12/17/2025,12/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/16,,,Savings,,,0,0,4.04
 12/17/2025,12/17/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,WILLSCOT HLDGS CORP CL A,WSC,971378104,Investment Income,,,0,0,31.57
 12/17/2025,12/17/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,WILLSCOT HLDGS CORP CL A,WSC,971378104,Investment Income,,,0,0,67.69
 12/17/2025,12/17/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,WILLSCOT HLDGS CORP CL A,WSC,971378104,Investment Income,,,0,0,2.8
 12/17/2025,12/17/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,WILLSCOT HLDGS CORP CL A,WSC,971378104,Investment Income,,,0,0,13.02
-12/16/2025,12/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/15,,,Savings,,,0,0,9.11
 12/16/2025,12/16/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/16/25,,,Savings,,,0,0,-4.04
 12/16/2025,12/16/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLER'S FRES  12/16 #XXXXX4440 PURCHASE                   
 NEEDLER'S FRESH    INDIANAPOLI
@@ -401,6 +400,7 @@ XXXXX5373 ",,,General Merchandise,,,0,0,-97.5
 12/16/2025,12/16/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1215 AMAZON MKTPL*JU68C0S83                      
 Amzn.com/billWA XXXXX1653XXXXX
 XXXXX4225 ",,,General Merchandise,,,0,0,-21.4
+12/16/2025,12/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/15,,,Savings,,,0,0,9.11
 12/16/2025,12/16/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,57.46
 12/16/2025,12/16/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,196.69
 12/16/2025,12/16/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,4.42
@@ -420,7 +420,6 @@ AS OF DATE: 12/15/2025",CMNIX,128119880,Other Expenses,,,7.625,15.66,-119.41
 12/16/2025,12/15/2025,Portfolio Management - 0827,Morgan Stanley,Dividend Reinvestment,,,"CALAMOS MARKET NEUTRAL INC I
 REINVESTMENT
 AS OF DATE: 12/15/2025",CMNIX,128119880,Other Expenses,,,32.026,15.66,-501.52
-12/15/2025,12/15/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/12,,,Savings,,,0,0,4.37
 12/15/2025,12/15/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/15/25,,,Savings,,,0,0,-9.11
 12/15/2025,12/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CITIZENS ENERGY  DES:BILLPAY    ID:XXXXX6898                
  INDN:JEANNE E VOSKUIL        
@@ -489,6 +488,7 @@ Bentonville  AR",,,General Merchandise,,,0,0,-296.23
 12/15/2025,12/15/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"VENMO            DES:CASHOUT    ID:XXXXX04436647            
  INDN:JEANNE VOSKUIL          
 CO ID:XXXXX81992 PPD ",,,Transfers,,,0,0,500
+12/15/2025,12/15/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/12,,,Savings,,,0,0,4.37
 12/15/2025,12/15/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,COCA COLA CO,KO,191216100,Investment Income,,,0,0,78.03
 12/15/2025,12/15/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,COCA COLA CO,KO,191216100,Investment Income,,,0,0,157.59
 12/15/2025,12/15/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,COCA COLA CO,KO,191216100,Investment Income,,,0,0,4.08
@@ -500,7 +500,6 @@ CO ID:XXXXX81992 PPD ",,,Transfers,,,0,0,500
 12/15/2025,12/15/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,337.07
 12/15/2025,12/15/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,5.1
 12/15/2025,12/15/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,53.25
-12/12/2025,12/12/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/11,,,Savings,,,0,0,4.13
 12/12/2025,12/12/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/12/25,,,Savings,,,0,0,-4.37
 12/12/2025,12/12/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  1212 VENMO *Matthew                              
 New York     NY",,,Transfers,,,0,0,-500
@@ -534,7 +533,7 @@ XXXXX9123 ",,,General Merchandise,,,0,0,-83.92
 12/12/2025,12/12/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1211 AMAZON MKTPL*660T226D3                      
 Amzn.com/billWA XXXXX1653XXXXX
 XXXXX2439 ",,,General Merchandise,,,0,0,-85.67
-12/11/2025,12/11/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/10,,,Savings,,,0,0,2.94
+12/12/2025,12/12/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/11,,,Savings,,,0,0,4.13
 12/11/2025,12/11/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/11/25,,,Savings,,,0,0,-4.13
 12/11/2025,12/11/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1210 SQ *KRAZY KOOKIES                           
 gosq.com     KY XXXXX1653XXXXX
@@ -559,6 +558,7 @@ INDIANAPOLIS IN XXXXX6853XXXXX
 XXXXX6057 ",,,Gasoline/Fuel,,,0,0,-6.25
 12/11/2025,12/11/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1208 WALMART.COM 80                              
 BENTONVILLE  AR",,,General Merchandise,,,0,0,-13.77
+12/11/2025,12/11/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/10,,,Savings,,,0,0,2.94
 12/11/2025,12/11/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,117.39
 12/11/2025,12/11/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,148.33
 12/11/2025,12/11/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,1.82
@@ -572,9 +572,6 @@ BENTONVILLE  AR",,,General Merchandise,,,0,0,-13.77
 12/11/2025,12/11/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,SBA COMMUNICATNS CORP NEW CL A,SBAC,78410G104,Investment Income,,,0,0,9.99
 12/10/2025,12/10/2025,Advantage Savings - 1338,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
 Confirmation# XXXXX38365",,,Transfers,,,0,0,495
-12/10/2025,12/10/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
-Confirmation# XXXXX35715",,,Transfers,,,0,0,1200
-12/10/2025,12/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/09,,,Savings,,,0,0,1.88
 12/10/2025,12/10/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371pjji8          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,5000
@@ -600,6 +597,9 @@ Bentonville  AR",,,General Merchandise,,,0,0,-46.08
 12/10/2025,12/10/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"VENMO            DES:CASHOUT    ID:XXXXX06950430            
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX81992 PPD ",,,Transfers,,,0,0,200
+12/10/2025,12/10/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
+Confirmation# XXXXX35715",,,Transfers,,,0,0,1200
+12/10/2025,12/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/09,,,Savings,,,0,0,1.88
 12/10/2025,12/10/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,AMERICAN ELEC PWR CO INC,AEP,025537101,Investment Income,,,0,0,4.75
 12/10/2025,12/10/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,CHEVRON CORP,CVX,166764100,Investment Income,,,0,0,76.95
 12/10/2025,12/10/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,CHEVRON CORP,CVX,166764100,Investment Income,,,0,0,141.93
@@ -613,7 +613,6 @@ CO ID:XXXXX81992 PPD ",,,Transfers,,,0,0,200
 12/10/2025,12/10/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,ROCKWELL AUTOMATION INC,ROK,773903109,Investment Income,,,0,0,1.38
 12/09/2025,12/09/2025,Advantage Savings - 1338,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
 Confirmation# XXXXX16821",,,Transfers,,,0,0,-495
-12/09/2025,12/09/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/08,,,Savings,,,0,0,7.26
 12/09/2025,12/09/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/09/25,,,Savings,,,0,0,-1.88
 12/09/2025,12/09/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:H6XXXXXX818940           
  INDN:VOSKUIL JEANNE E        
@@ -638,6 +637,7 @@ XXXXX6344 ",,,General Merchandise,,,0,0,-26.48
 BENTONVILLE  AR",,,General Merchandise,,,0,0,-64.23
 12/09/2025,12/09/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 1338                       
 Confirmation# XXXXX16821",,,Transfers,,,0,0,495
+12/09/2025,12/09/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/08,,,Savings,,,0,0,7.26
 12/09/2025,12/09/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,61.1
 12/09/2025,12/09/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,162.5
 12/09/2025,12/09/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,2.6
@@ -656,9 +656,6 @@ Confirmation# XXXXX16821",,,Transfers,,,0,0,495
 12/09/2025,12/09/2025,AAA - 0837,Morgan Stanley,Online Transfer,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 257555729",,,Transfers,,,0,0,-5000
-12/08/2025,12/08/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX70778",,,Transfers,,,0,0,-800
-12/08/2025,12/08/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/05,,,Savings,,,0,0,0.22
 12/08/2025,12/08/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/08/25,,,Savings,,,0,0,-7.26
 12/08/2025,12/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"SAFECO INSURANCE DES:INS PREM   ID:XXXXX769297              
  INDN:JOHN P VOSKUIL          
@@ -725,7 +722,9 @@ Amzn.com/billWA XXXXX1653XXXXX
 XXXXX0652 ",,,General Merchandise,,,0,0,-152.53
 12/08/2025,12/08/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX70778",,,Transfers,,,0,0,800
-12/05/2025,12/05/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/04,,,Savings,,,0,0,4.22
+12/08/2025,12/08/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX70778",,,Transfers,,,0,0,-800
+12/08/2025,12/08/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/05,,,Savings,,,0,0,0.22
 12/05/2025,12/05/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/05/25,,,Savings,,,0,0,-0.22
 12/05/2025,12/05/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1204 BEBLISSBODYWORK                             
 MASSAGEBOOK.CIN XXXXX3453XXXXX
@@ -739,6 +738,7 @@ XXXXX5216 ",,,Home Improvement,,,0,0,-32
 12/05/2025,12/05/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MOBILE PURCHASE 1203  CHEERS WINE SPIRITS                   
 LEITCHFIELD  KY XXXXX1053XXXXX
 XXXXX0252 ",,,Groceries,,,0,0,-91.79
+12/05/2025,12/05/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/04,,,Savings,,,0,0,4.22
 12/05/2025,12/05/2025,Portfolio Management IRA - 7350,Morgan Stanley,Service Fee,,,"ADV FEE 12/01-12/31
 IRA/653",,,Service Charges/Fees,,,0,0,-289.94
 12/05/2025,12/05/2025,Portfolio Management IRA - 7852,Morgan Stanley,Service Fee,,,"ADV FEE 12/01-12/31
@@ -756,7 +756,6 @@ AS OF DATE: 12/04/2025",ABYIX,74925K367,Other Expenses,,,89.814,10.96,-984.36
 12/05/2025,12/04/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend Reinvestment,,,"ABBEY CPTL FUTURES STRATEGY I
 REINVESTMENT
 AS OF DATE: 12/04/2025",ABYIX,74925K367,Other Expenses,,,14.031,10.96,-153.78
-12/04/2025,12/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/03,,,Savings,,,0,0,3.03
 12/04/2025,12/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/04/25,,,Savings,,,0,0,-4.22
 12/04/2025,12/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"Nolin River Ha  12/04 #XXXXX0440 MOBILE PURCHASE            
 Nolin River Hardw  CUB RUNN   
@@ -785,9 +784,9 @@ XXXXX4628 ",,,General Merchandise,,,0,0,-128.28
 12/04/2025,12/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid Adj,,,"PURCHASE REFUND 1202  AMAZON RETA* BI1GL6LN2                
 SEATTLE      WA XXXXX3453XXXXX
 XXXXX3898 ",,,Refunds/Adjustments,,,0,0,23.85
+12/04/2025,12/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/03,,,Savings,,,0,0,3.03
 12/04/2025,12/04/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,STATE STREET DOUBLELINE TOTAL,TOTL,78467V848,Investment Income,,,0,0,116.28
 12/04/2025,12/04/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,STATE STREET DOUBLELINE TOTAL,TOTL,78467V848,Investment Income,,,0,0,8.59
-12/03/2025,12/03/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/02,,,Savings,,,0,0,0.93
 12/03/2025,12/03/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/03/25,,,Savings,,,0,0,-3.03
 12/03/2025,12/03/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"JPMorgan Chase   DES:Ext Trnsfr ID:XXXXX595741              
  INDN:JOHN VOSKUIL            
@@ -810,7 +809,7 @@ XXXXX1672 ",,,General Merchandise,,,0,0,-23.85
 12/03/2025,12/03/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1202 AMAZON MKTPL*BB0HU22U1                      
 Amzn.com/billWA XXXXX1653XXXXX
 XXXXX1494 ",,,General Merchandise,,,0,0,-58.62
-12/02/2025,12/02/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/01,,,Savings,,,0,0,3.36
+12/03/2025,12/03/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/02,,,Savings,,,0,0,0.93
 12/02/2025,12/02/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/02/25,,,Savings,,,0,0,-0.93
 12/02/2025,12/02/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR GENERAL  12/02 #XXXXX0343 MOBILE PURCHASE            
 DG XXXXX12914 CUB  CUB RUN    
@@ -818,7 +817,7 @@ DG XXXXX12914 CUB  CUB RUN
 12/02/2025,12/02/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1201 TST* BUOY'S BAR AND GRI                     
 XXX-XXX-7746 KY XXXXX4653XXXXX
 XXXXX4055 ",,,Restaurants/Dining,,,0,0,-66.07
-12/01/2025,12/01/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/28,,,Savings,,,0,0,2.61
+12/02/2025,12/02/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 12/01,,,Savings,,,0,0,3.36
 12/01/2025,12/01/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 12/01/25,,,Savings,,,0,0,-3.36
 12/01/2025,12/01/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"AES IN/EZP       DES:UTILITYPMT ID:9680439                  
  INDN:JEANNE VOSKUIL          
@@ -857,6 +856,7 @@ XXXXX4324 ",,,General Merchandise,,,0,0,-170.23
 12/01/2025,12/01/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MOBILE PURCHASE 1126  CHEERS WINE SPIRITS                   
 LEITCHFIELD  KY XXXXX1053XXXXX
 XXXXX0026 ",,,Groceries,,,0,0,-71.64
+12/01/2025,12/01/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/28,,,Savings,,,0,0,2.61
 12/01/2025,12/01/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,TARGET CORPORATION,TGT,87612E106,Investment Income,,,0,0,242.82
 12/01/2025,12/01/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,TARGET CORPORATION,TGT,87612E106,Investment Income,,,0,0,5.7
 12/01/2025,12/01/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,TARGET CORPORATION,TGT,87612E106,Investment Income,,,0,0,23.94
@@ -901,9 +901,6 @@ REINVESTMENT
 AS OF DATE: 11/28/2025",GIBIX,40168W525,Other Expenses,,,1.233,24.27,-29.93
 11/28/2025,11/28/2025,Advantage Savings - 1338,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
 Confirmation# XXXXX25074",,,Transfers,,,0,0,300
-11/28/2025,11/28/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
-Confirmation# XXXXX27287",,,Transfers,,,0,0,1000
-11/28/2025,11/28/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/26,,,Savings,,,0,0,3.62
 11/28/2025,11/28/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371p9cl8          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,11000
@@ -933,6 +930,9 @@ XXXXX6569 ",,,General Merchandise,,,0,0,-13.03
 11/28/2025,11/28/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1126 Amazon.com*B278Q8SF1                        
 Amzn.com/billWA XXXXX1653XXXXX
 XXXXX3948 ",,,General Merchandise,,,0,0,-18.56
+11/28/2025,11/28/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
+Confirmation# XXXXX27287",,,Transfers,,,0,0,1000
+11/28/2025,11/28/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/26,,,Savings,,,0,0,3.62
 11/28/2025,11/28/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
 (Period 11/06-11/30)",MSPBNA,061871976,Investment Income,,,0,0,0.15
 11/28/2025,11/28/2025,Portfolio Management - 0827,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
@@ -944,7 +944,6 @@ XXXXX3948 ",,,General Merchandise,,,0,0,-18.56
 11/28/2025,11/28/2025,AAA - 0837,Morgan Stanley,Auto Bank Product Deposit,,,MSBNA PREFERRED SAVINGS- QC,99YA78EB0,99YA78EB0,Savings,,,0,0,-21.18
 11/26/2025,11/26/2025,Advantage Savings - 1338,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
 Confirmation# XXXXX04857",,,Transfers,,,0,0,-300
-11/26/2025,11/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/25,,,Savings,,,0,0,2.17
 11/26/2025,11/26/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/26/25,,,Savings,,,0,0,-3.62
 11/26/2025,11/26/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR GENERAL  11/26 #XXXXX1314 MOBILE PURCHASE            
 DG XXXXX13586 PEO  CLARKSON   
@@ -970,12 +969,10 @@ Amzn.com/billWA XXXXX1653XXXXX
 XXXXX7870 ",,,General Merchandise,,,0,0,-74.81
 11/26/2025,11/26/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 1338                       
 Confirmation# XXXXX04857",,,Transfers,,,0,0,300
+11/26/2025,11/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/25,,,Savings,,,0,0,2.17
 11/26/2025,11/26/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 256723799",,,ATM/Cash Withdrawals,,,0,0,-11000
-11/25/2025,11/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/24,,,Savings,,,0,0,4.95
-11/25/2025,11/25/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.01
-11/25/2025,11/25/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
 11/25/2025,11/25/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/25/25,,,Savings,,,0,0,-2.17
 11/25/2025,11/25/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR GENERAL  11/25 #XXXXX9458 MOBILE PURCHASE            
 DG XXXXX12914 CUB  CUB RUN    
@@ -995,9 +992,9 @@ XXXXX4070 ",,,General Merchandise,,,0,0,-23.31
 11/25/2025,11/25/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1125 AMAZON MKTPL*B290B73W0                      
 Amzn.com/billWA XXXXX1653XXXXX
 XXXXX8353 ",,,General Merchandise,,,0,0,-31.77
-11/24/2025,11/24/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX28887",,,Transfers,,,0,0,-4700
-11/24/2025,11/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/21,,,Savings,,,0,0,2.12
+11/25/2025,11/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/24,,,Savings,,,0,0,4.95
+11/25/2025,11/25/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.01
+11/25/2025,11/25/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
 11/24/2025,11/24/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/24/25,,,Savings,,,0,0,-4.95
 11/24/2025,11/24/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"VERIZON WIRELESS DES:PAYMENTS   ID:XXXXXXXXXX00001          
  INDN:XXXXX0004902XXXXX00001  
@@ -1037,9 +1034,9 @@ XXX-XXX-5343 CA XXXXX0053XXXXX
 XXXXX9441 RECURRING ",,,Entertainment,,,0,0,-12.99
 11/24/2025,11/24/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX28887",,,Transfers,,,0,0,4700
-11/21/2025,11/21/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX69847",,,Transfers,,,0,0,-400
-11/21/2025,11/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/20,,,Savings,,,0,0,1.88
+11/24/2025,11/24/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX28887",,,Transfers,,,0,0,-4700
+11/24/2025,11/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/21,,,Savings,,,0,0,2.12
 11/21/2025,11/21/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/21/25,,,Savings,,,0,0,-2.12
 11/21/2025,11/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,Nolin Lawn Service Bill Payment,,,Home Maintenance,,,0,0,-79.5
 11/21/2025,11/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"Nolin River Ha  11/21 #XXXXX0211 PURCHASE                   
@@ -1059,14 +1056,13 @@ Amzn.com/billWA XXXXX1653XXXXX
 XXXXX3503 ",,,General Merchandise,,,0,0,-36.26
 11/21/2025,11/21/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX69847",,,Transfers,,,0,0,400
+11/21/2025,11/21/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX69847",,,Transfers,,,0,0,-400
+11/21/2025,11/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/20,,,Savings,,,0,0,1.88
 11/21/2025,11/21/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,EATON CORP PLC SHS,ETN,G29183103,Investment Income,,,0,0,42.64
 11/21/2025,11/21/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,EATON CORP PLC SHS,ETN,G29183103,Investment Income,,,0,0,46.8
 11/21/2025,11/21/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,EATON CORP PLC SHS,ETN,G29183103,Investment Income,,,0,0,1.04
 11/21/2025,11/21/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,EATON CORP PLC SHS,ETN,G29183103,Investment Income,,,0,0,7.28
-11/20/2025,11/20/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:PANTHERVIS               
- INDN:JEANNE VOSKUIL          
-CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-29.99
-11/20/2025,11/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/19,,,Savings,,,0,0,6.85
 11/20/2025,11/20/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,BankAmeriDeals CASHBACK,,,Rewards,,,0,0,0.14
 11/20/2025,11/20/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/20/25,,,Savings,,,0,0,-1.88
 11/20/2025,11/20/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1120 BP#8516593FIVE                              
@@ -1092,7 +1088,10 @@ XXXXX0175 ",,,General Merchandise,,,0,0,-24.86
 11/20/2025,11/20/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1119 Amazon.com*B01RN4JI0                        
 Amzn.com/billWA XXXXX1653XXXXX
 XXXXX8715 ",,,General Merchandise,,,0,0,-28.38
-11/19/2025,11/19/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/18,,,Savings,,,0,0,2.45
+11/20/2025,11/20/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:PANTHERVIS               
+ INDN:JEANNE VOSKUIL          
+CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-29.99
+11/20/2025,11/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/19,,,Savings,,,0,0,6.85
 11/19/2025,11/19/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/19/25,,,Savings,,,0,0,-6.85
 11/19/2025,11/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,EDGE UTILITIES  Bill Payment,,,Utilities,,,0,0,-26
 11/19/2025,11/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,Check 6296,,,Checks,,,0,0,-52.05
@@ -1135,6 +1134,7 @@ XXXXX1760 ",,,Restaurants/Dining,,,0,0,-85.73
 11/19/2025,11/19/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"VENMO            DES:CASHOUT    ID:XXXXX92155858            
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX81992 PPD ",,,Transfers,,,0,0,513
+11/19/2025,11/19/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/18,,,Savings,,,0,0,2.45
 11/18/2025,11/18/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/18/25,,,Savings,,,0,0,-2.45
 11/18/2025,11/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CITIZENS ENERGY  DES:BILLPAY    ID:XXXXX1069                
  INDN:JEANNE E VOSKUIL        
@@ -1499,13 +1499,6 @@ To XXX-XX0837",,,Transfers,,,0,0,-0.01
 11/05/2025,11/05/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"ACH TRANSFER OUTGOING
 BOA 6966 XX-6966
 CONFIRMATION # ABK4GEMML",,,Transfers,,,0,0,-5000
-11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371owtle          
- INDN:JOHN VOSKUIL            
-CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,9800
-11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/04/25,,,Savings,,,0,0,-0.8
-11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"JPMorgan Chase   DES:Ext Trnsfr ID:XXXXX040401              
- INDN:JOHN VOSKUIL            
-CO ID:XXXXX02231 WEB ",,,Transfers,,,0,0,-1103.51
 11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"Online Banking transfer to SAV 2603                         
 Confirmation# XXXXX77092",,,Savings,,,0,0,-1000
 11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR GENERAL  11/04 #XXXXX8613 MOBILE PURCHASE            
@@ -1517,6 +1510,13 @@ XXXXX5879 RECURRING ",,,Healthcare/Medical,,,0,0,-199
 11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1103 RO HEALTH                                   
 GETROMAN.COM NY XXXXX3453XXXXX
 XXXXX4189 RECURRING ",,,Healthcare/Medical,,,0,0,-45
+11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371owtle          
+ INDN:JOHN VOSKUIL            
+CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,9800
+11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/04/25,,,Savings,,,0,0,-0.8
+11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"JPMorgan Chase   DES:Ext Trnsfr ID:XXXXX040401              
+ INDN:JOHN VOSKUIL            
+CO ID:XXXXX02231 WEB ",,,Transfers,,,0,0,-1103.51
 11/04/2025,11/04/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
 Confirmation# XXXXX77092",,,Transfers,,,0,0,1000
 11/04/2025,11/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/03,,,Savings,,,0,0,6.58
@@ -1882,6 +1882,14 @@ XXXXX9162 ",,,General Merchandise,,,0,0,-10.08
 WWW.AMAZON.COWA XXXXX3452XXXXX
 XXXXX6793 ",,,General Merchandise,,,0,0,-63.04
 10/21/2025,10/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/20,,,Savings,,,0,0,9.27
+10/20/2025,10/20/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
+Confirmation# XXXXX39429",,,Transfers,,,0,0,500
+10/20/2025,10/20/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:DILLARDSINC              
+ INDN:JEANNE VOSKUIL          
+CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-32.07
+10/20/2025,10/20/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX39429",,,Transfers,,,0,0,-500
+10/20/2025,10/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/17,,,Savings,,,0,0,3.65
 10/20/2025,10/20/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/20/25,,,Savings,,,0,0,-9.27
 10/20/2025,10/20/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CITIZENS ENERGY  DES:BILLPAY    ID:XXXXX7212                
  INDN:JEANNE E VOSKUIL        
@@ -1949,14 +1957,7 @@ XXXXX2014 ",,,General Merchandise,,,0,0,-24.86
 10/20/2025,10/20/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1017 AMAZON MKTPL*NM5QK30I2                      
 Amzn.com/billWA XXXXX1652XXXXX
 XXXXX9138 ",,,General Merchandise,,,0,0,-109.37
-10/20/2025,10/20/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
-Confirmation# XXXXX39429",,,Transfers,,,0,0,500
-10/20/2025,10/20/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:DILLARDSINC              
- INDN:JEANNE VOSKUIL          
-CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-32.07
-10/20/2025,10/20/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX39429",,,Transfers,,,0,0,-500
-10/20/2025,10/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/17,,,Savings,,,0,0,3.65
+10/17/2025,10/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/16,,,Savings,,,0,0,4.51
 10/17/2025,10/17/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/17/25,,,Savings,,,0,0,-3.65
 10/17/2025,10/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,EDGE UTILITIES  Bill Payment,,,Utilities,,,0,0,-21
 10/17/2025,10/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"TRACTOR SUPPLY  10/17 #XXXXX2499 MOBILE PURCHASE            
@@ -1984,7 +1985,10 @@ XXXXX0030 ",,,Restaurants/Dining,,,0,0,-33.89
 10/17/2025,10/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1015 SOUTH CENTRAL RURAL TEL                     
 SCRTC.COM    KY XXXXX6852XXXXX
 XXXXX8813 RECURRING ",,,Cable/Satellite Services,,,0,0,-85.18
-10/17/2025,10/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/16,,,Savings,,,0,0,4.51
+10/16/2025,10/16/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:TUCKY                    
+ INDN:JEANNE VOSKUIL          
+CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-46.99
+10/16/2025,10/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/15,,,Savings,,,0,0,0.94
 10/16/2025,10/16/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/16/25,,,Savings,,,0,0,-4.51
 10/16/2025,10/16/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,Nolin Lawn Service Bill Payment,,,Home Maintenance,,,0,0,-874.5
 10/16/2025,10/16/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR GENERAL  10/16 #XXXXX6035 PURCHASE                   
@@ -2012,10 +2016,7 @@ XXXXX4623 ",,,Credit Card Payments,,,0,0,-21.4
 10/16/2025,10/16/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1015 MAPS SECURITY LLC                           
 XXX-XX47758  KY XXXXX3952XXXXX
 XXXXX7315 RECURRING ",,,Online Services,,,0,0,-41.34
-10/16/2025,10/16/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:TUCKY                    
- INDN:JEANNE VOSKUIL          
-CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-46.99
-10/16/2025,10/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/15,,,Savings,,,0,0,0.94
+10/15/2025,10/15/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/14,,,Savings,,,0,0,10.08
 10/15/2025,10/15/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/15/25,,,Savings,,,0,0,-0.94
 10/15/2025,10/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"T-MOBILE         DES:PCS SVC    ID:3079908                  
  INDN:JEANNE VOSKUIL          
@@ -2029,7 +2030,6 @@ Nolin River Hardw  CUB RUNN
 10/15/2025,10/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1015 PIERCEPRIME                                 
 XXX-XX24680  IN XXXXX3552XXXXX
 XXXXX4340 ",,,Credit Card Payments,,,0,0,-10.7
-10/15/2025,10/15/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/14,,,Savings,,,0,0,10.08
 10/15/2025,10/15/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,THERMO FISHER SCIENTIFIC,TMO,883556102,Investment Income,,,0,0,12.04
 10/15/2025,10/15/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,THERMO FISHER SCIENTIFIC,TMO,883556102,Investment Income,,,0,0,19.35
 10/15/2025,10/15/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,THERMO FISHER SCIENTIFIC,TMO,883556102,Investment Income,,,0,0,0.43
@@ -2046,6 +2046,7 @@ PLATFORM CREDIT        $26.97",,,Service Charges/Fees,,,0,0,0
 10/15/2025,10/15/2025,Portfolio Management IRA - 7854,Morgan Stanley,Service Fee,,,"NET PLATFORM FEE
 PLATFORM FEE         ($198.18)
 PLATFORM CREDIT       $198.18",,,Service Charges/Fees,,,0,0,0
+10/14/2025,10/14/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/10,,,Savings,,,0,0,4.65
 10/14/2025,10/14/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371oh35k          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,3600
@@ -2126,7 +2127,7 @@ XXXXX1119 ",,,Automotive Expenses,,,0,0,-15
 10/14/2025,10/14/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid Adj,,,"CHECKCARD  1013 DILLARDS 698 DILLARD'S                      
 XXX-XXX-5273 AR XXXXX1652XXXXX
 XXXXX8697 ",,,General Merchandise,,,0,0,26.94
-10/14/2025,10/14/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/10,,,Savings,,,0,0,4.65
+10/10/2025,10/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/09,,,Savings,,,0,0,3.93
 10/10/2025,10/10/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/10/25,,,Savings,,,0,0,-4.65
 10/10/2025,10/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,Check 6308,,,Checks,,,0,0,-656.08
 10/10/2025,10/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"Valero Fastway  10/10 #XXXXX0635 MOBILE PURCHASE            
@@ -2150,10 +2151,10 @@ XXXXX6783 ",,,General Merchandise,,,0,0,-24.14
 10/10/2025,10/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid Adj,,,"Walmart.com     10/10 #XXXXX1505 REFUND                     
 Walmart.com        Bentonville
    AR ",,,General Merchandise,,,0,0,23.41
-10/10/2025,10/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/09,,,Savings,,,0,0,3.93
 10/10/2025,10/10/2025,AAA - 0837,Morgan Stanley,Online Transfer,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 254609134",,,Transfers,,,0,0,-3600
+10/09/2025,10/09/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/08,,,Savings,,,0,0,7.39
 10/09/2025,10/09/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/09/25,,,Savings,,,0,0,-3.93
 10/09/2025,10/09/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"TRACTOR SUPPLY  10/09 #XXXXX5438 MOBILE PURCHASE            
 TRACTOR SUPPLY C   MUNFORDVILL
@@ -2181,7 +2182,6 @@ XXXXX4329 ",,,Entertainment,,,0,0,-12.86
 10/09/2025,10/09/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  XXXX XXXX 219 E NEW YORK                         
 INDIANAPOLIS IN XXXXX5452XXXXX
 XXXXX2343 ",,,Restaurants/Dining,,,0,0,-5.5
-10/09/2025,10/09/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/08,,,Savings,,,0,0,7.39
 10/09/2025,10/09/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,SLB LIMITED,SLB,806857108,Investment Income,,,0,0,68.97
 10/09/2025,10/09/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,SLB LIMITED,SLB,806857108,Investment Income,,,0,0,186.39
 10/09/2025,10/09/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,SLB LIMITED,SLB,806857108,Investment Income,,,0,0,3.42
@@ -2190,6 +2190,31 @@ XXXXX2343 ",,,Restaurants/Dining,,,0,0,-5.5
 10/09/2025,10/09/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,SCHNEIDER NATIONAL INC CL B,SNDR,80689H102,Investment Income,,,0,0,82.94
 10/09/2025,10/09/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,SCHNEIDER NATIONAL INC CL B,SNDR,80689H102,Investment Income,,,0,0,1.62
 10/09/2025,10/09/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,SCHNEIDER NATIONAL INC CL B,SNDR,80689H102,Investment Income,,,0,0,6.56
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/08/25,,,Savings,,,0,0,-7.39
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  1008 VENMO *Amber Y                              
+Visa Direct  NY",,,Transfers,,,0,0,-230
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"SAFECO INSURANCE DES:INS PREM   ID:XXXXX769297              
+ INDN:JOHN P VOSKUIL          
+CO ID:XXXXX72828 PPD ",,,Insurance,,,0,0,-179.64
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:H6XXXXXX818940           
+ INDN:VOSKUIL JEANNE E        
+CO ID:XXXXX21101 PPD ",,,Insurance,,,0,0,-180.17
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:AOSXXXXX820040           
+ INDN:VOSKUIL MATTEW          
+CO ID:XXXXX21101 PPD ",,,Insurance,,,0,0,-184.43
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:AOVXXXXX425390           
+ INDN:VOSKUIL JEANNE E        
+CO ID:XXXXX21101 PPD ",,,Insurance,,,0,0,-441.27
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  10/08 #XXXXX5741 PURCHASE                   
+MARATHON XX9160    INDIANAPOLI
+S  IN ",,,Gasoline/Fuel,,,0,0,-14.06
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  10/08 #XXXXX3882 PURCHASE                   
+MARATHON XX9160    INDIANAPOLI
+S  IN ",,,Gasoline/Fuel,,,0,0,-31.23
+10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1007 DUSK LOUNGE                                 
+XXX-XX96230  IN XXXXX4752XXXXX
+XXXXX5425 ",,,Restaurants/Dining,,,0,0,-28.07
+10/08/2025,10/08/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/07,,,Savings,,,0,0,1.54
 10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1007 DUSK LOUNGE                                 
 INDIANAPOLIS IN XXXXX4752XXXXX
 XXXXX5516 ",,,Restaurants/Dining,,,0,0,-125.55
@@ -2229,31 +2254,6 @@ XXXXX8358 ",,,Entertainment,,,0,0,-15.63
 10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1007 LIBERTY                                     
 XXX-XXX-5271 TN XXXXX1652XXXXX
 XXXXX9967 ",,,Gasoline/Fuel,,,0,0,-44.93
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/08/25,,,Savings,,,0,0,-7.39
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  1008 VENMO *Amber Y                              
-Visa Direct  NY",,,Transfers,,,0,0,-230
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"SAFECO INSURANCE DES:INS PREM   ID:XXXXX769297              
- INDN:JOHN P VOSKUIL          
-CO ID:XXXXX72828 PPD ",,,Insurance,,,0,0,-179.64
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:H6XXXXXX818940           
- INDN:VOSKUIL JEANNE E        
-CO ID:XXXXX21101 PPD ",,,Insurance,,,0,0,-180.17
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:AOSXXXXX820040           
- INDN:VOSKUIL MATTEW          
-CO ID:XXXXX21101 PPD ",,,Insurance,,,0,0,-184.43
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:AOVXXXXX425390           
- INDN:VOSKUIL JEANNE E        
-CO ID:XXXXX21101 PPD ",,,Insurance,,,0,0,-441.27
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  10/08 #XXXXX5741 PURCHASE                   
-MARATHON XX9160    INDIANAPOLI
-S  IN ",,,Gasoline/Fuel,,,0,0,-14.06
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  10/08 #XXXXX3882 PURCHASE                   
-MARATHON XX9160    INDIANAPOLI
-S  IN ",,,Gasoline/Fuel,,,0,0,-31.23
-10/08/2025,10/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  1007 DUSK LOUNGE                                 
-XXX-XX96230  IN XXXXX4752XXXXX
-XXXXX5425 ",,,Restaurants/Dining,,,0,0,-28.07
-10/08/2025,10/08/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 10/07,,,Savings,,,0,0,1.54
 10/08/2025,10/08/2025,Portfolio Management - 0827,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
 (Period 10/01-10/07)",MSPBNA,061871976,Investment Income,,,0,0,0.01
 10/07/2025,10/07/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 10/07/25,,,Savings,,,0,0,-1.54
@@ -3043,30 +3043,6 @@ XXXXX7120 ",,,Credit Card Payments,,,0,0,-21.4
 Amzn.com/billWA XXXXX1652XXXXX
 XXXXX5378 ",,,General Merchandise,,,0,0,-90.09
 09/16/2025,09/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 09/15,,,Savings,,,0,0,12.72
-09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* 0T6I990Z3                      
-WWW.AMAZON.COWA XXXXX3452XXXXX
-XXXXX7910 ",,,General Merchandise,,,0,0,-21.4
-09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON MKTPL*PW6WR69V3                      
-Amzn.com/billWA XXXXX1652XXXXX
-XXXXX8233 ",,,General Merchandise,,,0,0,-10.09
-09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* Y10RT5LZ3                      
-WWW.AMAZON.COWA XXXXX3452XXXXX
-XXXXX4791 ",,,General Merchandise,,,0,0,-7.04
-09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* DL00X7YD3                      
-WWW.AMAZON.COWA XXXXX3452XXXXX
-XXXXX5609 ",,,General Merchandise,,,0,0,-11.51
-09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* 1J9M703P3                      
-WWW.AMAZON.COWA XXXXX3452XXXXX
-XXXXX7503 ",,,General Merchandise,,,0,0,-16.79
-09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON MKTPL*YP35654X3                      
-Amzn.com/billWA XXXXX1652XXXXX
-XXXXX7976 ",,,General Merchandise,,,0,0,-39.78
-09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* W985Y1JF3                      
-WWW.AMAZON.COWA XXXXX3452XXXXX
-XXXXX4817 ",,,General Merchandise,,,0,0,-33.06
-09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* 0Q1RA1Q93                      
-WWW.AMAZON.COWA XXXXX3452XXXXX
-XXXXX5790 ",,,General Merchandise,,,0,0,-14.23
 09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 09/15/25,,,Savings,,,0,0,-12.72
 09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"T-MOBILE         DES:PCS SVC    ID:1640226                  
  INDN:JEANNE VOSKUIL          
@@ -3119,6 +3095,30 @@ XXXXX8453 ",,,General Merchandise,,,0,0,-11.36
 09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON MKTPL*YN2OM8QC3                      
 Amzn.com/billWA XXXXX1652XXXXX
 XXXXX5870 ",,,General Merchandise,,,0,0,-28.7
+09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* 0T6I990Z3                      
+WWW.AMAZON.COWA XXXXX3452XXXXX
+XXXXX7910 ",,,General Merchandise,,,0,0,-21.4
+09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON MKTPL*PW6WR69V3                      
+Amzn.com/billWA XXXXX1652XXXXX
+XXXXX8233 ",,,General Merchandise,,,0,0,-10.09
+09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* Y10RT5LZ3                      
+WWW.AMAZON.COWA XXXXX3452XXXXX
+XXXXX4791 ",,,General Merchandise,,,0,0,-7.04
+09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* DL00X7YD3                      
+WWW.AMAZON.COWA XXXXX3452XXXXX
+XXXXX5609 ",,,General Merchandise,,,0,0,-11.51
+09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* 1J9M703P3                      
+WWW.AMAZON.COWA XXXXX3452XXXXX
+XXXXX7503 ",,,General Merchandise,,,0,0,-16.79
+09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON MKTPL*YP35654X3                      
+Amzn.com/billWA XXXXX1652XXXXX
+XXXXX7976 ",,,General Merchandise,,,0,0,-39.78
+09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* W985Y1JF3                      
+WWW.AMAZON.COWA XXXXX3452XXXXX
+XXXXX4817 ",,,General Merchandise,,,0,0,-33.06
+09/15/2025,09/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0912 AMAZON RETA* 0Q1RA1Q93                      
+WWW.AMAZON.COWA XXXXX3452XXXXX
+XXXXX5790 ",,,General Merchandise,,,0,0,-14.23
 09/15/2025,09/15/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 09/12,,,Savings,,,0,0,2.3
 09/15/2025,09/15/2025,Portfolio Management IRA - 7854,Morgan Stanley,Miscellaneous Income,,,"ALPHABET INC CL A
 CLASS ACTION PAYMENT",GOOGL,02079K305,Other Income,,,0,0,263.82
@@ -4840,6 +4840,21 @@ AS OF DATE: 06/30/2025",GIBIX,40168W525,Other Expenses,,,1.336,23.93,-31.98
 07/01/2025,06/30/2025,Portfolio Management - 0827,Morgan Stanley,Dividend Reinvestment,,,"GUGGENHEIM TOTAL RETURN BD I
 REINVESTMENT
 AS OF DATE: 06/30/2025",GIBIX,40168W525,Other Expenses,,,8.969,23.93,-214.64
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 ACE HARDWARE #384                           
+LEITCHFIELD  KY XXXXX3351XXXXX
+XXXXX4642 ",,,Home Improvement,,,0,0,-67.45
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 CULVERS OF ELIZABETHTOW                     
+ELIZABETHTOWNKY XXXXX0051XXXXX
+XXXXX8324 ",,,Restaurants/Dining,,,0,0,-5.34
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 TST* DRAKE'S - ELIZABET                     
+ELIZABETHTOWNKY XXXXX4651XXXXX
+XXXXX4701 ",,,Restaurants/Dining,,,0,0,-54.63
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 MED*INDIANA VEIN SPECIA                     
+CARMEL       IN XXXXX1651XXXXX
+XXXXX8447 ",,,Healthcare/Medical,,,0,0,-350
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 MCDONALD'S F36967                           
+CARMEL       IN XXXXX3351XXXXX
+XXXXX9146 ",,,Restaurants/Dining,,,0,0,-7.62
 06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371mfqr7          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,11000
@@ -4877,21 +4892,6 @@ DG XXXXX13586 PEO  CLARKSON
 06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 TWIN LAKES LIQUOR                           
 LEITCHFIELD  KY XXXXX0151XXXXX
 XXXXX9801 ",,,Groceries,,,0,0,-103.87
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 ACE HARDWARE #384                           
-LEITCHFIELD  KY XXXXX3351XXXXX
-XXXXX4642 ",,,Home Improvement,,,0,0,-67.45
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 CULVERS OF ELIZABETHTOW                     
-ELIZABETHTOWNKY XXXXX0051XXXXX
-XXXXX8324 ",,,Restaurants/Dining,,,0,0,-5.34
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 TST* DRAKE'S - ELIZABET                     
-ELIZABETHTOWNKY XXXXX4651XXXXX
-XXXXX4701 ",,,Restaurants/Dining,,,0,0,-54.63
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 MED*INDIANA VEIN SPECIA                     
-CARMEL       IN XXXXX1651XXXXX
-XXXXX8447 ",,,Healthcare/Medical,,,0,0,-350
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 MCDONALD'S F36967                           
-CARMEL       IN XXXXX3351XXXXX
-XXXXX9146 ",,,Restaurants/Dining,,,0,0,-7.62
 06/30/2025,06/30/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/27,,,Savings,,,0,0,1.69
 06/30/2025,06/30/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"PROGRAM BANKS
 (Period 06/12-06/30)",PRGBNK,17312Q927,Investment Income,,,0,0,0.14
@@ -4940,7 +4940,6 @@ XXXXX6146 ",,,General Merchandise,,,0,0,-148.95
 06/27/2025,06/27/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 246966516",,,ATM/Cash Withdrawals,,,0,0,-11000
-06/26/2025,06/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/25,,,Savings,,,0,0,1.44
 06/26/2025,06/26/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 06/26/25,,,Savings,,,0,0,-3.08
 06/26/2025,06/26/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  0626 VENMO *Ransome                              
 Visa Direct  NY",,,Transfers,,,0,0,-225
@@ -4959,12 +4958,12 @@ S  IN ",,,Groceries,,,0,0,-17.65
 06/26/2025,06/26/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"KROGER #X 227   06/26 #XXXXX7363 PURCHASE                   
 KROGER #X 227 W M  INDIANAPOLI
 S  IN ",,,Groceries,,,0,0,-139.06
+06/26/2025,06/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/25,,,Savings,,,0,0,1.44
 06/26/2025,06/26/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.01
 06/26/2025,06/26/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
 06/26/2025,06/26/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,QUALCOMM INC,QCOM,747525103,Investment Income,,,0,0,89.89
 06/26/2025,06/26/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,QUALCOMM INC,QCOM,747525103,Investment Income,,,0,0,129.94
 06/26/2025,06/26/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,QUALCOMM INC,QCOM,747525103,Investment Income,,,0,0,20.47
-06/25/2025,06/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/24,,,Savings,,,0,0,0.5
 06/25/2025,06/25/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"DIFFERENCE CARD  DES:BENEFIT    ID:5348                     
  INDN:VOSKUIL,JOHN            
 CO ID:XXXXX61866 PPD ",,,Paychecks/Salary,,,0,0,1009.36
@@ -4987,12 +4986,12 @@ XXXXX9705 ",,,Restaurants/Dining,,,0,0,-20.82
 06/25/2025,06/25/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0623 UNITED      XXXXX981348                     
 UNITED.COM   TX XXXXX1651XXXXX
 XXXXX7033 ",,,Travel,,,0,0,-5.6
+06/25/2025,06/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/24,,,Savings,,,0,0,0.5
 06/25/2025,06/25/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,UTILITIES SEL SECT SPDR FUND,XLU,81369Y886,Investment Income,,,0,0,1.11
 06/25/2025,06/25/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,INDUSTRIAL SEL SEC SPDR FD,XLI,81369Y704,Investment Income,,,0,0,4.32
 06/25/2025,06/25/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,ENERGY SEL SECT SPDR FD,XLE,81369Y506,Investment Income,,,0,0,3.59
 06/25/2025,06/25/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,HEALTH CARE SEL SECT SPDR FD,XLV,81369Y209,Investment Income,,,0,0,3.78
 06/25/2025,06/25/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,CONS STAPLES SEL SECT SPDR FD,XLP,81369Y308,Investment Income,,,0,0,6.08
-06/24/2025,06/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/23,,,Savings,,,0,0,2.52
 06/24/2025,06/24/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 06/24/25,,,Savings,,,0,0,-0.5
 06/24/2025,06/24/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  06/24 #XXXXX6122 PURCHASE                   
 MARATHON XX9160    INDIANAPOLI
@@ -5000,11 +4999,11 @@ S  IN ",,,Gasoline/Fuel,,,0,0,-12.5
 06/24/2025,06/24/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0623 FURRYGODMOTHER                              
 WWW.FURRYGODMCA XXXXX1651XXXXX
 XXXXX3480 RECURRING ",,,Clothing/Shoes,,,0,0,-56
+06/24/2025,06/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/23,,,Savings,,,0,0,2.52
 06/24/2025,06/24/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,VANGUARD FTSE EMERGING MARKETS,VWO,922042858,Investment Income,,,0,0,33.24
 06/24/2025,06/24/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,59.67
 06/24/2025,06/24/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,103.87
 06/24/2025,06/24/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,15.47
-06/23/2025,06/23/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/20,,,Savings,,,0,0,4.59
 06/23/2025,06/23/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371mce1l          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,6500
@@ -5042,6 +5041,7 @@ XXXXX2405 ",,,Healthcare/Medical,,,0,0,-459.76
 06/23/2025,06/23/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0619 IU Health Parking                           
 INDIANAPOLIS IN XXXXX5451XXXXX
 XXXXX2219 ",,,Travel,,,0,0,-2
+06/23/2025,06/23/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/20,,,Savings,,,0,0,4.59
 06/23/2025,06/23/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,151.09
 06/23/2025,06/23/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,125.04
 06/23/2025,06/23/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,5.21
@@ -5049,7 +5049,6 @@ XXXXX2219 ",,,Travel,,,0,0,-2
 06/23/2025,06/23/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,42.66
 06/23/2025,06/23/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,37.62
 06/23/2025,06/23/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,5.94
-06/20/2025,06/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/18,,,Savings,,,0,0,1.17
 06/20/2025,06/20/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371mbdj3          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,1000
@@ -5081,6 +5080,7 @@ XXXXX9385 ",,,Credit Card Payments,,,0,0,-10.7
 06/20/2025,06/20/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0617 LOS ARROYOS MEXICAN RES                     
 INDIANAPOLIS IN XXXXX2451XXXXX
 XXXXX8149 ",,,Restaurants/Dining,,,0,0,-52.69
+06/20/2025,06/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/18,,,Savings,,,0,0,1.17
 06/20/2025,06/20/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,ISHARES INC MSCI JAPAN ETF,EWJ,46434G822,Investment Income,,,0,0,388.99
 06/20/2025,06/20/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,ISHARES INC MSCI JAPAN ETF,EWJ,46434G822,Investment Income,,,0,0,519.64
 06/20/2025,06/20/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,ISHARES INC MSCI JAPAN ETF,EWJ,46434G822,Investment Income,,,0,0,15.37
@@ -5105,7 +5105,6 @@ XXXXX8149 ",,,Restaurants/Dining,,,0,0,-52.69
 06/20/2025,06/20/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 248345364",,,ATM/Cash Withdrawals,,,0,0,-6500
-06/18/2025,06/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/17,,,Savings,,,0,0,0.68
 06/18/2025,06/18/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 06/18/25,,,Savings,,,0,0,-1.17
 06/18/2025,06/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  06/18 #XXXXX0555 PURCHASE                   
 MARATHON XX9160    INDIANAPOLI
@@ -5113,6 +5112,7 @@ S  IN ",,,Gasoline/Fuel,,,0,0,-12.5
 06/18/2025,06/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  06/18 #XXXXX4888 PURCHASE                   
 NEEDLERS FRESH MA  INDIANAPOLI
 S  IN ",,,Groceries,,,0,0,-51.33
+06/18/2025,06/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/17,,,Savings,,,0,0,0.68
 06/18/2025,06/18/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,61.91
 06/18/2025,06/18/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,96.64
 06/18/2025,06/18/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,3.02
@@ -5123,7 +5123,6 @@ S  IN ",,,Groceries,,,0,0,-51.33
 06/18/2025,06/18/2025,AAA - 0837,Morgan Stanley,Online Transfer,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 248265771",,,Transfers,,,0,0,-1000
-06/17/2025,06/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/16,,,Savings,,,0,0,6.82
 06/17/2025,06/17/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 06/17/25,,,Savings,,,0,0,-0.68
 06/17/2025,06/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CITIZENS ENERGY  DES:BILLPAY    ID:XXXXX3196                
  INDN:JEANNE E VOSKUIL        
@@ -5134,6 +5133,7 @@ XXXXX0421 RECURRING ",,,Clothing/Shoes,,,0,0,-56
 06/17/2025,06/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0616 TST* THE OAKMONT                            
 INDIANAPOLIS IN XXXXX4651XXXXX
 XXXXX4025 ",,,Restaurants/Dining,,,0,0,-310.32
+06/17/2025,06/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/16,,,Savings,,,0,0,6.82
 06/17/2025,06/17/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,SBA COMMUNICATNS CORP NEW CL A,SBAC,78410G104,Investment Income,,,0,0,81.03
 06/17/2025,06/17/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,SBA COMMUNICATNS CORP NEW CL A,SBAC,78410G104,Investment Income,,,0,0,62.16
 06/17/2025,06/17/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,SBA COMMUNICATNS CORP NEW CL A,SBAC,78410G104,Investment Income,,,0,0,9.99
@@ -5157,7 +5157,6 @@ AS OF DATE: 06/16/2025",CMNIX,128119880,Other Expenses,,,0.226,15.32,-3.46
 06/17/2025,06/16/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend Reinvestment,,,"CALAMOS MARKET NEUTRAL INC I
 REINVESTMENT
 AS OF DATE: 06/16/2025",CMNIX,128119880,Other Expenses,,,2.369,15.32,-36.3
-06/16/2025,06/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/13,,,Savings,,,0,0,1.63
 06/16/2025,06/16/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 06/16/25,,,Savings,,,0,0,-6.82
 06/16/2025,06/16/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"T-MOBILE         DES:PCS SVC    ID:6484527                  
  INDN:JEANNE VOSKUIL          
@@ -5198,6 +5197,7 @@ XXXXX5338 ",,,General Merchandise,,,0,0,-66.15
 06/16/2025,06/16/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0613 AMAZON RETA* NA96972P2                      
 WWW.AMAZON.COWA XXXXX3451XXXXX
 XXXXX6480 ",,,General Merchandise,,,0,0,-50.53
+06/16/2025,06/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/13,,,Savings,,,0,0,1.63
 06/16/2025,06/16/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,ALPHABET INC CL A,GOOGL,02079K305,Investment Income,,,0,0,92.82
 06/16/2025,06/16/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,ALPHABET INC CL A,GOOGL,02079K305,Investment Income,,,0,0,77.7
 06/16/2025,06/16/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,ALPHABET INC CL A,GOOGL,02079K305,Investment Income,,,0,0,10.5
@@ -5205,7 +5205,6 @@ XXXXX6480 ",,,General Merchandise,,,0,0,-50.53
 06/16/2025,06/16/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,337.07
 06/16/2025,06/16/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,5.67
 06/16/2025,06/16/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,53.25
-06/13/2025,06/13/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/12,,,Savings,,,0,0,1.31
 06/13/2025,06/13/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 06/13/25,,,Savings,,,0,0,-1.63
 06/13/2025,06/13/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:HXXXXX99405145           
  INDN:VOSKUIL MATTHEW         
@@ -5228,7 +5227,7 @@ XXXXX7011 ",,,Entertainment,,,0,0,-21.81
 06/13/2025,06/13/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0611 LIVING ROOM THEATERS                        
 INDIANAPOLIS IN XXXXX0051XXXXX
 XXXXX4598 ",,,Entertainment,,,0,0,-21.5
-06/12/2025,06/12/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/11,,,Savings,,,0,0,1.65
+06/13/2025,06/13/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/12,,,Savings,,,0,0,1.31
 06/12/2025,06/12/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371m6nan          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,8000
@@ -5239,13 +5238,13 @@ XXXXX9216 ",,,Personal Care,,,0,0,-154.5
 06/12/2025,06/12/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0611 YARD HOUSE ZK XXX8360                       
 INDIANAPOLIS IN XXXXX0651XXXXX
 XXXXX7914 ",,,Restaurants/Dining,,,0,0,-121.19
+06/12/2025,06/12/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/11,,,Savings,,,0,0,1.65
 06/12/2025,06/12/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,168.49
 06/12/2025,06/12/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,135.29
 06/12/2025,06/12/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,19.92
 06/12/2025,06/12/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,T-MOBILE US INC COM,TMUS,872590104,Investment Income,,,0,0,110
 06/12/2025,06/12/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,T-MOBILE US INC COM,TMUS,872590104,Investment Income,,,0,0,99.44
 06/12/2025,06/12/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,T-MOBILE US INC COM,TMUS,872590104,Investment Income,,,0,0,25.52
-06/11/2025,06/11/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/10,,,Savings,,,0,0,4.16
 06/11/2025,06/11/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 06/11/25,,,Savings,,,0,0,-1.65
 06/11/2025,06/11/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  06/11 #XXXXX4619 PURCHASE                   
 MARATHON XX9160    INDIANAPOLI
@@ -5262,6 +5261,7 @@ XXXXX9729 ",,,General Merchandise,,,0,0,-30.74
 06/11/2025,06/11/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0610 AMAZON MKTPL*NH7SA2VP0                      
 Amzn.com/billWA XXXXX1651XXXXX
 XXXXX7694 ",,,General Merchandise,,,0,0,-25.67
+06/11/2025,06/11/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/10,,,Savings,,,0,0,4.16
 06/11/2025,06/11/2025,AAA - 5071,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
 (Period 06/01-06/10)",MSPBNA,061871976,Investment Income,,,0,0,0.01
 06/11/2025,06/11/2025,Portfolio Management - 0827,Morgan Stanley,Transfer into Account,,,"ROCKET COS INC CL A
@@ -5289,7 +5289,6 @@ To XXX-XX0837",,,Transfers,,,0,0,-660000
 06/11/2025,06/11/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 247870375",,,ATM/Cash Withdrawals,,,0,0,-8000
-06/10/2025,06/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/09,,,Savings,,,0,0,6.83
 06/10/2025,06/10/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 06/10/25,,,Savings,,,0,0,-4.16
 06/10/2025,06/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  06/10 #XXXXX1447 PURCHASE                   
 NEEDLERS FRESH MA  INDIANAPOLI
@@ -5318,6 +5317,7 @@ XXXXX3258 ",,,General Merchandise,,,0,0,-29.32
 06/10/2025,06/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0609 AMAZON MKTPL*NH7RO9190                      
 Amzn.com/billWA XXXXX1651XXXXX
 XXXXX4155 ",,,General Merchandise,,,0,0,-57.76
+06/10/2025,06/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/09,,,Savings,,,0,0,6.83
 06/10/2025,06/10/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,96.2
 06/10/2025,06/10/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,93.6
 06/10/2025,06/10/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,14.3
@@ -5839,6 +5839,13 @@ XXXXX9692 RECURRING ",,,Entertainment,,,0,0,-12.99
 INDIANAPOLIS IN XXXXX4251XXXXX
 XXXXX5165 ",,,Groceries,,,0,0,-7.48
 05/21/2025,05/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 05/20,,,Savings,,,0,0,1.33
+05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX5501                
+ INDN:JOHN P VOSKUIL          
+CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
+05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 05/21/25,,,Savings,,,0,0,-2.16
+05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  05/21 #XXXXX7421 PURCHASE                   
+NEEDLERS FRESH MA  INDIANAPOLI
+S  IN ",,,Groceries,,,0,0,-83.58
 05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0521 WAL-MART #0995                              
 FRANKLIN     IN",,,General Merchandise,,,0,0,-1.05
 05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0521 MURPHY6848ATWA                              
@@ -5855,13 +5862,6 @@ XXXXX1370 RECURRING ",,,Healthcare/Medical,,,0,0,-5.99
 05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0520 AMAZON MKTPL*NZ0C81WR2                      
 Amzn.com/billWA XXXXX1651XXXXX
 XXXXX0569 ",,,General Merchandise,,,0,0,-21.87
-05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX5501                
- INDN:JOHN P VOSKUIL          
-CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
-05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 05/21/25,,,Savings,,,0,0,-2.16
-05/21/2025,05/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  05/21 #XXXXX7421 PURCHASE                   
-NEEDLERS FRESH MA  INDIANAPOLI
-S  IN ",,,Groceries,,,0,0,-83.58
 05/20/2025,05/20/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
 Confirmation# XXXXX65033",,,Transfers,,,0,0,-1500
 05/20/2025,05/20/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,OVERDRAFT PROTECTION TO XXXXXXXXXXXXXXX356966,,,Transfers,,,0,0,-280.68
@@ -6177,9 +6177,6 @@ XXXXX4434 ",,,Clothing/Shoes,,,0,0,-59.46
 05/08/2025,05/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0508 TOMMY BAHAMA ECOMM                          
 XXX-XXX-8282 WA XXXXX1651XXXXX
 XXXXX5470 ",,,Restaurants/Dining,,,0,0,-83.46
-05/07/2025,05/07/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX15554",,,Transfers,,,0,0,-2000
-05/07/2025,05/07/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 05/06,,,Savings,,,0,0,3.51
 05/07/2025,05/07/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"DIFFERENCE CARD  DES:BENEFIT    ID:5348                     
  INDN:VOSKUIL,JOHN            
 CO ID:XXXXX61866 PPD ",,,Paychecks/Salary,,,0,0,135.92
@@ -6193,6 +6190,9 @@ CO ID:XXXXX21101 PPD ",,,Insurance,,,0,0,-211.58
 05/07/2025,05/07/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:AOXXXXXX802740           
  INDN:VOSKUIL JEANNE E        
 CO ID:XXXXX21101 PPD ",,,Insurance,,,0,0,-457.17
+05/07/2025,05/07/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX15554",,,Transfers,,,0,0,-2000
+05/07/2025,05/07/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 05/06,,,Savings,,,0,0,3.51
 05/07/2025,05/07/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0507 UBER   *TRIP H                              
 San FranciscoCA",,,Travel,,,0,0,-5
 05/07/2025,05/07/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  05/07 #XXXXX7230 PURCHASE                   
@@ -6215,7 +6215,6 @@ IRA/653",,,Service Charges/Fees,,,0,0,-26.27
 05/07/2025,05/07/2025,Portfolio Management IRA - 7854,Morgan Stanley,Service Fee,,,"ADV FEE 05/01-05/31
 IRA/653",,,Service Charges/Fees,,,0,0,-1568.4
 05/07/2025,05/07/2025,Portfolio Management - 0827,Morgan Stanley,Service Fee,,,ADV FEE 05/01-05/31,,,Service Charges/Fees,,,0,0,-1634.25
-05/06/2025,05/06/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 05/05,,,Savings,,,0,0,2.13
 05/06/2025,05/06/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX4761                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -6243,6 +6242,7 @@ XXXXX2800 ",,,Restaurants/Dining,,,0,0,-183.34
 05/06/2025,05/06/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0505 AMAZON MKTPL*NB5F06HG0                      
 Amzn.com/billWA XXXXX1651XXXXX
 XXXXX8459 ",,,General Merchandise,,,0,0,-59.06
+05/06/2025,05/06/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 05/05,,,Savings,,,0,0,2.13
 05/06/2025,05/06/2025,Portfolio Management - 0827,Morgan Stanley,Sold,,,CORTEVA INC,CTVA,22052L104,,,,279,62.36,17397.95
 05/06/2025,05/06/2025,Portfolio Management IRA - 7854,Morgan Stanley,Sold,,,CORTEVA INC,CTVA,22052L104,,,,249,62.36,15527.2
 05/06/2025,05/06/2025,Portfolio Management IRA - 7350,Morgan Stanley,Sold,,,CORTEVA INC,CTVA,22052L104,,,,39,62.36,2431.97
@@ -6275,9 +6275,6 @@ FOREIGN TAX PAID IS       1.56",ASML,N07059210,Investment Income,,,0,0,0
 05/06/2025,05/06/2025,Portfolio Management IRA - 7350,Morgan Stanley,Bought,,,ISHARES MSCI INDIA ETF,INDA,46429B598,,,,86,53.815,-4628.09
 05/06/2025,05/06/2025,Portfolio Management IRA - 7852,Morgan Stanley,Sold,,,ISHARES RUSSELL 1000 VALUE ETF,IWD,464287598,,,,4,182.8318,731.3
 05/06/2025,05/06/2025,Portfolio Management IRA - 7852,Morgan Stanley,Sold,,,ISHARES RUSSELL 1000 GRW ETF,IWF,464287614,,,,1,370.13,370.11
-05/05/2025,05/05/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"UAB HAUTICA      DES:IAT PAYPAL ID:XXXXX64014281            
- INDN:JEANNE VOSKUIL          
-CO ID:XXXXX0487C IAT           ",,,Transfers,,,0,0,-144.35
 05/05/2025,05/05/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 05/05/25,,,Savings,,,0,0,-2.13
 05/05/2025,05/05/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"JPMorgan Chase   DES:Ext Trnsfr ID:XXXXX439193              
  INDN:JOHN VOSKUIL            
@@ -6300,15 +6297,17 @@ XXXXX3345 ",,,Restaurants/Dining,,,0,0,-14.17
 05/05/2025,05/05/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0501 PMUSA XX7010 INDIANAPO                      
 XXX-XX89036  GA XXXXX0551XXXXX
 XXXXX0101 ",,,Gasoline/Fuel,,,0,0,-1.35
+05/05/2025,05/05/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"UAB HAUTICA      DES:IAT PAYPAL ID:XXXXX64014281            
+ INDN:JEANNE VOSKUIL          
+CO ID:XXXXX0487C IAT           ",,,Transfers,,,0,0,-144.35
 05/05/2025,05/05/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,PNC FINL SVCS GP,PNC,693475105,Investment Income,,,0,0,243.2
-05/02/2025,05/02/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 05/01,,,Savings,,,0,0,1.72
 05/02/2025,05/02/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"INVOICE CLOUD    DES:EPAYMENT   ID:9637146                  
  INDN:JEANNE ELIZABETH *VOSK  
 CO ID:XXXXX63576 TEL ",,,Online Services,,,0,0,-0.95
 05/02/2025,05/02/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARION COUNTY    DES:TAX        ID:9637138                  
  INDN:JEANNE ELIZABETH *VOSK  
 CO ID:XXXXX63576 TEL ",,,Taxes,,,0,0,-5292.88
-05/01/2025,05/01/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/30,,,Savings,,,0,0,0.49
+05/02/2025,05/02/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 05/01,,,Savings,,,0,0,1.72
 05/01/2025,05/01/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 05/01/25,,,Savings,,,0,0,-1.72
 05/01/2025,05/01/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"UHC BEN SVCS     DES:CONS COLL  ID:XXXXX5348                
  INDN:VOSKUIL, JOHN           
@@ -6327,6 +6326,7 @@ XXXXX5494 ",,,Restaurants/Dining,,,0,0,-37.7
 05/01/2025,05/01/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0429 LILLIBRIDGE GARAGE #2                       
 INDIANAPOLIS IN XXXXX5451XXXXX
 XXXXX1576 ",,,Automotive Expenses,,,0,0,-5
+05/01/2025,05/01/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/30,,,Savings,,,0,0,0.49
 05/01/2025,05/01/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,CVS HEALTH CORP COM,CVS,126650100,Investment Income,,,0,0,141.65
 05/01/2025,05/01/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,CVS HEALTH CORP COM,CVS,126650100,Investment Income,,,0,0,175.56
 05/01/2025,05/01/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,CVS HEALTH CORP COM,CVS,126650100,Investment Income,,,0,0,2.66
@@ -6394,10 +6394,6 @@ AS OF DATE: 04/30/2025",GIBIX,40168W525,Other Expenses,,,0.146,23.79,-3.48
 05/01/2025,04/30/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend Reinvestment,,,"GUGGENHEIM TOTAL RETURN BD I
 REINVESTMENT
 AS OF DATE: 04/30/2025",GIBIX,40168W525,Other Expenses,,,1.367,23.79,-32.51
-04/30/2025,04/30/2025,Regular Savings - 2603,Bank of America,Funds Paid,,,"PAYPAL           DES:INST XFER  ID:TICKETMASTER             
- INDN:JEANNE VOSKUIL          
-CO ID:PAYPALSI77 WEB ",,,Entertainment,,,0,0,-177.5
-04/30/2025,04/30/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/29,,,Savings,,,0,0,0.1
 04/30/2025,04/30/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"DIFFERENCE CARD  DES:BENEFIT    ID:5348                     
  INDN:VOSKUIL,JOHN            
 CO ID:XXXXX61866 PPD ",,,Paychecks/Salary,,,0,0,2998.21
@@ -6423,6 +6419,10 @@ XXXXX9874 RECURRING ",,,Entertainment,,,0,0,-7.99
 04/30/2025,04/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0429 TST* TAVERN AT THE POIN                     
 INDIANAPOLIS IN XXXXX4651XXXXX
 XXXXX7656 ",,,Restaurants/Dining,,,0,0,-22.53
+04/30/2025,04/30/2025,Regular Savings - 2603,Bank of America,Funds Paid,,,"PAYPAL           DES:INST XFER  ID:TICKETMASTER             
+ INDN:JEANNE VOSKUIL          
+CO ID:PAYPALSI77 WEB ",,,Entertainment,,,0,0,-177.5
+04/30/2025,04/30/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/29,,,Savings,,,0,0,0.1
 04/30/2025,04/30/2025,AAA - 5071,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
 (Period 04/01-04/30)",MSPBNA,061871976,Investment Income,,,0,0,0.05
 04/30/2025,04/30/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
@@ -6439,10 +6439,6 @@ REINVESTMENT",GOFXX,608919718,Other Expenses,,,58.09,1,-58.09
 04/30/2025,04/30/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"MSBNA PREFERRED SAVINGS- QC
 (Period 04/01-04/30)",99YA78EB0,99YA78EB0,Investment Income,,,0,0,28.39
 04/30/2025,04/30/2025,AAA - 0837,Morgan Stanley,Auto Bank Product Deposit,,,MSBNA PREFERRED SAVINGS- QC,99YA78EB0,99YA78EB0,Savings,,,0,0,-28.39
-04/29/2025,04/29/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:FEETS                    
- INDN:JEANNE VOSKUIL          
-CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-60
-04/29/2025,04/29/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/28,,,Savings,,,0,0,4.83
 04/29/2025,04/29/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX9404                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -6450,12 +6446,13 @@ CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
 04/29/2025,04/29/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CVS/PHARM 1090  04/29 #XXXXX2475 PURCHASE                   
 CVS/PHARM XXX03--  INDIANAPOLI
 S  IN ",,,Healthcare/Medical,,,0,0,-11.9
+04/29/2025,04/29/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:FEETS                    
+ INDN:JEANNE VOSKUIL          
+CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-60
+04/29/2025,04/29/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/28,,,Savings,,,0,0,4.83
 04/29/2025,04/29/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 243428361",,,ATM/Cash Withdrawals,,,0,0,-11000
-04/28/2025,04/28/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/25,,,Savings,,,0,0,0.43
-04/28/2025,04/28/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.03
-04/28/2025,04/28/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
 04/28/2025,04/28/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/28/25,,,Savings,,,0,0,-4.83
 04/28/2025,04/28/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"Xiber, LLC       DES:XXXXX56008 ID:                         
  INDN:Jeanne Voskuil          
@@ -6487,7 +6484,9 @@ XXXXX3526 ",,,Restaurants/Dining,,,0,0,-78.86
 04/28/2025,04/28/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0425 AMAZON MKTPL*N21R10RG2                      
 Amzn.com/billWA XXXXX1651XXXXX
 XXXXX1403 ",,,General Merchandise,,,0,0,-24.31
-04/25/2025,04/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/24,,,Savings,,,0,0,0.77
+04/28/2025,04/28/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/25,,,Savings,,,0,0,0.43
+04/28/2025,04/28/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.03
+04/28/2025,04/28/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
 04/25/2025,04/25/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/25/25,,,Savings,,,0,0,-0.43
 04/25/2025,04/25/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  04/25 #XXXXX9542 PURCHASE                   
 NEEDLERS FRESH MA  INDIANAPOLI
@@ -6504,9 +6503,9 @@ XXXXX5220 ",,,General Merchandise,,,0,0,-70.62
 04/25/2025,04/25/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0424 OURARING INC.                               
 XXX-XXX-0010 CA XXXXX2951XXXXX
 XXXXX1227 RECURRING ",,,Healthcare/Medical,,,0,0,-5.99
+04/25/2025,04/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/24,,,Savings,,,0,0,0.77
 04/25/2025,04/25/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,HUMANA INC,HUM,444859102,Investment Income,,,0,0,30.98
 04/25/2025,04/25/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,HUMANA INC,HUM,444859102,Investment Income,,,0,0,5.31
-04/24/2025,04/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/23,,,Savings,,,0,0,1.94
 04/24/2025,04/24/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX1628                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -6517,7 +6516,7 @@ CO ID:XXXXX07041 WEB ",,,Utilities,,,0,0,-120.4
 04/24/2025,04/24/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  04/24 #XXXXX8043 PURCHASE                   
 MARATHON XX9160    INDIANAPOLI
 S  IN ",,,Gasoline/Fuel,,,0,0,-31.23
-04/23/2025,04/23/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/22,,,Savings,,,0,0,0.01
+04/24/2025,04/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/23,,,Savings,,,0,0,1.94
 04/23/2025,04/23/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/23/25,,,Savings,,,0,0,-1.94
 04/23/2025,04/23/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  04/23 #XXXXX7196 PURCHASE                   
 NEEDLERS FRESH MA  INDIANAPOLI
@@ -6536,7 +6535,7 @@ XXXXX2097 ",,,General Merchandise,,,0,0,-21.4
 04/23/2025,04/23/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0422 E-ZPass MA                                  
 XXX-XX77745  MA XXXXX4151XXXXX
 XXXXX4638 ",,,Travel,,,0,0,-40
-04/22/2025,04/22/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/21,,,Savings,,,0,0,4.02
+04/23/2025,04/23/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/22,,,Savings,,,0,0,0.01
 04/22/2025,04/22/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/22/25,,,Savings,,,0,0,-0.01
 04/22/2025,04/22/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0422 FURRYGODMOTHER                              
 WWW.FURRYGODMCA XXXXX1651XXXXX
@@ -6544,7 +6543,7 @@ XXXXX9051 RECURRING ",,,Clothing/Shoes,,,0,0,-15
 04/22/2025,04/22/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0421 PARAMOUNT+                                  
 XXX-XXX-5343 CA XXXXX0051XXXXX
 XXXXX7515 RECURRING ",,,Entertainment,,,0,0,-12.99
-04/21/2025,04/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/18,,,Savings,,,0,0,1.06
+04/22/2025,04/22/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/21,,,Savings,,,0,0,4.02
 04/21/2025,04/21/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/21/25,,,Savings,,,0,0,-4.02
 04/21/2025,04/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHASE CREDIT CRD DES:EPAY       ID:XXXXX11529               
  INDN:JOHN VOSKUIL            
@@ -6585,9 +6584,9 @@ XXXXX3058 ",,,Clothing/Shoes,,,0,0,-0.05
 04/21/2025,04/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0418 JCPENNEY.COM                                
 JCPENNEY.COM OH XXXXX0651XXXXX
 XXXXX6951 ",,,Clothing/Shoes,,,0,0,-81.95
+04/21/2025,04/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/18,,,Savings,,,0,0,1.06
 04/21/2025,04/21/2025,AAA - 0837,Morgan Stanley,Sold,,,"FEDERATED HERMES GOVT OBL PRM
 CONFIRM NBR",GOFXX,608919718,,,,11000,1,11000
-04/18/2025,04/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/17,,,Savings,,,0,0,0.94
 04/18/2025,04/18/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/18/25,,,Savings,,,0,0,-1.06
 04/18/2025,04/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,EDGE UTILITIES  Bill Payment,,,Utilities,,,0,0,-30
 04/18/2025,04/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR GENERAL  04/18 #XXXXX1789 PURCHASE                   
@@ -6599,7 +6598,7 @@ TRACTOR SUPPLY #   LEITCHFIELD
 04/18/2025,04/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR TREE     04/18 #XXXXX4520 PURCHASE                   
 1305 ELIZABETHTOW  LEITCHFIELD
    KY ",,,General Merchandise,,,0,0,-2.65
-04/17/2025,04/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/16,,,Savings,,,0,0,1.92
+04/18/2025,04/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/17,,,Savings,,,0,0,0.94
 04/17/2025,04/17/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/17/25,,,Savings,,,0,0,-0.94
 04/17/2025,04/17/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  0417 VENMO *Ransome                              
 Visa Direct  NY",,,Transfers,,,0,0,-210
@@ -6617,9 +6616,7 @@ XXXXX7853 RECURRING ",,,Automotive Expenses,,,0,0,-39.99
 04/17/2025,04/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid Adj,,,"PURCHASE REFUND 0416  AMAZON MKTPLACE PMTS                  
 Amzn.com/billWA XXXXX1651XXXXX
 XXXXX2985 ",,,General Merchandise,,,0,0,14.33
-04/16/2025,04/16/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
-Confirmation# XXXXX82210",,,Transfers,,,0,0,5000
-04/16/2025,04/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/15,,,Savings,,,0,0,0.98
+04/17/2025,04/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/16,,,Savings,,,0,0,1.92
 04/16/2025,04/16/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"IRS  TREAS 310   DES:  TAX REF  ID:XXXXXXXXXX00909          
  INDN:VOSKUIL, JOHN P & JEAN  
 CO ID:XXXXX36946 PPD           ",,,Deposits,,,0,0,12018
@@ -6650,7 +6647,9 @@ XXXXX4435 ",,,Hobbies,,,0,0,-12.83
 04/16/2025,04/16/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0415 AMAZON MKTPL*ME26Z1I43                      
 Amzn.com/billWA XXXXX1651XXXXX
 XXXXX2171 ",,,General Merchandise,,,0,0,-32.04
-04/15/2025,04/15/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/14,,,Savings,,,0,0,10.25
+04/16/2025,04/16/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
+Confirmation# XXXXX82210",,,Transfers,,,0,0,5000
+04/16/2025,04/16/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/15,,,Savings,,,0,0,0.98
 04/15/2025,04/15/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX7330                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -6670,6 +6669,7 @@ XXXXX4913 ",,,General Merchandise,,,0,0,-8.72
 04/15/2025,04/15/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0414 AMAZON MKTPL*TZ3JO6SI3                      
 Amzn.com/billWA XXXXX1651XXXXX
 XXXXX7136 ",,,General Merchandise,,,0,0,-26.62
+04/15/2025,04/15/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/14,,,Savings,,,0,0,10.25
 04/15/2025,04/15/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,THERMO FISHER SCIENTIFIC,TMO,883556102,Investment Income,,,0,0,12.04
 04/15/2025,04/15/2025,Portfolio Management - 0827,Morgan Stanley,Service Fee,,,"NET PLATFORM FEE
 PLATFORM FEE         ($150.89)
@@ -6683,9 +6683,6 @@ PLATFORM CREDIT       $144.53",,,Service Charges/Fees,,,0,0,0
 04/15/2025,04/15/2025,Portfolio Management IRA - 7350,Morgan Stanley,Service Fee,,,"NET PLATFORM FEE
 PLATFORM FEE          ($23.03)
 PLATFORM CREDIT        $23.03",,,Service Charges/Fees,,,0,0,0
-04/14/2025,04/14/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX92061",,,Transfers,,,0,0,-150
-04/14/2025,04/14/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/11,,,Savings,,,0,0,3.02
 04/14/2025,04/14/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"BKOFAMERICA ATM 04/14 #XXXXX1343 DEPOSIT                    
 DOWNTOWN INDIANAPO INDIANAPOLI
 S  IN ",,,Deposits,,,0,0,120
@@ -6746,7 +6743,9 @@ WWW.AMAZON.COWA XXXXX3451XXXXX
 XXXXX7335 ",,,General Merchandise,,,0,0,-12.7
 04/14/2025,04/14/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX92061",,,Transfers,,,0,0,150
-04/11/2025,04/11/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/10,,,Savings,,,0,0,3.24
+04/14/2025,04/14/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX92061",,,Transfers,,,0,0,-150
+04/14/2025,04/14/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/11,,,Savings,,,0,0,3.02
 04/11/2025,04/11/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/11/25,,,Savings,,,0,0,-3.02
 04/11/2025,04/11/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0410 FURRYGODMOTHER                              
 WWW.FURRYGODMCA XXXXX1651XXXXX
@@ -6769,7 +6768,7 @@ XXXXX7033 ",,,General Merchandise,,,0,0,-70.36
 04/11/2025,04/11/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0409 IU Health Parking                           
 INDIANAPOLIS IN XXXXX5451XXXXX
 XXXXX4147 ",,,Travel,,,0,0,-2
-04/10/2025,04/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/09,,,Savings,,,0,0,2.54
+04/11/2025,04/11/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/10,,,Savings,,,0,0,3.24
 04/10/2025,04/10/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/10/25,,,Savings,,,0,0,-3.24
 04/10/2025,04/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,Check 6341,,,Checks,,,0,0,-100
 04/10/2025,04/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LOWE'S #442     04/10 #XXXXX5522 PURCHASE                   
@@ -6793,7 +6792,7 @@ XXXXX9146 ",,,Gasoline/Fuel,,,0,0,-1.35
 04/10/2025,04/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0408 PMUSA XX7010 INDIANAPO                      
 XXX-XX89036  GA XXXXX0550XXXXX
 XXXXX0202 ",,,Gasoline/Fuel,,,0,0,-5.85
-04/09/2025,04/09/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/08,,,Savings,,,0,0,1.83
+04/10/2025,04/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/09,,,Savings,,,0,0,2.54
 04/09/2025,04/09/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/09/25,,,Savings,,,0,0,-2.54
 04/09/2025,04/09/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:AOSXXXXX820040           
  INDN:VOSKUIL MATTEW          
@@ -6819,6 +6818,7 @@ XXXXX2110 ",,,Groceries,,,0,0,-294.79
 04/09/2025,04/09/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0408 Whole Foods MKS XXXXX                       
 XXX-XXX-1072 DE XXXXX1650XXXXX
 XXXXX2007 ",,,Groceries,,,0,0,-50.05
+04/09/2025,04/09/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/08,,,Savings,,,0,0,1.83
 04/09/2025,04/09/2025,Portfolio Management IRA - 7350,Morgan Stanley,Bought,,,WALMART INC,WMT,931142103,,,,10,85.3698,-853.7
 04/09/2025,04/09/2025,Portfolio Management IRA - 7854,Morgan Stanley,Bought,,,WALMART INC,WMT,931142103,,,,60,84.95,-5097
 04/09/2025,04/09/2025,Portfolio Management IRA - 7350,Morgan Stanley,Bought,,,REDDIT INC CL A,RDDT,75734B100,,,,3,90.9,-272.7
@@ -6850,7 +6850,6 @@ CONFIRM NBR",GILHX,40168W483,,,,244.676,24.44,5979.88
 04/09/2025,04/09/2025,Portfolio Management - 0827,Morgan Stanley,Bought,,,QUALCOMM INC,QCOM,747525103,,,,20,126.0395,-2520.79
 04/09/2025,04/09/2025,Portfolio Management IRA - 7350,Morgan Stanley,Bought,,,QUALCOMM INC,QCOM,747525103,,,,3,126.69,-380.07
 04/09/2025,04/09/2025,Portfolio Management IRA - 7854,Morgan Stanley,Bought,,,QUALCOMM INC,QCOM,747525103,,,,23,126.5413,-2910.45
-04/08/2025,04/08/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/07,,,Savings,,,0,0,4.21
 04/08/2025,04/08/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX8488                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -6868,7 +6867,7 @@ XXXXX1797 ",,,Home Improvement,,,0,0,-2.88
 04/08/2025,04/08/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0407 FUSEK'S TRUE VALUE                          
 INDIANAPOLIS IN XXXXX9750XXXXX
 XXXXX0914 ",,,Home Improvement,,,0,0,-4.06
-04/07/2025,04/07/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/04,,,Savings,,,0,0,2.25
+04/08/2025,04/08/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/07,,,Savings,,,0,0,4.21
 04/07/2025,04/07/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,BankAmeriDeals CASHBACK,,,Rewards,,,0,0,4.63
 04/07/2025,04/07/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/07/25,,,Savings,,,0,0,-4.21
 04/07/2025,04/07/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"ATT              DES:Payment    ID:XXXXX8003EPAYZ           
@@ -6916,6 +6915,7 @@ XXXXX0284 ",,,General Merchandise,,,0,0,-22.95
 04/07/2025,04/07/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0404 AMAZON MKTPL*7I7A798O3                      
 Amzn.com/billWA XXXXX1650XXXXX
 XXXXX1316 ",,,General Merchandise,,,0,0,-2.76
+04/07/2025,04/07/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/04,,,Savings,,,0,0,2.25
 04/07/2025,04/07/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,WALMART INC,WMT,931142103,Investment Income,,,0,0,164.27
 04/07/2025,04/07/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,WALMART INC,WMT,931142103,Investment Income,,,0,0,126.9
 04/07/2025,04/07/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,WALMART INC,WMT,931142103,Investment Income,,,0,0,21.86
@@ -6926,9 +6926,6 @@ IRA/653",,,Service Charges/Fees,,,0,0,-25.67
 04/07/2025,04/07/2025,Portfolio Management IRA - 7854,Morgan Stanley,Service Fee,,,"ADV FEE 04/01-04/30
 IRA/653",,,Service Charges/Fees,,,0,0,-1515.25
 04/07/2025,04/07/2025,Portfolio Management - 0827,Morgan Stanley,Service Fee,,,ADV FEE 04/01-04/30,,,Service Charges/Fees,,,0,0,-1582
-04/04/2025,04/04/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX78708",,,Transfers,,,0,0,-5000
-04/04/2025,04/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/03,,,Savings,,,0,0,2.92
 04/04/2025,04/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/04/25,,,Savings,,,0,0,-2.25
 04/04/2025,04/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DISCOUNT-TIRE-  04/04 #XXXXX5297 PURCHASE                   
 DISCOUNT-TIRE-CO   INDIANAPOLI
@@ -6941,11 +6938,13 @@ INDIANAPOLIS IN XXXXX9750XXXXX
 XXXXX6999 ",,,Automotive Expenses,,,0,0,-415.12
 04/04/2025,04/04/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX78708",,,Transfers,,,0,0,5000
+04/04/2025,04/04/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX78708",,,Transfers,,,0,0,-5000
+04/04/2025,04/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/03,,,Savings,,,0,0,2.92
 04/04/2025,04/04/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,SPDR DOUBLELINE TR TACT ETF,TOTL,78467V848,Investment Income,,,0,0,70.1
 04/04/2025,04/04/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,SPDR DOUBLELINE TR TACT ETF,TOTL,78467V848,Investment Income,,,0,0,56.15
 04/04/2025,04/04/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,SPDR DOUBLELINE TR TACT ETF,TOTL,78467V848,Investment Income,,,0,0,0.68
 04/04/2025,04/04/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,SPDR DOUBLELINE TR TACT ETF,TOTL,78467V848,Investment Income,,,0,0,8.68
-04/03/2025,04/03/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/02,,,Savings,,,0,0,1.72
 04/03/2025,04/03/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/03/25,,,Savings,,,0,0,-2.92
 04/03/2025,04/03/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"JPMorgan Chase   DES:Ext Trnsfr ID:XXXXX454197              
  INDN:JOHN VOSKUIL            
@@ -6971,12 +6970,12 @@ XXXXX6128 ",,,General Merchandise,,,0,0,-48.03
 04/03/2025,04/03/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0331 KOHLER CO                                   
 XXX-XX64537  WI XXXXX0550XXXXX
 XXXXX0091 ",,,Home Maintenance,,,0,0,-42.82
+04/03/2025,04/03/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/02,,,Savings,,,0,0,1.72
 04/03/2025,04/03/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,SCHLUMBERGER LTD,SLB,806857108,Investment Income,,,0,0,116
 04/03/2025,04/03/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,SCHLUMBERGER LTD,SLB,806857108,Investment Income,,,0,0,114.57
 04/03/2025,04/03/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,SCHLUMBERGER LTD,SLB,806857108,Investment Income,,,0,0,2.85
 04/03/2025,04/03/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,SCHLUMBERGER LTD,SLB,806857108,Investment Income,,,0,0,20.52
 04/03/2025,04/03/2025,AAA - 5071,Morgan Stanley,Qualified Dividend,,,ROCKET COS INC CL A,RKT,77311W101,Investment Income,,,0,0,320
-04/02/2025,04/02/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/01,,,Savings,,,0,0,1.43
 04/02/2025,04/02/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 04/02/25,,,Savings,,,0,0,-1.72
 04/02/2025,04/02/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  04/02 #XXXXX6696 PURCHASE                   
 NEEDLERS FRESH MA  INDIANAPOLI
@@ -6993,10 +6992,10 @@ XXXXX7490 ",,,Restaurants/Dining,,,0,0,-18.93
 04/02/2025,04/02/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0401 VCI*VITACOST.COM                            
 XXX-XXX-2601 FL XXXXX1650XXXXX
 XXXXX1982 ",,,Healthcare/Medical,,,0,0,-83.71
+04/02/2025,04/02/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 04/01,,,Savings,,,0,0,1.43
 04/02/2025,04/02/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,NVIDIA CORPORATION,NVDA,67066G104,Investment Income,,,0,0,9.35
 04/02/2025,04/02/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,NVIDIA CORPORATION,NVDA,67066G104,Investment Income,,,0,0,5.68
 04/02/2025,04/02/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,NVIDIA CORPORATION,NVDA,67066G104,Investment Income,,,0,0,0.9
-04/01/2025,04/01/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/31,,,Savings,,,0,0,7.92
 04/01/2025,04/01/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX9761                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -7019,6 +7018,7 @@ XXXXX9226 RECURRING ",,,Online Services,,,0,0,-30
 04/01/2025,04/01/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0331 AMAZON MKTPL*2T5WY67F3                      
 Amzn.com/billWA XXXXX1650XXXXX
 XXXXX3547 ",,,General Merchandise,,,0,0,-17.53
+04/01/2025,04/01/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/31,,,Savings,,,0,0,7.92
 04/01/2025,04/01/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,COCA COLA CO,KO,191216100,Investment Income,,,0,0,131.58
 04/01/2025,04/01/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,REGIONS FINANCIAL CORP NEW,RF,7591EP100,Investment Income,,,0,0,148.25
 04/01/2025,04/01/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,REGIONS FINANCIAL CORP NEW,RF,7591EP100,Investment Income,,,0,0,304.25
@@ -7086,7 +7086,6 @@ AS OF DATE: 03/31/2025",GIBIX,40168W525,Other Expenses,,,0.142,23.84,-3.38
 04/01/2025,03/31/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend Reinvestment,,,"GUGGENHEIM TOTAL RETURN BD I
 REINVESTMENT
 AS OF DATE: 03/31/2025",GIBIX,40168W525,Other Expenses,,,1.318,23.84,-31.42
-03/31/2025,03/31/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/28,,,Savings,,,0,0,2.3
 03/31/2025,03/31/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371kpinn          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Investment Income,,,0,0,11000
@@ -7156,6 +7155,7 @@ XXXXX3688 ",,,General Merchandise,,,0,0,7.41
 03/31/2025,03/31/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid Adj,,,"CHECKCARD  0330 MARKET WAGON                                
 XXX-XXX-0500 IN XXXXX4150XXXXX
 XXXXX5361 ",,,Refunds/Adjustments,,,0,0,11.99
+03/31/2025,03/31/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/28,,,Savings,,,0,0,2.3
 03/31/2025,03/31/2025,AAA - 5071,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
 (Period 03/01-03/31)",MSPBNA,061871976,Investment Income,,,0,0,0.04
 03/31/2025,03/31/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
@@ -7184,10 +7184,6 @@ REINVESTMENT",GOFXX,608919718,Other Expenses,,,73.04,1,-73.04
 03/31/2025,03/31/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,MARTIN MARIETTA MATERIALS,MLM,573284106,Investment Income,,,0,0,24.49
 03/31/2025,03/31/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,MARTIN MARIETTA MATERIALS,MLM,573284106,Investment Income,,,0,0,30.02
 03/31/2025,03/31/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,MARTIN MARIETTA MATERIALS,MLM,573284106,Investment Income,,,0,0,5.53
-03/28/2025,03/28/2025,Regular Savings - 2603,Bank of America,Funds Paid,,,"CHASE CREDIT CRD DES:EPAY       ID:XXXXX13645               
- INDN:JEANNE E VOSKUIL        
-CO ID:XXXXX39224 WEB ",,,Credit Card Payments,,,0,0,-780.86
-03/28/2025,03/28/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/27,,,Savings,,,0,0,2.4
 03/28/2025,03/28/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/28/25,,,Savings,,,0,0,-2.3
 03/28/2025,03/28/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  0328 VENMO *Matthew                              
 Visa Direct  NY",,,Transfers,,,0,0,-500
@@ -7206,14 +7202,16 @@ XXXXX7293 ",,,Groceries,,,0,0,-4.92
 03/28/2025,03/28/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0327 AMAZON MKTPL*FU5PA45W3                      
 Amzn.com/billWA XXXXX1650XXXXX
 XXXXX6094 ",,,General Merchandise,,,0,0,-142.34
+03/28/2025,03/28/2025,Regular Savings - 2603,Bank of America,Funds Paid,,,"CHASE CREDIT CRD DES:EPAY       ID:XXXXX13645               
+ INDN:JEANNE E VOSKUIL        
+CO ID:XXXXX39224 WEB ",,,Credit Card Payments,,,0,0,-780.86
+03/28/2025,03/28/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/27,,,Savings,,,0,0,2.4
 03/28/2025,03/28/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,EATON CORP PLC SHS,ETN,G29183103,Investment Income,,,0,0,66.56
 03/28/2025,03/28/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,EATON CORP PLC SHS,ETN,G29183103,Investment Income,,,0,0,46.8
 03/28/2025,03/28/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,EATON CORP PLC SHS,ETN,G29183103,Investment Income,,,0,0,7.28
 03/28/2025,03/28/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 241291322",,,ATM/Cash Withdrawals,,,0,0,-11000
-03/27/2025,03/27/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/26,,,Savings,,,0,0,2.81
-03/27/2025,03/27/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.04
 03/27/2025,03/27/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/27/25,,,Savings,,,0,0,-2.4
 03/27/2025,03/27/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"Xiber, LLC       DES:XXXXX56008 ID:                         
  INDN:Jeanne Voskuil          
@@ -7230,13 +7228,14 @@ XXXXX5819 ",,,General Merchandise,,,0,0,-91.43
 03/27/2025,03/27/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0326 CHEWY.COM                                   
 XXX-XXX-4399 FL XXXXX1650XXXXX
 XXXXX0081 RECURRING ",,,Pets/Pet Care,,,0,0,-57.48
+03/27/2025,03/27/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/26,,,Savings,,,0,0,2.81
+03/27/2025,03/27/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.04
 03/27/2025,03/27/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,SBA COMMUNICATNS CORP NEW CL A,SBAC,78410G104,Investment Income,,,0,0,81.03
 03/27/2025,03/27/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,SBA COMMUNICATNS CORP NEW CL A,SBAC,78410G104,Investment Income,,,0,0,62.16
 03/27/2025,03/27/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,SBA COMMUNICATNS CORP NEW CL A,SBAC,78410G104,Investment Income,,,0,0,9.99
 03/27/2025,03/27/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,QUALCOMM INC,QCOM,747525103,Investment Income,,,0,0,68.85
 03/27/2025,03/27/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,QUALCOMM INC,QCOM,747525103,Investment Income,,,0,0,104.55
 03/27/2025,03/27/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,QUALCOMM INC,QCOM,747525103,Investment Income,,,0,0,17
-03/26/2025,03/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/25,,,Savings,,,0,0,2.02
 03/26/2025,03/26/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/26/25,,,Savings,,,0,0,-2.81
 03/26/2025,03/26/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"BKOFAMERICA BC  03/26 #XXXXX1317 WITHDRWL                   
 301 E Market St S  Indianapoli
@@ -7256,12 +7255,12 @@ XXXXX8024 ",,,Travel,,,0,0,-236.75
 03/26/2025,03/26/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0325 AMAZON MKTPL*ZK8J81FR2                      
 Amzn.com/billWA XXXXX1650XXXXX
 XXXXX7302 ",,,General Merchandise,,,0,0,-42.02
+03/26/2025,03/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/25,,,Savings,,,0,0,2.02
 03/26/2025,03/26/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,UTILITIES SEL SECT SPDR FUND,XLU,81369Y886,Investment Income,,,0,0,1.11
 03/26/2025,03/26/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,INDUSTRIAL SEL SEC SPDR FD,XLI,81369Y704,Investment Income,,,0,0,4.05
 03/26/2025,03/26/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,ENERGY SEL SECT SPDR FD,XLE,81369Y506,Investment Income,,,0,0,3.58
 03/26/2025,03/26/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,HEALTH CARE SEL SECT SPDR FD,XLV,81369Y209,Investment Income,,,0,0,3.39
 03/26/2025,03/26/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,CONS STAPLES SEL SECT SPDR FD,XLP,81369Y308,Investment Income,,,0,0,4.6
-03/25/2025,03/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/24,,,Savings,,,0,0,8.6
 03/25/2025,03/25/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX0793                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -7278,11 +7277,11 @@ XXXXX5968 RECURRING ",,,Healthcare/Medical,,,0,0,-5.99
 03/25/2025,03/25/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0324 AMAZON MKTPL*6T8IP7CP3                      
 Amzn.com/billWA XXXXX1650XXXXX
 XXXXX6694 ",,,General Merchandise,,,0,0,-109.21
+03/25/2025,03/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/24,,,Savings,,,0,0,8.6
 03/25/2025,03/25/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,42.66
 03/25/2025,03/25/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,37.62
 03/25/2025,03/25/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,KNIGHT-SWIFT TRANSN HLDGS CL A,KNX,499049104,Investment Income,,,0,0,5.94
 03/25/2025,03/25/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,VANGUARD FTSE EMERGING MARKETS,VWO,922042858,Investment Income,,,0,0,17.74
-03/24/2025,03/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/21,,,Savings,,,0,0,5.19
 03/24/2025,03/24/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"BKOFAMERICA MOBILE 03/25 XXXXX64671 DEPOSIT                 
                    *MOBILE    
    TN ",,,Deposits,,,0,0,52.36
@@ -7342,12 +7341,12 @@ XXXXX8570 ",,,Groceries,,,0,0,-98.04
 03/24/2025,03/24/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0321 PARAMOUNT+                                  
 XXX-XXX-5343 CA XXXXX0050XXXXX
 XXXXX3385 RECURRING ",,,Entertainment,,,0,0,-12.99
+03/24/2025,03/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/21,,,Savings,,,0,0,5.19
 03/24/2025,03/24/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,151.09
 03/24/2025,03/24/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,125.04
 03/24/2025,03/24/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,5.21
 03/24/2025,03/24/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,BLACKROCK INC,BLK,09290D101,Investment Income,,,0,0,15.63
 03/24/2025,03/24/2025,AAA - 0837,Morgan Stanley,Bank Product Withdrawal,,,MSBNA PREFERRED SAVINGS- QC,99YA78EB0,99YA78EB0,Securities Trades,,,0,0,11000
-03/21/2025,03/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/20,,,Savings,,,0,0,1.06
 03/21/2025,03/21/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX3939                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -7382,6 +7381,7 @@ XXXXX4841 ",,,Home Improvement,,,0,0,-6.35
 03/21/2025,03/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0319 ACE HARDWARE #384                           
 LEITCHFIELD  KY XXXXX3350XXXXX
 XXXXX4825 ",,,Home Improvement,,,0,0,-37.07
+03/21/2025,03/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/20,,,Savings,,,0,0,1.06
 03/21/2025,03/21/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,ISHARES RUSSELL MIDCAP V ETF,IWS,464287473,Investment Income,,,0,0,144.33
 03/21/2025,03/21/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,ISHARES RUSSELL MIDCAP V ETF,IWS,464287473,Investment Income,,,0,0,161.81
 03/21/2025,03/21/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,ISHARES RUSSELL MIDCAP V ETF,IWS,464287473,Investment Income,,,0,0,7.17
@@ -7395,7 +7395,6 @@ XXXXX4825 ",,,Home Improvement,,,0,0,-37.07
 03/21/2025,03/21/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,ISHARES RUSSELL 1000 GRW ETF,IWF,464287614,Investment Income,,,0,0,5.15
 03/21/2025,03/21/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,ISHARES COHEN&STEERS REIT ETF,ICF,464287564,Investment Income,,,0,0,56.01
 03/21/2025,03/21/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,ISHARES COHEN&STEERS REIT ETF,ICF,464287564,Investment Income,,,0,0,8.29
-03/20/2025,03/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/19,,,Savings,,,0,0,1.62
 03/20/2025,03/20/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,BankAmeriDeals CASHBACK,,,Rewards,,,0,0,4.5
 03/20/2025,03/20/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/20/25,,,Savings,,,0,0,-1.06
 03/20/2025,03/20/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0319 TST*HOMETOWN HANGOUT                        
@@ -7407,11 +7406,11 @@ XXXXX8190 ",,,Restaurants/Dining,,,0,0,-84.8
 03/20/2025,03/20/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0319 TWIN LAKES LIQUOR                           
 LEITCHFIELD  KY XXXXX0150XXXXX
 XXXXX4116 ",,,Groceries,,,0,0,-329.69
+03/20/2025,03/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/19,,,Savings,,,0,0,1.62
 03/20/2025,03/20/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,61.91
 03/20/2025,03/20/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,96.64
 03/20/2025,03/20/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,3.02
 03/20/2025,03/20/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,THE CIGNA GROUP,CI,125523100,Investment Income,,,0,0,13.59
-03/19/2025,03/19/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/18,,,Savings,,,0,0,1.74
 03/19/2025,03/19/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/19/25,,,Savings,,,0,0,-1.62
 03/19/2025,03/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"Days Pro Bass   03/19 #XXXXX7549 PURCHASE                   
 Days Pro Bass Sh   CLARKSON   
@@ -7425,7 +7424,7 @@ Days Pro Bass Sh   CLARKSON
 03/19/2025,03/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0317 JONES HOME CENTER 2244                      
 UPTON        KY XXXXX4650XXXXX
 XXXXX3358 ",,,Home Improvement,,,0,0,-59.7
-03/18/2025,03/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/17,,,Savings,,,0,0,2.77
+03/19/2025,03/19/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/18,,,Savings,,,0,0,1.74
 03/18/2025,03/18/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/18/25,,,Savings,,,0,0,-1.74
 03/18/2025,03/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CITIZENS ENERGY  DES:BILLPAY    ID:XXXXX5603                
  INDN:JEANNE E VOSKUIL        
@@ -7439,6 +7438,7 @@ DG XXXXX13586 PEO  CLARKSON
 03/18/2025,03/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0317 SP CAPRI BLUE                               
 cs@capri-blueMN XXXXX7750XXXXX
 XXXXX7381 ",,,Restaurants/Dining,,,0,0,-139.1
+03/18/2025,03/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/17,,,Savings,,,0,0,2.77
 03/18/2025,03/18/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,88.2
 03/18/2025,03/18/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,98.7
 03/18/2025,03/18/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,UNITEDHEALTH GP INC,UNH,91324P102,Investment Income,,,0,0,14.7
@@ -7462,10 +7462,6 @@ AS OF DATE: 03/17/2025",CMNIX,128119880,Other Expenses,,,0.116,15.07,-1.75
 03/18/2025,03/17/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend Reinvestment,,,"CALAMOS MARKET NEUTRAL INC I
 REINVESTMENT
 AS OF DATE: 03/17/2025",CMNIX,128119880,Other Expenses,,,1.219,15.07,-18.37
-03/17/2025,03/17/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:23ANDME INC              
- INDN:JEANNE VOSKUIL          
-CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-69
-03/17/2025,03/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/14,,,Savings,,,0,0,0.99
 03/17/2025,03/17/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/17/25,,,Savings,,,0,0,-2.77
 03/17/2025,03/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"T-MOBILE         DES:PCS SVC    ID:2780552                  
  INDN:JEANNE VOSKUIL          
@@ -7493,6 +7489,10 @@ XXXXX8285 ",,,Restaurants/Dining,,,0,0,-173.3
 03/17/2025,03/17/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0314 FURRYGODMOTHER                              
 WWW.FURRYGODMCA XXXXX1650XXXXX
 XXXXX9732 RECURRING ",,,Clothing/Shoes,,,0,0,-28
+03/17/2025,03/17/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"PAYPAL           DES:INST XFER  ID:23ANDME INC              
+ INDN:JEANNE VOSKUIL          
+CO ID:PAYPALSI77 WEB ",,,Transfers,,,0,0,-69
+03/17/2025,03/17/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/14,,,Savings,,,0,0,0.99
 03/17/2025,03/17/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,CORTEVA INC,CTVA,22052L104,Investment Income,,,0,0,47.43
 03/17/2025,03/17/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,CORTEVA INC,CTVA,22052L104,Investment Income,,,0,0,42.33
 03/17/2025,03/17/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,CORTEVA INC,CTVA,22052L104,Investment Income,,,0,0,6.63
@@ -7503,7 +7503,6 @@ XXXXX9732 RECURRING ",,,Clothing/Shoes,,,0,0,-28
 03/17/2025,03/17/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,337.07
 03/17/2025,03/17/2025,Portfolio Management IRA - 7852,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,5.67
 03/17/2025,03/17/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,NEXTERA ENERGY INC,NEE,65339F101,Investment Income,,,0,0,53.25
-03/14/2025,03/14/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/13,,,Savings,,,0,0,2.85
 03/14/2025,03/14/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/14/25,,,Savings,,,0,0,-0.99
 03/14/2025,03/14/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHASE CREDIT CRD DES:EPAY       ID:XXXXX07706               
  INDN:JOHN VOSKUIL            
@@ -7517,7 +7516,7 @@ XXXXX8409 ",,,Restaurants/Dining,,,0,0,-126.3
 03/14/2025,03/14/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0313 EWC- Hamilton - 0650                        
 Noblesville  IN XXXXX3850XXXXX
 XXXXX1037 ",,,Other Expenses,,,0,0,-10
-03/13/2025,03/13/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/12,,,Savings,,,0,0,0.5
+03/14/2025,03/14/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/13,,,Savings,,,0,0,2.85
 03/13/2025,03/13/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/13/25,,,Savings,,,0,0,-2.85
 03/13/2025,03/13/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"MARATHON X3916  03/13 #XXXXX1735 PURCHASE                   
 MARATHON XX9160    INDIANAPOLI
@@ -7540,13 +7539,13 @@ XXXXX0468 ",,,General Merchandise,,,0,0,-19.5
 03/13/2025,03/13/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0311 WOLFIES GRILL - GEIST                       
 INDIANAPOLIS IN XXXXX2450XXXXX
 XXXXX8317 ",,,Restaurants/Dining,,,0,0,-135.93
+03/13/2025,03/13/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/12,,,Savings,,,0,0,0.5
 03/13/2025,03/13/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,168.49
 03/13/2025,03/13/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,135.29
 03/13/2025,03/13/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,MICROSOFT CORP,MSFT,594918104,Investment Income,,,0,0,19.92
 03/13/2025,03/13/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,T-MOBILE US INC COM,TMUS,872590104,Investment Income,,,0,0,110
 03/13/2025,03/13/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,T-MOBILE US INC COM,TMUS,872590104,Investment Income,,,0,0,99.44
 03/13/2025,03/13/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,T-MOBILE US INC COM,TMUS,872590104,Investment Income,,,0,0,25.52
-03/12/2025,03/12/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/11,,,Savings,,,0,0,0.79
 03/12/2025,03/12/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX8382                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -7557,9 +7556,7 @@ XXXXX6020 RECURRING ",,,Dues and Subscriptions,,,0,0,-42.79
 03/12/2025,03/12/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0311 TST* TAVERN AT THE POIN                     
 INDIANAPOLIS IN XXXXX4650XXXXX
 XXXXX2429 ",,,Restaurants/Dining,,,0,0,-19.71
-03/11/2025,03/11/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
-Confirmation# XXXXX34487",,,Transfers,,,0,0,3200
-03/11/2025,03/11/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/10,,,Savings,,,0,0,5.17
+03/12/2025,03/12/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/11,,,Savings,,,0,0,0.79
 03/11/2025,03/11/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/11/25,,,Savings,,,0,0,-0.79
 03/11/2025,03/11/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  0311 VENMO *Matthew                              
 Visa Direct  NY",,,Transfers,,,0,0,-500
@@ -7571,7 +7568,9 @@ X1547 YARD STREET  FISHERS
 03/11/2025,03/11/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0311 PROHEALTH LONGEVITY                         
 PROHEALTHLONGCA XXXXX1650XXXXX
 XXXXX7676 RECURRING ",,,Healthcare/Medical,,,0,0,-89.96
-03/10/2025,03/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/07,,,Savings,,,0,0,0.65
+03/11/2025,03/11/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
+Confirmation# XXXXX34487",,,Transfers,,,0,0,3200
+03/11/2025,03/11/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/10,,,Savings,,,0,0,5.17
 03/10/2025,03/10/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"BOFA FIN CTR    03/08 #XXXXX7320 DEPOSIT                    
 301 E Market St S  Indianapoli
 s  IN ",,,Deposits,,,0,0,19000
@@ -7609,6 +7608,7 @@ XXXXX8692 ",,,Automotive Expenses,,,0,0,-6.13
 03/10/2025,03/10/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0307 LIONPOSE                                    
 XXXXX10414   CA XXXXX8050XXXXX
 XXXXX6933 ",,,Other Expenses,,,0,0,-66.5
+03/10/2025,03/10/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/07,,,Savings,,,0,0,0.65
 03/10/2025,03/10/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,AMERICAN ELEC PWR CO INC,AEP,025537101,Investment Income,,,0,0,183.21
 03/10/2025,03/10/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,AMERICAN ELEC PWR CO INC,AEP,025537101,Investment Income,,,0,0,180.42
 03/10/2025,03/10/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,AMERICAN ELEC PWR CO INC,AEP,025537101,Investment Income,,,0,0,26.97
@@ -7619,9 +7619,6 @@ XXXXX6933 ",,,Other Expenses,,,0,0,-66.5
 03/10/2025,03/10/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,EXXON MOBIL CORP,XOM,30231G102,Investment Income,,,0,0,169.29
 03/10/2025,03/10/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,EXXON MOBIL CORP,XOM,30231G102,Investment Income,,,0,0,25.74
 03/10/2025,03/10/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,ROCKWELL AUTOMATION INC,ROK,773903109,Investment Income,,,0,0,68.12
-03/07/2025,03/07/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX92859",,,Transfers,,,0,0,-1500
-03/07/2025,03/07/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/06,,,Savings,,,0,0,0.18
 03/07/2025,03/07/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/07/25,,,Savings,,,0,0,-0.65
 03/07/2025,03/07/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"LIBERTY MUTUAL   DES:PAYMENT    ID:AOSXXXXX820040           
  INDN:VOSKUIL MATTEW          
@@ -7640,6 +7637,9 @@ BOARDSI.COM  NV XXXXX3450XXXXX
 XXXXX6512 RECURRING ",,,Groceries,,,0,0,-195
 03/07/2025,03/07/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX92859",,,Transfers,,,0,0,1500
+03/07/2025,03/07/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX92859",,,Transfers,,,0,0,-1500
+03/07/2025,03/07/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/06,,,Savings,,,0,0,0.18
 03/07/2025,03/07/2025,Portfolio Management IRA - 7350,Morgan Stanley,Service Fee,,,"ADV FEE 03/01-03/31
 IRA/653",,,Service Charges/Fees,,,0,0,-258.35
 03/07/2025,03/07/2025,Portfolio Management IRA - 7852,Morgan Stanley,Service Fee,,,"ADV FEE 03/01-03/31
@@ -7647,7 +7647,6 @@ IRA/653",,,Service Charges/Fees,,,0,0,-27.2
 03/07/2025,03/07/2025,Portfolio Management IRA - 7854,Morgan Stanley,Service Fee,,,"ADV FEE 03/01-03/31
 IRA/653",,,Service Charges/Fees,,,0,0,-1621.42
 03/07/2025,03/07/2025,Portfolio Management - 0827,Morgan Stanley,Service Fee,,,ADV FEE 03/01-03/31,,,Service Charges/Fees,,,0,0,-1698.94
-03/06/2025,03/06/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/05,,,Savings,,,0,0,0.89
 03/06/2025,03/06/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,BankAmeriDeals CASHBACK,,,Rewards,,,0,0,5
 03/06/2025,03/06/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/06/25,,,Savings,,,0,0,-0.18
 03/06/2025,03/06/2025,ADV PLUS BANKING - 6966,Bank of America,Service Fee,,,"CHECKCARD  0305 CHARGERBACKLOSTFOUND                        
@@ -7656,11 +7655,11 @@ XXXXX7123 ",,,Service Charges/Fees,,,0,0,-26.82
 03/06/2025,03/06/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid Adj,,,"CHECKCARD  0305 MARKET WAGON                                
 XXX-XXX-0500 IN XXXXX4150XXXXX
 XXXXX8029 ",,,Refunds/Adjustments,,,0,0,2
+03/06/2025,03/06/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/05,,,Savings,,,0,0,0.89
 03/06/2025,03/06/2025,Portfolio Management - 0827,Morgan Stanley,Dividend,,,SPDR DOUBLELINE TR TACT ETF,TOTL,78467V848,Investment Income,,,0,0,68.77
 03/06/2025,03/06/2025,Portfolio Management IRA - 7854,Morgan Stanley,Dividend,,,SPDR DOUBLELINE TR TACT ETF,TOTL,78467V848,Investment Income,,,0,0,55.08
 03/06/2025,03/06/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend,,,SPDR DOUBLELINE TR TACT ETF,TOTL,78467V848,Investment Income,,,0,0,0.67
 03/06/2025,03/06/2025,Portfolio Management IRA - 7350,Morgan Stanley,Dividend,,,SPDR DOUBLELINE TR TACT ETF,TOTL,78467V848,Investment Income,,,0,0,8.51
-03/05/2025,03/05/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/04,,,Savings,,,0,0,1.38
 03/05/2025,03/05/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/05/25,,,Savings,,,0,0,-0.89
 03/05/2025,03/05/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,Edge Utilities  Bill Payment,,,Utilities,,,0,0,-42
 03/05/2025,03/05/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"WHOLEFDS MKS#1  03/05 #XXXXX5610 PURCHASE                   
@@ -7672,9 +7671,7 @@ XXXXX9934 RECURRING ",,,Clothing/Shoes,,,0,0,-12
 03/05/2025,03/05/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0303 BIG RED LIQUORS 614                         
 INDIANAPOLIS IN XXXXX4250XXXXX
 XXXXX9390 ",,,Groceries,,,0,0,-44.92
-03/04/2025,03/04/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX40363",,,Transfers,,,0,0,-1000
-03/04/2025,03/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/03,,,Savings,,,0,0,2.38
+03/05/2025,03/05/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/04,,,Savings,,,0,0,1.38
 03/04/2025,03/04/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX7872                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -7696,10 +7693,12 @@ XXXXX0548 ",,,Refunds/Adjustments,,,0,0,24.5
 03/04/2025,03/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid Adj,,,"CHECKCARD  0303 MARKET WAGON                                
 XXX-XXX-0500 IN XXXXX4150XXXXX
 XXXXX3226 ",,,Refunds/Adjustments,,,0,0,32.97
+03/04/2025,03/04/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX40363",,,Transfers,,,0,0,-1000
+03/04/2025,03/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 03/03,,,Savings,,,0,0,2.38
 03/04/2025,03/04/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,91.76
 03/04/2025,03/04/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,89.28
 03/04/2025,03/04/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,JOHNSON & JOHNSON,JNJ,478160104,Investment Income,,,0,0,13.64
-03/03/2025,03/03/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/28,,,Savings,,,0,0,0.26
 03/03/2025,03/03/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 03/03/25,,,Savings,,,0,0,-2.38
 03/03/2025,03/03/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PMNT SENT  0301 VENMO  *Tiffan                              
 Visa Direct  NY",,,Transfers,,,0,0,-175
@@ -7742,6 +7741,7 @@ XXXXX5726 ",,,Travel,,,0,0,-10
 03/03/2025,03/03/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0227 UA INFLT    XXXXX760239                     
 HOUSTON      TX XXXXX1650XXXXX
 XXXXX5718 ",,,Travel,,,0,0,-10
+03/03/2025,03/03/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/28,,,Savings,,,0,0,0.26
 03/03/2025,03/03/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,VALERO ENERGY CP DELA NEW,VLO,91913Y100,Investment Income,,,0,0,120.91
 03/03/2025,03/03/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,VALERO ENERGY CP DELA NEW,VLO,91913Y100,Investment Income,,,0,0,116.39
 03/03/2025,03/03/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,VALERO ENERGY CP DELA NEW,VLO,91913Y100,Investment Income,,,0,0,18.08
@@ -7811,7 +7811,6 @@ AS OF DATE: 02/28/2025",GIBIX,40168W525,Other Expenses,,,7.251,23.98,-173.87
 03/03/2025,02/28/2025,Portfolio Management IRA - 7852,Morgan Stanley,Dividend Reinvestment,,,"GUGGENHEIM TOTAL RETURN BD I
 REINVESTMENT
 AS OF DATE: 02/28/2025",GIBIX,40168W525,Other Expenses,,,0.121,23.98,-2.9
-02/28/2025,02/28/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/27,,,Savings,,,0,0,4.37
 02/28/2025,02/28/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX3709                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -7822,6 +7821,7 @@ X00398674 RECURRING ",,,Entertainment,,,0,0,-7.99
 02/28/2025,02/28/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0226 MCO AIRP GASTROHUB                          
 ORLANDO      FL XXXXX4250XXXXX
 XXXXX2979 ",,,Travel,,,0,0,-312.75
+02/28/2025,02/28/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/27,,,Savings,,,0,0,4.37
 02/28/2025,02/28/2025,AAA - 5071,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
 (Period 02/01-02/28)",MSPBNA,061871976,Investment Income,,,0,0,0.04
 02/28/2025,02/28/2025,Portfolio Management IRA - 7854,Morgan Stanley,Interest Income,,,"MORGAN STANLEY BANK N.A.
@@ -7832,7 +7832,6 @@ REINVESTMENT",GOFXX,608919718,Other Expenses,,,66.02,1,-66.02
 02/28/2025,02/28/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"MSBNA PREFERRED SAVINGS- QC
 (Period 02/01-02/28)",99YA78EB0,99YA78EB0,Investment Income,,,0,0,85.2
 02/28/2025,02/28/2025,AAA - 0837,Morgan Stanley,Auto Bank Product Deposit,,,MSBNA PREFERRED SAVINGS- QC,99YA78EB0,99YA78EB0,Savings,,,0,0,-85.2
-02/27/2025,02/27/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/26,,,Savings,,,0,0,1.86
 02/27/2025,02/27/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/27/25,,,Savings,,,0,0,-4.37
 02/27/2025,02/27/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"PAI ISO         02/27 #XXXXX2299 WITHDRWL                   
 304 E. NEW YORK S  INDIANAPOLI
@@ -7873,9 +7872,7 @@ XXXXX1240 ",,,Restaurants/Dining,,,0,0,-23.24
 02/27/2025,02/27/2025,ADV PLUS BANKING - 6966,Bank of America,Service Fee,,,"PAI ISO         02/27 #XXXXX2298 BAL INQ                    
 304 E. NEW YORK S             
   FEE ",,,Service Charges/Fees,,,0,0,0
-02/26/2025,02/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/25,,,Savings,,,0,0,1.39
-02/26/2025,02/26/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.01
-02/26/2025,02/26/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
+02/27/2025,02/27/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/26,,,Savings,,,0,0,1.86
 02/26/2025,02/26/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/26/25,,,Savings,,,0,0,-1.86
 02/26/2025,02/26/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"AES IN/EZP       DES:UTILITYPMT ID:6109596                  
  INDN:JEANNE VOSKUIL          
@@ -7892,6 +7889,9 @@ XXXXX1127 ",,,Restaurants/Dining,,,0,0,-35.02
 02/26/2025,02/26/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0224 WDW PONGU PONGU                             
 LAKE BUENA VIFL XXXXX0050XXXXX
 XXXXX2275 ",,,Restaurants/Dining,,,0,0,-29.55
+02/26/2025,02/26/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/25,,,Savings,,,0,0,1.39
+02/26/2025,02/26/2025,Regular Savings - 2603,Bank of America,Interest,,,Interest Earned,,,Interest,,,0,0,0.01
+02/26/2025,02/26/2025,Regular Savings - 2603,Bank of America,Service Fee,,,Monthly Maintenance Fee,,,Service Charges/Fees,,,0,0,-5
 02/26/2025,02/26/2025,Portfolio Management - 0827,Morgan Stanley,Bought,,,REDDIT INC CL A,RDDT,75734B100,,,,79,166.41,-13146.39
 02/26/2025,02/26/2025,Portfolio Management IRA - 7854,Morgan Stanley,Bought,,,REDDIT INC CL A,RDDT,75734B100,,,,99,166.41,-16474.59
 02/26/2025,02/26/2025,Portfolio Management IRA - 7350,Morgan Stanley,Bought,,,REDDIT INC CL A,RDDT,75734B100,,,,19,166.41,-3161.79
@@ -7910,7 +7910,6 @@ XXXXX2275 ",,,Restaurants/Dining,,,0,0,-29.55
 02/26/2025,02/26/2025,Portfolio Management - 0827,Morgan Stanley,Bought,,,MARTIN MARIETTA MATERIALS,MLM,573284106,,,,31,496.615,-15395.07
 02/26/2025,02/26/2025,Portfolio Management IRA - 7854,Morgan Stanley,Bought,,,MARTIN MARIETTA MATERIALS,MLM,573284106,,,,38,496.615,-18871.37
 02/26/2025,02/26/2025,Portfolio Management IRA - 7350,Morgan Stanley,Bought,,,MARTIN MARIETTA MATERIALS,MLM,573284106,,,,7,496.615,-3476.31
-02/25/2025,02/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/24,,,Savings,,,0,0,2.93
 02/25/2025,02/25/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/25/25,,,Savings,,,0,0,-1.39
 02/25/2025,02/25/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0225 UBER   * PENDI                              
 San FranciscoCA",,,Travel,,,0,0,-22.02
@@ -7926,7 +7925,7 @@ XXXXX6734 ",,,Travel,,,0,0,-10
 02/25/2025,02/25/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0223 UA INFLT    XXXXX749515                     
 HOUSTON      TX XXXXX1650XXXXX
 XXXXX6726 ",,,Travel,,,0,0,-10
-02/24/2025,02/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/21,,,Savings,,,0,0,2.48
+02/25/2025,02/25/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/24,,,Savings,,,0,0,2.93
 02/24/2025,02/24/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/24/25,,,Savings,,,0,0,-2.93
 02/24/2025,02/24/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0223 RUBIO ARTS CORPORATION                      
 ORLANDO      FL XXXXX7350XXXXX
@@ -7955,7 +7954,7 @@ XXXXX7179 ",,,General Merchandise,,,0,0,-19.25
 02/24/2025,02/24/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0220 CREW CARWASH - EXIT 210                     
 NOBLESVILLE  IN XXXXX9750XXXXX
 XXXXX5906 ",,,Automotive Expenses,,,0,0,-28
-02/21/2025,02/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/20,,,Savings,,,0,0,3.11
+02/24/2025,02/24/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/21,,,Savings,,,0,0,2.48
 02/21/2025,02/21/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,BankAmeriDeals CASHBACK,,,Rewards,,,0,0,0.83
 02/21/2025,02/21/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/21/25,,,Savings,,,0,0,-2.48
 02/21/2025,02/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHASE CREDIT CRD DES:EPAY       ID:XXXXX51181               
@@ -7976,12 +7975,10 @@ XXXXX2358 ",,,Groceries,,,0,0,-33.51
 02/21/2025,02/21/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0220 OURARING INC.                               
 XXX-XXX-0010 CA XXXXX2950XXXXX
 XXXXX2435 RECURRING ",,,Healthcare/Medical,,,0,0,-5.99
+02/21/2025,02/21/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/20,,,Savings,,,0,0,3.11
 02/21/2025,02/21/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,CONSTELLATION BRANDS INC CL A,STZ,21036P108,Investment Income,,,0,0,58.58
 02/21/2025,02/21/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,CONSTELLATION BRANDS INC CL A,STZ,21036P108,Investment Income,,,0,0,70.7
 02/21/2025,02/21/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,CONSTELLATION BRANDS INC CL A,STZ,21036P108,Investment Income,,,0,0,10.1
-02/20/2025,02/20/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
-Confirmation# XXXXX67565",,,Transfers,,,0,0,5000
-02/20/2025,02/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/19,,,Savings,,,0,0,2.91
 02/20/2025,02/20/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX7309                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -8012,7 +8009,9 @@ XXXXX7478 ",,,Groceries,,,0,0,-33.15
 02/20/2025,02/20/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0219 AMAZON MKTPL*N38ZK9LU3                      
 Amzn.com/billWA XXXXX1650XXXXX
 XXXXX6351 ",,,General Merchandise,,,0,0,-29.94
-02/19/2025,02/19/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/18,,,Savings,,,0,0,5.14
+02/20/2025,02/20/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
+Confirmation# XXXXX67565",,,Transfers,,,0,0,5000
+02/20/2025,02/20/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/19,,,Savings,,,0,0,2.91
 02/19/2025,02/19/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/19/25,,,Savings,,,0,0,-2.91
 02/19/2025,02/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,EDGE UTILITIES  Bill Payment,,,Utilities,,,0,0,-40
 02/19/2025,02/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"NEEDLERS FRESH  02/19 #XXXXX1887 PURCHASE                   
@@ -8033,6 +8032,7 @@ XXXXX7893 ",,,Restaurants/Dining,,,0,0,-5.44
 02/19/2025,02/19/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0217 TST*BOOMBOZZ PIZZA- ETO                     
 ElizabethtownKY XXXXX1650XXXXX
 XXXXX7844 ",,,Restaurants/Dining,,,0,0,-140.4
+02/19/2025,02/19/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/18,,,Savings,,,0,0,5.14
 02/19/2025,02/19/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"MORGAN STANLEY PRIVATE BANK NA
 (Period 02/01-02/18)",MSPBNA,061871976,Investment Income,,,0,0,0.01
 02/19/2025,02/19/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,ASML HOLDING NV NY REG NEW,ASML,N07059210,Investment Income,,,0,0,25.36
@@ -8055,9 +8055,6 @@ FOREIGN TAX PAID IS       1.18",ASML,N07059210,Investment Income,,,0,0,0
 02/19/2025,02/19/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"FUNDS PAID
 BOA 6966 XX-6966
 CONFIRMATION # 241291439",,,ATM/Cash Withdrawals,,,0,0,-16000
-02/18/2025,02/18/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
-Confirmation# XXXXX81781",,,Transfers,,,0,0,-600
-02/18/2025,02/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/14,,,Savings,,,0,0,0.53
 02/18/2025,02/18/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/18/25,,,Savings,,,0,0,-5.14
 02/18/2025,02/18/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CITIZENS ENERGY  DES:BILLPAY    ID:XXXXX8342                
  INDN:JEANNE E VOSKUIL        
@@ -8108,10 +8105,12 @@ Leitchfield  KY XXXXX1650XXXXX
 XXXXX4246 ",,,Restaurants/Dining,,,0,0,-54.76
 02/18/2025,02/18/2025,ADV PLUS BANKING - 6966,Bank of America,DEP,,,"Online Banking transfer from SAV 2603                       
 Confirmation# XXXXX81781",,,Transfers,,,0,0,600
+02/18/2025,02/18/2025,Regular Savings - 2603,Bank of America,Withdrawal,,,"Online Banking transfer to CHK 6966                         
+Confirmation# XXXXX81781",,,Transfers,,,0,0,-600
+02/18/2025,02/18/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/14,,,Savings,,,0,0,0.53
 02/18/2025,02/18/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,PROCTER & GAMBLE,PG,742718109,Investment Income,,,0,0,89.58
 02/18/2025,02/18/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,PROCTER & GAMBLE,PG,742718109,Investment Income,,,0,0,127.83
 02/18/2025,02/18/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,PROCTER & GAMBLE,PG,742718109,Investment Income,,,0,0,31.2
-02/14/2025,02/14/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/13,,,Savings,,,0,0,4
 02/14/2025,02/14/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/14/25,,,Savings,,,0,0,-0.53
 02/14/2025,02/14/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"JONES HOM 948   02/14 #XXXXX0904 PURCHASE                   
 JONES HOM 948 GRA  UPTON      
@@ -8119,10 +8118,10 @@ JONES HOM 948 GRA  UPTON
 02/14/2025,02/14/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0213 FUSEK'S TRUE VALUE                          
 INDIANAPOLIS IN XXXXX9750XXXXX
 XXXXX5286 ",,,Home Improvement,,,0,0,-7.48
+02/14/2025,02/14/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/13,,,Savings,,,0,0,4
 02/14/2025,02/14/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,ABBVIE INC COM,ABBV,00287Y109,Investment Income,,,0,0,295.2
 02/14/2025,02/14/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,ABBVIE INC COM,ABBV,00287Y109,Investment Income,,,0,0,350.96
 02/14/2025,02/14/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,ABBVIE INC COM,ABBV,00287Y109,Investment Income,,,0,0,62.32
-02/13/2025,02/13/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/12,,,Savings,,,0,0,5.94
 02/13/2025,02/13/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/13/25,,,Savings,,,0,0,-4
 02/13/2025,02/13/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"WAL Wal-Mart S  02/13 #XXXXX3718 PURCHASE                   
 0445 WAL-SAMS      LEITCHFIELD
@@ -8138,10 +8137,10 @@ XXXXX0179 ",,,Home Improvement,,,0,0,-13.14
 02/13/2025,02/13/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0213 AMAZON RETA* 2T0U69VF3                      
 WWW.AMAZON.COWA XXXXX3450XXXXX
 XXXXX3342 ",,,General Merchandise,,,0,0,-25.09
+02/13/2025,02/13/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/12,,,Savings,,,0,0,5.94
 02/13/2025,02/13/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,APPLE INC,AAPL,037833100,Investment Income,,,0,0,53
 02/13/2025,02/13/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,APPLE INC,AAPL,037833100,Investment Income,,,0,0,43.25
 02/13/2025,02/13/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,APPLE INC,AAPL,037833100,Investment Income,,,0,0,7
-02/12/2025,02/12/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/11,,,Savings,,,0,0,5.21
 02/12/2025,02/12/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/12/25,,,Savings,,,0,0,-5.94
 02/12/2025,02/12/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CIRCLE K X2223  02/12 #XXXXX1874 PURCHASE                   
 CIRCLE K XXXX3 10  SELLERSBURG
@@ -8176,6 +8175,7 @@ XXXXX6597 ",,,Restaurants/Dining,,,0,0,-25.34
 02/12/2025,02/12/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0210 BLVD   *CHRISTOPHER JON                     
 INDIANAPOLIS IN XXXXX0050XXXXX
 XXXXX9983 ",,,Clothing/Shoes,,,0,0,-20.2
+02/12/2025,02/12/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/11,,,Savings,,,0,0,5.21
 02/11/2025,02/11/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX9736                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -8339,6 +8339,9 @@ XXXXX7000 ",,,Healthcare/Medical,,,0,0,-30.88
 02/05/2025,02/05/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,LOWES COMPANIES INC,LOW,548661107,Investment Income,,,0,0,81.65
 02/05/2025,02/05/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,LOWES COMPANIES INC,LOW,548661107,Investment Income,,,0,0,108.1
 02/05/2025,02/05/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,LOWES COMPANIES INC,LOW,548661107,Investment Income,,,0,0,16.1
+02/04/2025,02/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0203 AMZN Mktp US*Z71223AY0                      
+Amzn.com/billWA XXXXX1650XXXXX
+XXXXX8814 ",,,General Merchandise,,,0,0,-13.62
 02/04/2025,02/04/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX6035                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -8354,9 +8357,6 @@ XXXXX4533 RECURRING ",,,Electronics,,,0,0,-49.99
 02/04/2025,02/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0202 TST*THE GARDEN TABLE -                      
 Indianapolis IN XXXXX1650XXXXX
 XXXXX8662 ",,,Restaurants/Dining,,,0,0,-54.28
-02/04/2025,02/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0203 AMZN Mktp US*Z71223AY0                      
-Amzn.com/billWA XXXXX1650XXXXX
-XXXXX8814 ",,,General Merchandise,,,0,0,-13.62
 02/04/2025,02/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/03,,,Savings,,,0,0,3.15
 02/03/2025,02/03/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/03/25,,,Savings,,,0,0,-3.15
 02/03/2025,02/03/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,3 MASS-COMMUNITAS MGMT Bill Payment,,,Other Bills,,,0,0,-722
