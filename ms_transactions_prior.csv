@@ -1499,6 +1499,13 @@ To XXX-XX0837",,,Transfers,,,0,0,-0.01
 11/05/2025,11/05/2025,AAA - 0837,Morgan Stanley,Withdrawal,,,"ACH TRANSFER OUTGOING
 BOA 6966 XX-6966
 CONFIRMATION # ABK4GEMML",,,Transfers,,,0,0,-5000
+11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371owtle          
+ INDN:JOHN VOSKUIL            
+CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,9800
+11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/04/25,,,Savings,,,0,0,-0.8
+11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"JPMorgan Chase   DES:Ext Trnsfr ID:XXXXX040401              
+ INDN:JOHN VOSKUIL            
+CO ID:XXXXX02231 WEB ",,,Transfers,,,0,0,-1103.51
 11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"Online Banking transfer to SAV 2603                         
 Confirmation# XXXXX77092",,,Savings,,,0,0,-1000
 11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"DOLLAR GENERAL  11/04 #XXXXX8613 MOBILE PURCHASE            
@@ -1510,13 +1517,6 @@ XXXXX5879 RECURRING ",,,Healthcare/Medical,,,0,0,-199
 11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   1103 RO HEALTH                                   
 GETROMAN.COM NY XXXXX3453XXXXX
 XXXXX4189 RECURRING ",,,Healthcare/Medical,,,0,0,-45
-11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371owtle          
- INDN:JOHN VOSKUIL            
-CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,9800
-11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 11/04/25,,,Savings,,,0,0,-0.8
-11/04/2025,11/04/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,"JPMorgan Chase   DES:Ext Trnsfr ID:XXXXX040401              
- INDN:JOHN VOSKUIL            
-CO ID:XXXXX02231 WEB ",,,Transfers,,,0,0,-1103.51
 11/04/2025,11/04/2025,Regular Savings - 2603,Bank of America,DEP,,,"Online Banking transfer from CHK 6966                       
 Confirmation# XXXXX77092",,,Transfers,,,0,0,1000
 11/04/2025,11/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 11/03,,,Savings,,,0,0,6.58
@@ -4840,21 +4840,6 @@ AS OF DATE: 06/30/2025",GIBIX,40168W525,Other Expenses,,,1.336,23.93,-31.98
 07/01/2025,06/30/2025,Portfolio Management - 0827,Morgan Stanley,Dividend Reinvestment,,,"GUGGENHEIM TOTAL RETURN BD I
 REINVESTMENT
 AS OF DATE: 06/30/2025",GIBIX,40168W525,Other Expenses,,,8.969,23.93,-214.64
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 ACE HARDWARE #384                           
-LEITCHFIELD  KY XXXXX3351XXXXX
-XXXXX4642 ",,,Home Improvement,,,0,0,-67.45
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 CULVERS OF ELIZABETHTOW                     
-ELIZABETHTOWNKY XXXXX0051XXXXX
-XXXXX8324 ",,,Restaurants/Dining,,,0,0,-5.34
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 TST* DRAKE'S - ELIZABET                     
-ELIZABETHTOWNKY XXXXX4651XXXXX
-XXXXX4701 ",,,Restaurants/Dining,,,0,0,-54.63
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 MED*INDIANA VEIN SPECIA                     
-CARMEL       IN XXXXX1651XXXXX
-XXXXX8447 ",,,Healthcare/Medical,,,0,0,-350
-06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 MCDONALD'S F36967                           
-CARMEL       IN XXXXX3351XXXXX
-XXXXX9146 ",,,Restaurants/Dining,,,0,0,-7.62
 06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"Morgan Stanley   DES:ACH CREDIT ID:XXXXX08371mfqr7          
  INDN:JOHN VOSKUIL            
 CO ID:XXXXX37001 PPD ",,,Paychecks/Salary,,,0,0,11000
@@ -4892,6 +4877,21 @@ DG XXXXX13586 PEO  CLARKSON
 06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 TWIN LAKES LIQUOR                           
 LEITCHFIELD  KY XXXXX0151XXXXX
 XXXXX9801 ",,,Groceries,,,0,0,-103.87
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 ACE HARDWARE #384                           
+LEITCHFIELD  KY XXXXX3351XXXXX
+XXXXX4642 ",,,Home Improvement,,,0,0,-67.45
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 CULVERS OF ELIZABETHTOW                     
+ELIZABETHTOWNKY XXXXX0051XXXXX
+XXXXX8324 ",,,Restaurants/Dining,,,0,0,-5.34
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0628 TST* DRAKE'S - ELIZABET                     
+ELIZABETHTOWNKY XXXXX4651XXXXX
+XXXXX4701 ",,,Restaurants/Dining,,,0,0,-54.63
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 MED*INDIANA VEIN SPECIA                     
+CARMEL       IN XXXXX1651XXXXX
+XXXXX8447 ",,,Healthcare/Medical,,,0,0,-350
+06/30/2025,06/30/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0627 MCDONALD'S F36967                           
+CARMEL       IN XXXXX3351XXXXX
+XXXXX9146 ",,,Restaurants/Dining,,,0,0,-7.62
 06/30/2025,06/30/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 06/27,,,Savings,,,0,0,1.69
 06/30/2025,06/30/2025,AAA - 0837,Morgan Stanley,Interest Income,,,"PROGRAM BANKS
 (Period 06/12-06/30)",PRGBNK,17312Q927,Investment Income,,,0,0,0.14
@@ -8339,9 +8339,6 @@ XXXXX7000 ",,,Healthcare/Medical,,,0,0,-30.88
 02/05/2025,02/05/2025,Portfolio Management - 0827,Morgan Stanley,Qualified Dividend,,,LOWES COMPANIES INC,LOW,548661107,Investment Income,,,0,0,81.65
 02/05/2025,02/05/2025,Portfolio Management IRA - 7854,Morgan Stanley,Qualified Dividend,,,LOWES COMPANIES INC,LOW,548661107,Investment Income,,,0,0,108.1
 02/05/2025,02/05/2025,Portfolio Management IRA - 7350,Morgan Stanley,Qualified Dividend,,,LOWES COMPANIES INC,LOW,548661107,Investment Income,,,0,0,16.1
-02/04/2025,02/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0203 AMZN Mktp US*Z71223AY0                      
-Amzn.com/billWA XXXXX1650XXXXX
-XXXXX8814 ",,,General Merchandise,,,0,0,-13.62
 02/04/2025,02/04/2025,ADV PLUS BANKING - 6966,Bank of America,DEPOSIT,,,"STATE OF INDIANA DES:UI PAYMENT ID:XXXXX6035                
  INDN:JOHN P VOSKUIL          
 CO ID:XXXXX00158 PPD ",,,Paychecks/Salary,,,0,0,390
@@ -8357,6 +8354,9 @@ XXXXX4533 RECURRING ",,,Electronics,,,0,0,-49.99
 02/04/2025,02/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"CHECKCARD  0202 TST*THE GARDEN TABLE -                      
 Indianapolis IN XXXXX1650XXXXX
 XXXXX8662 ",,,Restaurants/Dining,,,0,0,-54.28
+02/04/2025,02/04/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,"PURCHASE   0203 AMZN Mktp US*Z71223AY0                      
+Amzn.com/billWA XXXXX1650XXXXX
+XXXXX8814 ",,,General Merchandise,,,0,0,-13.62
 02/04/2025,02/04/2025,Regular Savings - 2603,Bank of America,DEP,,,KEEPTHECHANGE CREDIT FROM ACCT6966 EFFECTIVE 02/03,,,Savings,,,0,0,3.15
 02/03/2025,02/03/2025,ADV PLUS BANKING - 6966,Bank of America,Withdrawal,,,KEEP THE CHANGE TRANSFER TO ACCT 2603 FOR 02/03/25,,,Savings,,,0,0,-3.15
 02/03/2025,02/03/2025,ADV PLUS BANKING - 6966,Bank of America,Funds Paid,,,3 MASS-COMMUNITAS MGMT Bill Payment,,,Other Bills,,,0,0,-722
