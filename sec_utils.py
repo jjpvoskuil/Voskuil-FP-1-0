@@ -1640,14 +1640,16 @@ FINANCIAL_THRESHOLDS = {
     # ~22%): CNO Financial's 6.8% (the weakest survivor, scored 36/100
     # overall) sits below "good" here, while WTM/CINF/ELV (32-44%) clear
     # "great" — actual differentiation instead of an automatic max.
-    # NOTE: monoline mortgage/credit insurers (MGIC, Radian, Essent, NMI,
-    # Enact — SIC 6351, same "insurance" bucket) run 58-78% equity/assets
-    # by business-model design (small liabilities relative to premium-
-    # funded investment portfolio, not a comparable risk profile to P&C)
-    # and will still clear "great" here easily — a known limitation of
-    # lumping monoline mortgage insurers in with classic P&C/life under
-    # one threshold set; splitting them into their own subtype is tracked
-    # as further work in punch list #70, not solved by this recalibration.
+    # Monoline mortgage/credit/financial-guaranty insurers (MGIC, Radian,
+    # Essent, NMI, Enact, SIC 6351) used to land in this same "insurance"
+    # bucket and would have cleared "great" trivially regardless of these
+    # thresholds — their 58-78% equity/assets and single-digit combined
+    # ratios reflect a structurally different balance sheet, not superior
+    # quality. Fixed at the classification level instead of here: SIC 6351
+    # was removed from INSURANCE_SIC_CODES (edgar_concept_map.py), so they
+    # now classify as "other_financial" and are excluded by the Market
+    # Screener's skip toggle like brokers/REITs, until #70 gives them
+    # their own subtype and metric set.
     "equity_assets_good_insurance":  0.15,
     "equity_assets_great_insurance": 0.25,
     "provision_ni_safe":     0.10,    # lower is better

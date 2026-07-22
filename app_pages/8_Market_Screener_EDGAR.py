@@ -1208,14 +1208,19 @@ col1, col2, col3 = st.columns(3)
 with col1:
     top_n = st.number_input("Top results to show", min_value=5, max_value=50, value=15, step=5)
 with col2:
-    skip_financials = st.checkbox("Skip brokers/REITs/real estate/other financials", value=True,
+    skip_financials = st.checkbox("Skip brokers/REITs/real estate/mortgage insurers/other financials", value=True,
                                    help="Banks and insurers (#36) now run through their own alt scoring "
                                         "framework — ROE, efficiency ratio or combined ratio, capital "
                                         "cushion, dilution — instead of being excluded. This toggle now "
                                         "only excludes financial SIC codes that don't have an alt "
-                                        "framework yet: brokers, REITs, real estate, investment offices. "
-                                        "Their balance sheets need their own metric sets (AUM-based, "
-                                        "FFO-based) not built yet.")
+                                        "framework yet: brokers, REITs, real estate, investment offices, "
+                                        "and monoline mortgage/credit/financial-guaranty insurers (MGIC, "
+                                        "Radian, Essent, NMI, Enact, etc. — SIC 6351). That last group is "
+                                        "SIC-classified as insurance but runs a structurally different "
+                                        "balance sheet (58-78% equity/assets, single-digit combined ratios "
+                                        "by business-model design) that scores near-perfect under any "
+                                        "P&C-calibrated threshold — excluded here until #70 gives them "
+                                        "their own metric set.")
     flag_cyclicals  = st.checkbox("Flag cyclical firms", value=True,
                                    help="Cyclicals aren't excluded, just badged ⚠️ on their result card — a "
                                         "10-yr average still leans on wherever the cycle currently sits.")

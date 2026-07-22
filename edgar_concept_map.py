@@ -331,8 +331,21 @@ BANK_SIC_CODES = {
 
 INSURANCE_SIC_CODES = {
     "6311", "6321", "6324",  # Insurance carriers
-    "6331", "6351", "6361",  # Fire, marine, casualty insurance
+    "6331", "6361",          # Fire, marine, casualty insurance / title insurance
     "6411",                  # Insurance agents
+    # 6351 (Surety Insurance) deliberately NOT included — that's the SIC
+    # code monoline mortgage/credit insurers file under (MGIC, Radian,
+    # Essent, NMI Holdings, Enact), plus financial-guaranty/bond insurers
+    # (Assured Guaranty, etc). Found during the July 2026 #36 validation
+    # pass: their balance sheets aren't comparable to classic P&C/life
+    # insurance (58-78% equity/assets, single-digit combined ratios by
+    # business-model design, not because they're unusually strong), so
+    # every P&C-calibrated threshold set scores them near-perfect
+    # regardless of actual quality. Left in FINANCIAL_SIC_CODES (still
+    # flagged is_financial, still respects the skip toggle) but excluded
+    # from INSURANCE_SIC_CODES so classify_financial_subtype() returns
+    # "other_financial" for them — same bucket as brokers/REITs/real
+    # estate until #70 builds them their own subtype and metric set.
 }
 
 
@@ -341,11 +354,14 @@ def classify_financial_subtype(sic: str):
     Returns "bank", "insurance", "other_financial", or None (not a
     financial firm at all) for a given 4-digit SIC code string.
 
-    "other_financial" covers brokers, real estate, investment offices, and
-    REITs — is_financial is True for these but there's no alt scoring path
-    for them yet, so callers should fall back to the existing skip/exclude
-    behavior rather than trying to score them under the bank or insurer
-    framework (neither fits).
+    "other_financial" covers brokers, real estate, investment offices,
+    REITs, and surety/mortgage/financial-guaranty insurers (SIC 6351 —
+    MGIC, Radian, Essent, NMI, Enact, Assured Guaranty, etc.) — is_financial
+    is True for these but there's no alt scoring path for them yet, so
+    callers should fall back to the existing skip/exclude behavior rather
+    than trying to score them under the bank or insurer framework (neither
+    fits; monoline surety insurers' balance sheets in particular aren't
+    comparable to classic P&C/life insurance — see INSURANCE_SIC_CODES).
     """
     if not sic:
         return None
