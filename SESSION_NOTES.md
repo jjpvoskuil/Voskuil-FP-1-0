@@ -722,3 +722,29 @@ net in case something never truly stabilizes.
 
 Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). py_compile clean;
 AppTest confirms all pages load without exception. Deploying and verifying live next.
+
+---
+
+## Session (cont'd): #75 — polling was fundamentally the wrong mechanism, switched to scroll events
+
+Owner reported the settle-before-reveal fix made it WORSE — 3 visible bounces instead of 2.
+Root cause of the whole approach's unreliability: Streamlit's native re-snap runs on its own
+~17ms internal loop, much faster than our 100ms poll — it can flip the position to bottom and
+get corrected back multiple times *between* two of our checks, so a handful of 100ms-spaced
+"yep, still 0" reads can look falsely stable while a fight is still actively happening. A fixed
+poll can fundamentally never reliably observe a fight happening faster than the poll rate, no
+matter how many "stable ticks" are required.
+
+Replaced polling-based correction with a real `scroll` event listener on the container in both
+`force_scroll_to_top()` and `scroll_to_element()`: every actual scroll (native re-snap, our own
+correction, anything) fires a real event synchronously, and correcting inside that same handler,
+in the same task, happens before the browser ever paints the intermediate frame — so no fight,
+however fast, can be visually observed. "Settled enough to reveal" is now judged by elapsed
+wall-clock time since the last correction was actually needed (500ms of quiet), checked every
+50ms, rather than a fixed count of poll reads. Also made the listener resilient to the scroll
+container's DOM node getting replaced mid-render (a real risk on a page that keeps re-rendering
+elements) by re-checking and re-attaching to whichever node is current on each check, not just
+the one captured at script start.
+
+Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). py_compile clean;
+AppTest confirms all pages load without exception. Deploying and verifying live next.

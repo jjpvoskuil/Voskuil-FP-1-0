@@ -41,34 +41,42 @@ unlike a <script> tag inserted the same way, which browsers refuse to
 execute) hides the scroll container the instant it exists, before
 Streamlit's own auto-scroll-to-bottom can ever be seen.
 
-Heavier pages (Dashboard in particular -- holdings scoring, EDGAR calls,
-a Plotly chart that does its own async layout pass after mount) can keep
-triggering Streamlit's native re-snap-to-bottom several times in the
-moments right after our first correction, each one a brief, visible
-bounce if we reveal too early. So force_scroll_to_top() and
-scroll_to_element() don't reveal on the first successful correction --
-they keep correcting while hidden until the position has actually held
-steady on its own (without needing to be re-forced) for several
-consecutive checks, and only reveal then. A short hard cap on how long
-they'll stay hidden is a safety net in case something never truly
-settles, so the page can't get stuck invisible.
+A first attempt at "correct, then wait for N consecutive clean polls
+before revealing" (checking every 100ms) still let a heavier page like
+Dashboard bounce visibly a few times after reveal. Root cause: Streamlit's
+own re-snap runs on its own ~17ms internal loop, much faster than a
+100ms poll -- it can flip the position to bottom and get corrected back
+again multiple times *between* two of our checks, so a handful of
+100ms-spaced "yep, still 0" reads can look falsely stable while a fight
+is still actively happening, revealing too early into an unsettled fight
+that then continues visibly after reveal.
 
-A content-height-stabilization heuristic (stop once scrollHeight hasn't
-changed for ~1s) was tried first for the long-run hold and wasn't
-reliable on its own -- some pages have a brief pause between loading
-phases that looks like "settled" but isn't. A fixed hold window (e.g.
-12s) wasn't reliable either -- live testing showed Streamlit's own
-re-snap-to-bottom firing anywhere from a few seconds up to 30+ seconds
-after load. Rather than keep guessing at a number, the long-run
-correction below holds the position indefinitely: keep forcing it on
-every tick, with NO fixed expiry, and rely entirely on cancelling the
-instant the user manually scrolls/touches/drags the container. This is
-safe because the injected iframe (and its interval) is destroyed on
-Streamlit's next rerun anyway (components.html() re-creates it fresh
-each script run), so there's no risk of it running forever in the
-background -- it only lives as long as the current render of the page
-does, and backs off immediately the moment the user actually wants to
-scroll.
+Fixed by switching from polling to a scroll *event* listener on the
+container: every actual scroll (native re-snap, our own correction,
+anything) fires a real 'scroll' event synchronously, and correcting the
+position inside that same handler, in the same task, happens before the
+browser ever paints the intermediate frame -- so no fight, however fast,
+can be visually observed. "Settled enough to reveal" is now judged by
+elapsed wall-clock time since the last correction was actually needed
+(not by a fixed number of polls), so it naturally adapts to how long a
+given page's fight actually takes. A hard cap on total hidden time is a
+safety net in case something never truly stops fighting, so the page
+can't get stuck invisible.
+
+A content-height-stabilization heuristic and a couple of fixed-timeout
+approaches were tried before this for the long-run hold (after reveal)
+and weren't reliable -- Streamlit's own re-snap-to-bottom has been
+observed firing anywhere from a few seconds up to 30+ seconds after
+load, not on any fixed schedule. The long-run correction below (after
+reveal) is the same event-driven approach, held indefinitely: react to
+every scroll event for as long as the page is up, with NO fixed expiry,
+and rely entirely on cancelling the instant the user manually
+scrolls/touches/drags the container. This is safe because the injected
+iframe (and its listeners) is destroyed on Streamlit's next rerun anyway
+(components.html() re-creates it fresh each script run), so there's no
+risk of it running forever in the background -- it only lives as long as
+the current render of the page does, and backs off immediately the
+moment the user actually wants to scroll.
 """
 
 import streamlit as st
@@ -84,18 +92,23 @@ function _getScrollContainer() {
 }
 """
 
-# Safety-net cap on how long the corrective interval can run, in case a
+# Safety-net cap on how long the corrective listener can run, in case a
 # user session sits on a freshly-navigated page for a very long time
 # without ever touching it. Not meant to be reached in normal use -- the
 # real stop condition is the user manually scrolling (see _cancel below).
 _SAFETY_CAP_MS = 5 * 60 * 1000
 
-# How many consecutive 100ms ticks the position must hold on its own
-# (i.e. nothing fought us that tick) before we reveal the content. 6
-# ticks ~= 600ms of quiet -- long enough to absorb the handful of
-# re-snap bounces a heavy page like Dashboard can trigger right after
-# our first correction.
-_STABLE_TICKS_BEFORE_REVEAL = 6
+# How long the position must go without needing a correction before we
+# reveal the content -- judged by elapsed time since the last actual
+# correction, not by a fixed number of polls (see module docstring for
+# why polling missed fast back-and-forth fights).
+_QUIET_MS_BEFORE_REVEAL = 500
+
+# How often to check "has it been quiet long enough to reveal yet" while
+# hidden. This is just the reveal-timing check, NOT the correction
+# mechanism -- corrections themselves happen instantly in the scroll
+# event handler, not on this interval.
+_REVEAL_CHECK_INTERVAL_MS = 50
 
 # Hard cap on how long we'll stay hidden waiting for things to settle,
 # in case something never truly stabilizes -- a safety net, not the
@@ -162,15 +175,18 @@ def force_scroll_to_top():
     a tiny script inside it can reach window.parent.document and reset
     scroll position on the real scrolling container (see module docstring
     -- it's a specific inner <section>, not the window/document itself).
-    Keeps forcing scrollTop=0 while hidden (see module docstring) until
-    the position has held on its own for several consecutive checks, THEN
-    removes the hiding rule installed by hide_main_for_scroll_fix() -- so
-    the container only ever becomes visible already sitting at the top,
-    settled, with no visible bounce. After revealing, keeps holding the
-    position indefinitely (Streamlit's own behavior can still re-assert
-    itself much later on a heavy page), backing off immediately the
-    instant it detects the user manually scrolling. height=0 keeps the
-    iframe invisible and out of the page's layout.
+    Listens for the container's own 'scroll' event and corrects
+    synchronously inside that handler -- catching every fight instantly,
+    including ones Streamlit's own ~17ms internal loop wins/loses faster
+    than any fixed-interval poll could reliably observe -- while hidden
+    behind the rule installed by hide_main_for_scroll_fix(). Reveals only
+    once the position has gone quiet (no correction needed) for a short
+    stretch of real time, so the container only ever becomes visible
+    already settled, with no bounce. After revealing, keeps reacting to
+    scroll events indefinitely (Streamlit's own behavior can still
+    re-assert itself much later on a heavy page), backing off immediately
+    the instant it detects the user manually scrolling. height=0 keeps
+    the iframe invisible and out of the page's layout.
     """
     components.html(
         f"""<script>
@@ -179,32 +195,42 @@ def force_scroll_to_top():
         window.parent.scrollTo(0, 0);
         var _stop = false;
         var _revealed = false;
-        var _stableTicks = 0;
         var _hideStart = Date.now();
+        var _lastFixAt = Date.now();
+        var _attachedTo = null;
         var _cancel = function() {{ _stop = true; }};
-        var _c0 = _getScrollContainer();
-        if (_c0) {{
-            ['wheel', 'touchstart', 'mousedown'].forEach(function(evt) {{
-                _c0.addEventListener(evt, _cancel, {{once: true, passive: true}});
-            }});
-        }}
-        function _tick() {{
-            if (_stop) {{ clearInterval(_iv); return; }}
+
+        function _correct() {{
             var c = _getScrollContainer();
             if (c && c.scrollTop !== 0) {{
                 c.scrollTop = 0;
-                _stableTicks = 0;
-            }} else {{
-                _stableTicks++;
+                _lastFixAt = Date.now();
             }}
-            if (!_revealed && (_stableTicks >= {_STABLE_TICKS_BEFORE_REVEAL}
+        }}
+        function _ensureAttached() {{
+            var c = _getScrollContainer();
+            if (!c || c === _attachedTo) return;
+            _attachedTo = c;
+            c.addEventListener('scroll', function() {{
+                if (_stop) return;
+                _correct();
+            }}, {{passive: true}});
+            ['wheel', 'touchstart', 'mousedown'].forEach(function(evt) {{
+                c.addEventListener(evt, _cancel, {{once: true, passive: true}});
+            }});
+        }}
+        _correct();
+        _ensureAttached();
+        var _iv = setInterval(function() {{
+            if (_stop) {{ clearInterval(_iv); return; }}
+            _correct();
+            _ensureAttached();
+            if (!_revealed && (Date.now() - _lastFixAt > {_QUIET_MS_BEFORE_REVEAL}
                                 || Date.now() - _hideStart > {_MAX_HIDE_MS})) {{
                 _revealMain();
                 _revealed = true;
             }}
-        }}
-        _tick();
-        var _iv = setInterval(_tick, 100);
+        }}, {_REVEAL_CHECK_INTERVAL_MS});
         setTimeout(function() {{ clearInterval(_iv); }}, {_SAFETY_CAP_MS});
         </script>""",
         height=0,
@@ -228,12 +254,13 @@ def scroll_to_element(anchor_id: str):
     this scrolls the user back to the same spot regardless of what
     they're doing elsewhere on the page.
 
-    Same settle-before-reveal approach as force_scroll_to_top(): keeps
-    re-applying scrollIntoView() while hidden until the anchor's position
-    has held steady (its top edge stays within a couple pixels of target
-    across consecutive checks) before removing the hiding rule, then keeps
-    holding indefinitely afterward, backing off immediately if the user
-    manually scrolls.
+    Same event-driven, settle-before-reveal approach as
+    force_scroll_to_top() (see its docstring and the module docstring for
+    why a fixed-interval poll wasn't reliable): reacts to the container's
+    own 'scroll' event to re-apply scrollIntoView() the instant the
+    anchor drifts out of position, and only reveals once that's gone
+    quiet for a short stretch. Keeps holding indefinitely afterward,
+    backing off immediately if the user manually scrolls.
 
     Also sets st.session_state['_scroll_to_element_fired'] -- app.py reads
     (and clears) this after the page script finishes to decide whether to
@@ -256,35 +283,44 @@ def scroll_to_element(anchor_id: str):
         {_REVEAL_JS}
         var _stop = false;
         var _revealed = false;
-        var _stableTicks = 0;
         var _hideStart = Date.now();
-        var _lastTop = null;
+        var _lastFixAt = Date.now();
+        var _attachedTo = null;
         var _cancel = function() {{ _stop = true; }};
-        var _c0 = _getScrollContainer();
-        if (_c0) {{
-            ['wheel', 'touchstart', 'mousedown'].forEach(function(evt) {{
-                _c0.addEventListener(evt, _cancel, {{once: true, passive: true}});
-            }});
-        }}
-        function _tick() {{
-            if (_stop) {{ clearInterval(_iv); return; }}
+
+        function _correct() {{
             var el = window.parent.document.getElementById("{anchor_id}");
             if (!el) return;
             var top = el.getBoundingClientRect().top;
             if (Math.abs(top) > 2) {{
                 el.scrollIntoView({{block: "start", behavior: _revealed ? "smooth" : "auto"}});
-                _stableTicks = 0;
-            }} else {{
-                _stableTicks++;
+                _lastFixAt = Date.now();
             }}
-            if (!_revealed && (_stableTicks >= {_STABLE_TICKS_BEFORE_REVEAL}
+        }}
+        function _ensureAttached() {{
+            var c = _getScrollContainer();
+            if (!c || c === _attachedTo) return;
+            _attachedTo = c;
+            c.addEventListener('scroll', function() {{
+                if (_stop) return;
+                _correct();
+            }}, {{passive: true}});
+            ['wheel', 'touchstart', 'mousedown'].forEach(function(evt) {{
+                c.addEventListener(evt, _cancel, {{once: true, passive: true}});
+            }});
+        }}
+        _correct();
+        _ensureAttached();
+        var _iv = setInterval(function() {{
+            if (_stop) {{ clearInterval(_iv); return; }}
+            _correct();
+            _ensureAttached();
+            if (!_revealed && (Date.now() - _lastFixAt > {_QUIET_MS_BEFORE_REVEAL}
                                 || Date.now() - _hideStart > {_MAX_HIDE_MS})) {{
                 _revealMain();
                 _revealed = true;
             }}
-        }}
-        _tick();
-        var _iv = setInterval(_tick, 100);
+        }}, {_REVEAL_CHECK_INTERVAL_MS});
         setTimeout(function() {{ clearInterval(_iv); }}, {_SAFETY_CAP_MS});
         </script>""",
         height=0,
