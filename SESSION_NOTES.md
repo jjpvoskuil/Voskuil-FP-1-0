@@ -873,3 +873,54 @@ browser over a real network needs to either not depend on that ordering
 at all (this fix), or be verified with an actual trace from the
 environment that's failing -- a fast synthetic test browser can hide a
 timing bug completely.
+
+## Session (cont'd): #75 — the actual root cause: CSS visibility inheritance override
+
+The "instant hide on click" fix looked airtight -- repeatable, high-fidelity
+traces against the live deployed app showed zero visible scroll movement
+across 6 navigations. User reported it was STILL bouncing after a reboot,
+and added one critical detail: "when you tested the 3x navigation back and
+forth, it was also doing it then." That sentence changed everything -- it
+meant my own verification was watching the live failure and reporting it
+clean, which ruled out every "their machine is slower/different" theory
+from earlier rounds. The bug had to be something my checks weren't
+actually measuring.
+
+Reproduced it directly in an automated test browser (screenshots taken
+during the transition window clearly showed the holdings table and other
+content scrolling past, mid-navigation). Built a debug overlay + an
+elementFromPoint probe that logs the full data-testid ancestor chain of
+whatever is actually painting at a fixed point, specifically whenever it
+disagrees with what the hide check believes. That caught it in one shot:
+[data-testid="stMarkdownContainer"], several levels inside the container
+being hidden, has its own explicit `visibility: visible` baked into
+Streamlit's base stylesheet. CSS visibility is inherited, but any element
+can re-declare its own value and break that inheritance for itself and
+everything below it -- perfectly legal CSS, and exactly what was
+happening. stMarkdownContainer wraps most of Dashboard's actual content,
+so this one rule alone was enough to make the "hidden" page paint anyway,
+regardless of how early or reliably the hide style landed. Every previous
+round's verification (style tag present, outer container's own computed
+visibility hidden, scrollTop pinned at 0) was checking real things that
+were all individually true and still missing the actual leak.
+
+Fixed by switching from `visibility: hidden` to `display: none`, which
+has no inheritance-override mechanism -- nothing can force a descendant
+of a display:none ancestor to render. Verified with the same
+elementFromPoint probe across 8 navigations on the live app: only
+incidental UI chrome (Share button, page title) sampled during hidden
+windows, never actual content.
+
+Marked #75 done again, with a direct note to the user about this item's
+track record and an explicit ask to confirm, rather than assuming this
+is finally the end of it.
+
+Lesson for real this time: "the tag/attribute I set exists" and "the
+property I explicitly set reads back as I expect" are not the same as
+"the effect I wanted is actually happening on screen." CSS inheritance
+means a computed value on the element you're checking doesn't guarantee
+anything about a specific descendant several levels down, if that
+descendant re-declares the property itself. When something visual is on
+the line, verify the actual rendered pixels/paint at the point that
+matters (elementFromPoint, a screenshot, a recording) -- not just the
+CSSOM property you personally set.
