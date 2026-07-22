@@ -779,3 +779,51 @@ fight duration.
 
 Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). py_compile clean.
 Deploying and re-verifying live with the same trace methodology next.
+
+## Session (cont'd): #75 — screen recording finally pinpoints the real Dashboard bug
+
+After four fix attempts each independently verified "clean" by automated
+testing and each independently reported by the user as still broken in
+their real browser (cache-cleared via Cmd+Shift+R, ruling out stale
+bundles), asked for a screen recording to break the impasse.
+
+Extracted 118 frames (ffmpeg, 10fps/960px from an 11.8s/4K/60fps
+recording) and reviewed them as labeled contact sheets. On the
+Market-Screener-back-to-Dashboard leg, a ~3.3 second window (roughly
+seconds 5.7-9.0) shows genuinely different, real page content cycling
+into view -- a holdings table, then the "Ask Claude" section -- before
+settling at the top with the full dashboard. This was never a scroll
+*position* flicker; it was our hide mechanism revealing the page while
+it was still mid-render.
+
+Root cause: the reveal test was "quiet for 500ms since the last scroll
+correction." Dashboard ships its content as several deltas seconds
+apart (metrics, chart, holdings table, chat section), each capable of
+re-triggering Streamlit's native auto-scroll-to-bottom. A gap *between*
+two deltas easily exceeds 500ms even mid-render, so the old logic
+revealed early and the user watched the rest stream in.
+
+Fix (commit 922dc6d): mark_render_complete() renders an invisible
+marker right after pg.run() returns in app.py. Streamlit delivers
+deltas in script order, so the marker can only exist once every element
+the page produced has actually landed -- reveal now waits for it before
+even starting the quiet countdown. Also widened the "still active" test
+to include container scrollHeight changes, not just scroll corrections.
+
+Verified against the LIVE deployed app (not local/synthetic) with two
+independent trace runs, each installed on Market Screener before
+clicking to Dashboard: scrollTop logged exactly once, at 0, for the
+entire run both times -- it never visibly left the top. Content stayed
+hidden ~1.8-2s covering the real render window, then revealed exactly
+once with no further movement.
+
+Left punch list #75 `done: false` rather than re-declaring it resolved.
+Every prior "clean automated check" also turned out to be premature
+against this specific bug, so the only verification that counts now is
+the user confirming it in their own browser. Asked them to check.
+
+Lesson reinforced (again): when a user's lived report keeps
+contradicting automated verification, the tooling is the thing that's
+probably blind, not the user -- get direct evidence (recording,
+screenshots, whatever) rather than trusting a clean trace a fourth
+time.
