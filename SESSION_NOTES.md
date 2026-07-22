@@ -373,3 +373,26 @@ the second time this exact "just ask/look before touching code again" instinct p
 session (the first being the "nothing ran" report that turned out to be an unsent message).
 
 Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 note updated again).
+
+---
+
+## Session (cont'd): #74 — simplified to just the button, moved to top of page
+
+Owner confirmed the deep-link flow works, called it "a bit clunky but better than manual" (the
+clunkiness being the browser permission dialog + manual Send click, both inherent to how
+`claude://` deep links work — not something further code changes here can smooth over). Asked for
+a cleanup: drop the instructional caption and the "Manual fallback" expander, keep just the
+button, and move it from the sidebar to the top of the main Dashboard page.
+
+Done. Also removed `get_ms_data_freshness()` and its "Last updated" caption since they only
+existed to support the sidebar section being removed — didn't leave it as dead code. The manual
+fallback scripts (`run_push.command`, `rename_files.py`, `push_files.py`) are untouched in the
+repo in case they're ever needed again, just no longer surfaced anywhere in the UI.
+
+Also: mid-session, the automated macro (run via the button in an earlier test) needed a fresh
+GitHub PAT, which invalidated the PAT this session had been using for git push access (fetch
+still worked with the old one, push didn't — "Invalid username or token"). Owner supplied a new
+PAT; verified it with the same push+delete-throwaway-branch check used at session start before
+trusting it for further work.
+
+Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 note updated again).

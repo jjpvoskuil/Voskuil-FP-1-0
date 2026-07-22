@@ -17,6 +17,72 @@ st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
 # ─────────────────────────────────────────────
+# MS DATA REFRESH (#74/#75) — moved to the top of the main page, per owner
+# request, instead of the sidebar. Deliberately just the button now: no
+# instructional caption, no manual-fallback expander (run_push.command is
+# still in the repo for anyone reading the code, just not surfaced in the
+# UI anymore).
+# ─────────────────────────────────────────────
+# One-click flow: the prompt itself scripts the login handoff -- Claude
+# opens the MS Online login page as its very first action (no need to log
+# in before clicking), waits for a one-word confirmation once logged in,
+# then runs the rest of the macro end-to-end without further check-ins.
+# This matters because MS Online's session times out quickly, so we don't
+# want to burn time on setup/cloning before the login tab is even open.
+#
+# Deep-links into Claude Desktop — claude://cowork/new opens a new Cowork
+# session with a prefilled prompt. Support doc:
+# https://support.claude.com/en/articles/14729294-open-claude-desktop-with-a-link
+_ms_refresh_prompt = (
+    "Refresh Morgan Stanley data for Voskuil FP 1.0. "
+    "Step 1 (do this immediately, don't wait to ask): open "
+    "https://www.morganstanleyclientserv.com in a new Chrome tab via "
+    "Claude in Chrome, tell me it's open, then wait for me to reply "
+    "that I've logged in -- my MS Online session times out fast, so "
+    "open the tab right away rather than checking in first. "
+    "Step 2 (once I confirm I'm logged in, run this whole step "
+    "autonomously -- don't check in again until it's done or something "
+    "goes wrong): clone jjpvoskuil/Voskuil-FP-1-0 if you don't already "
+    "have local access (ask me for a fresh GitHub PAT), then navigate "
+    "Accounts > Holdings, Accounts > Activity (Current Year, then "
+    "Prior Year), and Accounts > Realized Gain/Loss > Details (Current "
+    "Year, then Previous Year), and download all 5 files -- you have "
+    "my permission to download all 5 without asking again. Convert "
+    "them to CSV matching the existing ms_*.csv files in the repo, "
+    "validate by running app_pages/0_Dashboard.py through "
+    "streamlit.testing.v1.AppTest (no exceptions, sane totals), then "
+    "commit and push. Report back when done. See SESSION_NOTES.md in "
+    "the repo for the exact workflow and gotchas from last time -- "
+    "e.g. the Realized G/L year dropdown is a native <select> that "
+    "needs a JS value change, not clicks. You'll need access to my "
+    "Downloads folder (~/Downloads) at some point to pick up the "
+    "downloaded files -- request it whenever it's convenient, no need "
+    "to do that before opening the MS Online tab."
+)
+# Deliberately NOT passing folder=/Users/JohnV/Downloads here. Claude
+# Desktop's "Another app attached '<folder>'" confirmation dialog for
+# the folder param clears the prefilled composer text when you click
+# Continue -- confirmed live: text was visible behind the dialog, then
+# gone after confirming. The prompt itself now asks Claude to request
+# Downloads access mid-conversation instead, which doesn't have this bug.
+_ms_refresh_url = "claude://cowork/new?q=" + quote(_ms_refresh_prompt)
+# A raw <a href="claude://..."> click, rather than st.link_button (which
+# opens links via window.open()), turned out to matter -- window.open()'s
+# handoff to the OS for non-http(s) schemes is inconsistent across
+# browsers and appears to drop the query string in at least Chrome. A
+# direct anchor click is a real top-level navigation attempt, which
+# browsers hand off to the OS protocol handler intact, query string
+# included.
+_ms_refresh_html = (
+    '<a href="' + _ms_refresh_url + '" target="_self" style="'
+    'display:inline-block; text-decoration:none; '
+    'background-color:#FF4B4B; color:white; font-weight:600; '
+    'padding:0.5rem 1.25rem; border-radius:0.5rem; margin-bottom:1rem;'
+    '">🔄 Refresh MS Data via Claude</a>'
+)
+st.markdown(_ms_refresh_html, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────
 HOLDINGS_FILE  = 'ms_holdings.csv'
@@ -40,125 +106,6 @@ DEFAULT_HOLD_THRESHOLDS = {
     "max_poe":       25.0,
     "min_fcf_yield": 0.03,
 }
-
-# ─────────────────────────────────────────────
-# MS DATA FRESHNESS
-# ─────────────────────────────────────────────
-def get_ms_data_freshness() -> str:
-    try:
-        token = st.secrets.get("GITHUB_TOKEN", "")
-        repo  = st.secrets.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
-        if not token:
-            return "unknown"
-        url = f"https://api.github.com/repos/{repo}/commits?path=ms_holdings.csv&per_page=1"
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept":        "application/vnd.github+json",
-        }
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code == 200:
-            commits = r.json()
-            if commits:
-                return commits[0]["commit"]["committer"]["date"][:10]
-        return "never"
-    except Exception:
-        return "unknown"
-
-# ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### 📂 MS Data")
-    last_updated = get_ms_data_freshness()
-    if last_updated not in ("unknown", "never"):
-        st.caption(f"📅 Last updated: **{last_updated}**")
-    elif last_updated == "never":
-        st.caption("📅 No data uploaded yet")
-    else:
-        st.caption("📅 Last updated: unknown")
-    # One-click flow (#75): the prompt itself scripts the login handoff --
-    # Claude opens the MS Online login page as its very first action (no
-    # need to log in before clicking), waits for a one-word confirmation
-    # once you've logged in, then runs the rest of the macro end-to-end
-    # without further check-ins. This matters because MS Online's session
-    # times out quickly, so we don't want to burn time on setup/cloning
-    # before the login tab is even open.
-    #
-    # Deep-links into Claude Desktop (#74) — claude://cowork/new opens a
-    # new Cowork session with a prefilled prompt. Support doc:
-    # https://support.claude.com/en/articles/14729294-open-claude-desktop-with-a-link
-    _ms_refresh_prompt = (
-        "Refresh Morgan Stanley data for Voskuil FP 1.0. "
-        "Step 1 (do this immediately, don't wait to ask): open "
-        "https://www.morganstanleyclientserv.com in a new Chrome tab via "
-        "Claude in Chrome, tell me it's open, then wait for me to reply "
-        "that I've logged in -- my MS Online session times out fast, so "
-        "open the tab right away rather than checking in first. "
-        "Step 2 (once I confirm I'm logged in, run this whole step "
-        "autonomously -- don't check in again until it's done or something "
-        "goes wrong): clone jjpvoskuil/Voskuil-FP-1-0 if you don't already "
-        "have local access (ask me for a fresh GitHub PAT), then navigate "
-        "Accounts > Holdings, Accounts > Activity (Current Year, then "
-        "Prior Year), and Accounts > Realized Gain/Loss > Details (Current "
-        "Year, then Previous Year), and download all 5 files -- you have "
-        "my permission to download all 5 without asking again. Convert "
-        "them to CSV matching the existing ms_*.csv files in the repo, "
-        "validate by running app_pages/0_Dashboard.py through "
-        "streamlit.testing.v1.AppTest (no exceptions, sane totals), then "
-        "commit and push. Report back when done. See SESSION_NOTES.md in "
-        "the repo for the exact workflow and gotchas from last time -- "
-        "e.g. the Realized G/L year dropdown is a native <select> that "
-        "needs a JS value change, not clicks. You'll need access to my "
-        "Downloads folder (~/Downloads) at some point to pick up the "
-        "downloaded files -- request it whenever it's convenient, no need "
-        "to do that before opening the MS Online tab."
-    )
-    # Deliberately NOT passing folder=/Users/JohnV/Downloads here. Claude
-    # Desktop's "Another app attached '<folder>'" confirmation dialog for
-    # the folder param clears the prefilled composer text when you click
-    # Continue -- confirmed live: text was visible behind the dialog, then
-    # gone after confirming. The folder attach isn't worth losing the
-    # prompt over; the prompt itself now asks Claude to request Downloads
-    # access mid-conversation instead (same request_cowork_directory flow
-    # used elsewhere), which doesn't have this bug.
-    _ms_refresh_url = "claude://cowork/new?q=" + quote(_ms_refresh_prompt)
-    # A raw <a href="claude://..."> click, rather than st.link_button
-    # (which opens links via window.open()), turned out to matter here:
-    # window.open()'s handoff to the OS for non-http(s) schemes is
-    # inconsistent across browsers and appears to drop the query string in
-    # at least Chrome -- Claude Desktop opened but landed on a blank
-    # composer instead of the prefilled prompt. A direct anchor click is
-    # treated as a real top-level navigation attempt, which browsers hand
-    # off to the OS protocol handler (and its "Open in Claude Desktop?"
-    # confirmation) intact, query string included.
-    _ms_refresh_html = (
-        '<a href="' + _ms_refresh_url + '" target="_self" style="'
-        'display:block; text-align:center; text-decoration:none; '
-        'background-color:#FF4B4B; color:white; font-weight:600; '
-        'padding:0.5rem 1rem; border-radius:0.5rem; margin-bottom:0.25rem;'
-        '">🔄 Refresh MS Data via Claude</a>'
-    )
-    st.markdown(_ms_refresh_html, unsafe_allow_html=True)
-    st.caption(
-        "1) Your browser asks permission to open Claude Desktop — click Allow. "
-        "2) Claude opens with the task already typed in — **you still have to press "
-        "Enter/click Send yourself, it won't run on its own.** "
-        "3) It'll open the MS Online login page and may ask for Downloads folder "
-        "access — approve both, log in, tell Claude, and the rest runs on its own."
-    )
-
-    with st.expander("Manual fallback (no Claude)"):
-        st.markdown(
-            "Log into MS Online, download these 5 files to your Downloads folder:\n"
-            "   - Holdings\n"
-            "   - Activity → Current Year\n"
-            "   - Activity → Prior Year\n"
-            "   - Realized G/L → Current Year\n"
-            "   - Realized G/L → Prior Year\n\n"
-            "then double-click **run_push.command** in the repo folder (Mac). "
-            "Then reload this page."
-        )
-    st.divider()
 
 # ─────────────────────────────────────────────
 # EDGAR DATA FETCH (holdings scoring)
