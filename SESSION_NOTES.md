@@ -827,3 +827,49 @@ contradicting automated verification, the tooling is the thing that's
 probably blind, not the user -- get direct evidence (recording,
 screenshots, whatever) rather than trusting a clean trace a fourth
 time.
+
+## Session (cont'd): #75 — real root cause found via console trace, fixed and verified
+
+The screen-recording-informed fix didn't hold either -- a second
+recording from the user showed the bounce got LONGER, not shorter.
+Stopped guessing from recordings and got a millisecond-resolution trace
+directly from the user's own browser console instead (a one-off
+diagnostic script pasted into DevTools, not part of the app). It showed
+the actual bug immediately: the server-sent hide <style> tag, despite
+being the very first delta of app.py's script (before pg.run() even
+starts), wasn't visibly taking effect in their browser until ~800ms
+AFTER the new page's content had already started rendering on screen.
+Script order on the Python side guarantees nothing about delta
+*delivery/paint* order over a real connection -- every previous fix
+attempt in this saga assumed it did, and none of my automated testing
+against a fast synthetic browser ever had enough latency for the gap to
+matter.
+
+Fix: stopped waiting on the server for the hide trigger entirely.
+install_instant_nav_hide() attaches a click listener directly on the
+sidebar's nav links (a[data-testid="stSidebarNavLink"], found by
+inspecting the live DOM) that hides synchronously in the same click
+event, zero round-trip. First version of this had its own bug (also
+caught via a live trace): the listener lives inside a components.html()
+iframe that's destroyed on the next rerun, and an "install once per
+session" guard meant only the very first navigation got a working
+listener -- every one after that silently died. Fixed by re-attaching
+fresh every rerun instead.
+
+Verified with a repeatable trace across 3 full round-trips (6
+navigations total, using real DOM .click() dispatch): hide applied
+10-29ms after every click, always before content started changing.
+779 scroll corrections logged, zero of them visible.
+
+Marked punch list #75 done. Track record on this item has been bad
+enough (4+ premature "fixed" claims before this) that I'm flagging it
+to the user directly rather than just moving on, and asking them to
+confirm in their own browser.
+
+Broader lesson for next time something like this happens: don't trust
+"my script ran first" as a proxy for "my script's effect landed first."
+Anything dependent on relative timing between two things sent to a
+browser over a real network needs to either not depend on that ordering
+at all (this fix), or be verified with an actual trace from the
+environment that's failing -- a fast synthetic test browser can hide a
+timing bug completely.
