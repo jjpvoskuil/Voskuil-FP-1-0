@@ -128,3 +128,30 @@ session once deployed, same as the #36 real-data pass caught a real calibration 
 
 Files touched: `sec_utils.py`, `app_pages/0_Dashboard.py`, `app_pages/7_Equity_Scout_EDGAR.py`,
 `app_pages/9_Compare_Stocks_EDGAR.py`, `punch_list_data.json` (#32 and #70 both marked done).
+
+---
+
+## Session (cont'd): #71 — Dashboard holdings sort UX (click-to-sort headers, default Signal)
+
+Small follow-on ask right after #32/#70 shipped: change the Dashboard holdings table's default
+sort to Signal, and replace the "Sort by" dropdown with click-to-sort column headers (confirmed
+via clarifying questions: header click = sort, not a per-column value filter; default Signal
+order = alphabetical, i.e. Add, Hold, Trim, with unscored "—" last).
+
+Implementation: `Signal`/`Signal_Color`/`Signal_Icon` are now materialized as real `display_df`
+columns (one `hold_verdict()` call per row, done once) instead of being recomputed at render time
+inside the row loop — this is what makes Signal sortable at all. `SI_Count` (superinvestor holder
+count) is materialized the same way once superinvestor data is loaded. The old dropdown is gone;
+each column header (Symbol, Name, Type, Value, Accts, Score, Signal, 🦁 SI) is now an `st.button` —
+clicking an inactive column sorts by it (using a sensible per-column default direction, e.g. Value
+defaults high→low, Symbol defaults A→Z), clicking the already-active column reverses direction.
+State lives in `st.session_state.holdings_sort_col`/`holdings_sort_asc`, defaulting to
+`("Signal", ascending=True)` on first load.
+
+Neat detail worth remembering: sorting the plain `Signal` verdict string ("Add"/"Hold"/"Trim"/"—")
+ascending *already* produces the exact order requested (alphabetical, unscored last) with zero
+custom rank-mapping, because the em dash (U+2014) sorts after all uppercase Latin letters in
+Unicode. Verified this with a throwaway `pd.DataFrame.sort_values()` check before committing to
+the approach, rather than assuming it.
+
+Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#71 added and closed).

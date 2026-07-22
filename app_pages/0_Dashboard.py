@@ -577,29 +577,20 @@ if df_holdings_raw is not None:
         lambda n: f"{n} acct{'s' if n > 1 else ''}"
     )
 
-    # ── Sort Controls ──────────────────────────────────────────────────
+    # ── Signal (Hold/Add/Trim verdict) — materialized as a real column
+    # (not just computed at render time) so it can be sorted on (#71).
+    # Sorting the plain verdict string ascending naturally yields
+    # Add < Hold < Trim < "—" (em dash sorts after letters), which is
+    # exactly the "alphabetical, unscored last" order used as the default.
+    ht = st.session_state.hold_thresholds
+    def _signal_for(symbol):
+        return hold_verdict(st.session_state.holding_raw_data.get(symbol), ht)
+    _signals = display_df['Symbol'].apply(_signal_for)
+    display_df['Signal']       = _signals.apply(lambda t: t[0])
+    display_df['Signal_Color'] = _signals.apply(lambda t: t[1])
+    display_df['Signal_Icon']  = _signals.apply(lambda t: t[2])
+
     st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
-    sort_col, _ = st.columns([3, 1])
-    with sort_col:
-        sort_by = st.selectbox(
-            "Sort by",
-            options=["Total Value (High→Low)", "Total Value (Low→High)",
-                     "Score (High→Low)", "Score (Low→High)",
-                     "Symbol (A→Z)", "Symbol (Z→A)"],
-            label_visibility="collapsed"
-        )
-    if sort_by == "Total Value (High→Low)":
-        display_df = display_df.sort_values('Total_Value', ascending=False)
-    elif sort_by == "Total Value (Low→High)":
-        display_df = display_df.sort_values('Total_Value', ascending=True)
-    elif sort_by == "Score (High→Low)":
-        display_df = display_df.sort_values('Score_Num', ascending=False, na_position='last')
-    elif sort_by == "Score (Low→High)":
-        display_df = display_df.sort_values('Score_Num', ascending=True, na_position='last')
-    elif sort_by == "Symbol (A→Z)":
-        display_df = display_df.sort_values('Symbol', ascending=True)
-    elif sort_by == "Symbol (Z→A)":
-        display_df = display_df.sort_values('Symbol', ascending=False)
 
     # ── Superinvestor data load button (only if not already cached) ────
     if "_si_full_map" not in st.session_state:
@@ -613,21 +604,69 @@ if df_holdings_raw is not None:
             st.caption("Optional — adds a Superinvestor Conviction column showing how many of 82 tracked value investors hold each position.")
         st.markdown("")
 
+    # SI_Count materialized the same way as Signal, only once superinvestor
+    # data is loaded, so it can be sorted on like any other column.
+    si_data = st.session_state.get("_si_full_map", {})
+    if si_data and si_data.get("ticker_map"):
+        display_df['SI_Count'] = display_df['Symbol'].apply(
+            lambda s: get_superinvestor_conviction(s).get("holder_count", 0)
+        )
+    else:
+        display_df['SI_Count'] = None
+
+    # ── Click-to-sort column headers (#71) — replaces the old "Sort by"
+    # dropdown. Clicking a header sorts by that column; clicking the
+    # active column again reverses direction, like a spreadsheet.
+    SORT_COLUMNS = {
+        "Symbol": {"field": "Symbol",        "label": "Symbol",  "default_asc": True},
+        "Name":   {"field": "Name",          "label": "Name",    "default_asc": True},
+        "Type":   {"field": "Product_Type",  "label": "Type",    "default_asc": True},
+        "Value":  {"field": "Total_Value",   "label": "Value",   "default_asc": False},
+        "Accts":  {"field": "Account_Count", "label": "Accts",   "default_asc": False},
+        "Score":  {"field": "Score_Num",     "label": "Score",   "default_asc": False},
+        "Signal": {"field": "Signal",        "label": "Signal",  "default_asc": True},
+        "SI":     {"field": "SI_Count",      "label": "🦁 SI",   "default_asc": False},
+    }
+    if "holdings_sort_col" not in st.session_state:
+        st.session_state.holdings_sort_col = "Signal"
+        st.session_state.holdings_sort_asc = True
+
+    st.caption("Click a column header to sort by it — click again to reverse the order.")
+
+    def _sort_header(container, col_key):
+        cfg    = SORT_COLUMNS[col_key]
+        active = st.session_state.holdings_sort_col == col_key
+        arrow  = ("▲" if st.session_state.holdings_sort_asc else "▼") if active else ""
+        with container:
+            if st.button(f"{cfg['label']} {arrow}".strip(), key=f"sort_hdr_{col_key}",
+                         use_container_width=True, type="primary" if active else "secondary"):
+                if active:
+                    st.session_state.holdings_sort_asc = not st.session_state.holdings_sort_asc
+                else:
+                    st.session_state.holdings_sort_col = col_key
+                    st.session_state.holdings_sort_asc = cfg["default_asc"]
+
     # ── Column Headers ─────────────────────────────────────────────────
     h1, h2, h3, h4, h5, h6, h7, h8, h9 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8])
-    with h1: st.markdown("**Symbol**")
-    with h2: st.markdown("**Name**")
-    with h3: st.markdown("**Type**")
-    with h4: st.markdown("**Value**")
-    with h5: st.markdown("**Accts**")
-    with h6: st.markdown("**Score**")
-    with h7: st.markdown("**Signal**")
-    with h8: st.markdown("**🦁 SI**")
+    _sort_header(h1, "Symbol")
+    _sort_header(h2, "Name")
+    _sort_header(h3, "Type")
+    _sort_header(h4, "Value")
+    _sort_header(h5, "Accts")
+    _sort_header(h6, "Score")
+    _sort_header(h7, "Signal")
+    _sort_header(h8, "SI")
     with h9: st.markdown("**Analysis**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
+    # ── Apply sort (after header buttons, so a click this run is reflected
+    # immediately without needing a second rerun) ───────────────────────
+    _active_cfg   = SORT_COLUMNS[st.session_state.holdings_sort_col]
+    display_df = display_df.sort_values(
+        _active_cfg["field"], ascending=st.session_state.holdings_sort_asc, na_position='last'
+    )
+
     # ── Rows ───────────────────────────────────────────────────────────
-    ht = st.session_state.hold_thresholds
     for _, row in display_df.iterrows():
         c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8])
         with c1:
@@ -651,11 +690,12 @@ if df_holdings_raw is not None:
             else:
                 st.caption("—")
         with c7:
-            cached = st.session_state.holding_raw_data.get(row['Symbol'])
-            verdict, vcolor, vicon = hold_verdict(cached, ht)
-            if verdict != "—":
+            # Signal/Signal_Color/Signal_Icon were materialized on
+            # display_df above (same hold_verdict() call) so sorting and
+            # rendering always agree -- no need to recompute here.
+            if row['Signal'] != "—":
                 st.markdown(
-                    f"<span style='font-weight:bold; color:{vcolor}'>{vicon} {verdict}</span>",
+                    f"<span style='font-weight:bold; color:{row['Signal_Color']}'>{row['Signal_Icon']} {row['Signal']}</span>",
                     unsafe_allow_html=True
                 )
             else:

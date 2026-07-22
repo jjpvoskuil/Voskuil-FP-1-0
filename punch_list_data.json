@@ -620,6 +620,15 @@
       "priority": "Medium",
       "done": true,
       "created": "2026-07-20"
+    },
+    {
+      "id": 71,
+      "title": "Dashboard holdings: click-to-sort column headers, default sort on Signal",
+      "note": "Replaced the 'Sort by' dropdown on the Dashboard holdings table with clickable column headers (Symbol, Name, Type, Value, Accts, Score, Signal, SI) -- click a header to sort by it, click the active column again to reverse direction, like a spreadsheet. Signal (the Hold/Add/Trim verdict) is now materialized as a real display_df column (Signal/Signal_Color/Signal_Icon) instead of only being computed at render time, so it can be sorted on; SI (superinvestor holder count) likewise materialized once superinvestor data is loaded. Default sort on page load is now Signal, ascending -- sorting the verdict string alphabetically naturally yields Add < Hold < Trim < \"\u2014\" (em dash sorts after letters in Unicode), which matches the owner's chosen default order (alphabetical, unscored positions last) with no custom rank column needed. Verified with a synthetic sort_values() check. 'Filter by clicking the header' was clarified with the owner up front to mean sort-by-click (not a per-column value filter like Excel's filter arrows).",
+      "phase": "Aesthetics and UX",
+      "priority": "Low",
+      "done": true,
+      "created": "2026-07-22"
     }
   ],
   "phases": [
