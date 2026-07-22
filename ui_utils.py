@@ -112,8 +112,15 @@ _REVEAL_CHECK_INTERVAL_MS = 50
 
 # Hard cap on how long we'll stay hidden waiting for things to settle,
 # in case something never truly stabilizes -- a safety net, not the
-# normal path, so the page can never get stuck invisible.
-_MAX_HIDE_MS = 4000
+# normal path, so the page can never get stuck invisible. Measured live
+# via a MutationObserver trace against the deployed app: Dashboard's
+# holdings can still be actively growing/resizing (still-hidden fight,
+# scrollHeight climbing continuously) more than 2.3 seconds in with no
+# sign of stopping -- a short cap here was forcing a reveal WHILE still
+# mid-fight, which is exactly the visible bounce this whole mechanism
+# exists to prevent. Set generously above what heavy pages have actually
+# been observed to need.
+_MAX_HIDE_MS = 12000
 
 # id on the <style> tag hide_main_for_scroll_fix() injects, so the
 # corrective scripts below can find and remove it once they've actually

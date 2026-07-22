@@ -748,3 +748,34 @@ the one captured at script start.
 
 Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). py_compile clean;
 AppTest confirms all pages load without exception. Deploying and verifying live next.
+
+---
+
+## Session (cont'd): #75 — found the real cause via a live MutationObserver trace
+
+Owner reported Dashboard was STILL bouncing after the scroll-event-listener fix, and pointed out
+Market Screener was clean, asking to compare rather than keep tuning blind. Good call — rather
+than guess a third time, instrumented the live deployed app directly instead: navigated to
+Equity Scout first, installed a MutationObserver + capture-phase scroll listener watching the
+real scroll container, *then* clicked to Dashboard so the observer was already running before
+the navigation-triggered fight began, and pulled the full timestamped event log afterward.
+
+Findings: the hide mechanism WAS correctly active the entire time — every logged scroll-fight
+event showed `hidden: true`, confirming the container genuinely never became visible while
+contested. But the fight itself was still actively growing (`scrollHeight` climbing
+continuously: 149 → 513 → 933 → … → 5589+) more than 2.3 seconds into the hidden window with
+zero sign of stopping — well past the 4-second hard cap on how long we'd stay hidden.
+
+Root cause: Dashboard has real, heavy client-side rendering work (holdings table rows, a Plotly
+chart initializing) that legitimately takes several seconds to fully settle in the browser even
+after all the data has already been sent — and the 4s safety-net cap was forcing a reveal WHILE
+the page was still mid-fight, which is exactly the visible bounce this whole mechanism exists to
+prevent. Market Screener has no chart and lighter content, so it settles well within 4s and was
+never hitting the cap — that's the actual difference between the two pages, not a code-path
+difference (both already share the identical `ui_utils.py` functions, confirmed by inspection).
+
+Fixed by raising `_MAX_HIDE_MS` from 4000 to 12000ms, generously above the longest observed real
+fight duration.
+
+Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). py_compile clean.
+Deploying and re-verifying live with the same trace methodology next.
