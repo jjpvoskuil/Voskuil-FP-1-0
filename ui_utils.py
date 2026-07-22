@@ -136,6 +136,44 @@ delta happens to get applied" to "synchronously, in the same click
 event". hide_main_for_scroll_fix() is kept as a secondary fallback for
 non-click navigations (browser back/forward, deep links) where there's
 no click to hook.
+
+STILL bouncing after all of the above -- and this time the user caught
+something decisive: "when you tested the 3x navigation back and forth,
+it was also doing it then." Reproduced it directly in an automated test
+browser too (not just the user's machine), which finally ruled out
+every timing/environment theory from the rounds above. Built an
+on-screen debug overlay (burned directly into a recording, showing live
+hidden/visible + scrollTop state) and, critically, an elementFromPoint
+probe logging the FULL testid ancestor chain of whatever was actually
+painting on screen at a fixed point, every ~20ms, whenever it disagreed
+with what our own hide check believed.
+
+That probe caught it immediately and conclusively: while
+stAppScrollToBottomContainer's own computed visibility genuinely was
+"hidden" (confirmed directly via getComputedStyle, not just "the style
+tag exists" -- everything above assumed that check was sufficient and
+it never was), a specific descendant a few levels down --
+[data-testid="stMarkdownContainer"] -- had its OWN explicit
+`visibility: visible` from Streamlit's base stylesheet. CSS visibility
+is an inherited property, but any element can re-declare its own value
+and break the inheritance chain for itself and everything below it --
+completely legal CSS, and exactly what was happening. Since
+stMarkdownContainer wraps most of Dashboard's actual text and metrics,
+this one rule alone was enough to make the majority of the "hidden"
+content paint anyway, no matter how early or how reliably our hide
+style got applied -- explaining why every previous fix in this saga
+kept "working" by every check we had (style tag present, computed
+visibility hidden on the container itself, scrollTop pinned at 0) while
+the user kept seeing the exact same bounce regardless.
+
+Fixed by switching the hide mechanism from `visibility: hidden` to
+`display: none`. Unlike visibility, display has no inheritance-override
+escape hatch -- no descendant of a display:none ancestor can be made to
+render no matter what CSS targets it specifically, full stop. This is a
+strictly stronger guarantee than anything tried in this whole saga, and
+it's the first fix here that closes off the ACTUAL mechanism that was
+demonstrated to be leaking, rather than another plausible-sounding
+theory about timing.
 """
 
 import streamlit as st
@@ -233,7 +271,7 @@ def hide_main_for_scroll_fix():
     st.markdown(
         f'<style id="{_HIDE_STYLE_ID}" class="{_HIDE_STYLE_CLASS}">'
         '[data-testid="stAppScrollToBottomContainer"], [data-testid="stMain"]'
-        " { visibility: hidden !important; } </style>",
+        " { display: none !important; } </style>",
         unsafe_allow_html=True,
     )
 
@@ -297,7 +335,7 @@ def install_instant_nav_hide():
                 style.className = HIDE_CLASS;
                 style.textContent =
                     '[data-testid="stAppScrollToBottomContainer"], '
-                    + '[data-testid="stMain"] {{ visibility: hidden !important; }}';
+                    + '[data-testid="stMain"] {{ display: none !important; }}';
                 doc.head.appendChild(style);
                 setTimeout(function() {{
                     doc.querySelectorAll("." + HIDE_CLASS).forEach(function(el) {{ el.remove(); }});
