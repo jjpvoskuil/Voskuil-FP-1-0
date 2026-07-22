@@ -138,9 +138,11 @@ with st.sidebar:
     )
     st.markdown(_ms_refresh_html, unsafe_allow_html=True)
     st.caption(
-        "Opens Claude Desktop, which opens the MS Online login page for you. "
-        "Log in there, tell Claude, and the rest runs on its own. "
-        "First click: your browser will ask permission to open Claude Desktop — allow it."
+        "1) Your browser asks permission to open Claude Desktop — click Allow. "
+        "2) Claude opens with the task already typed in — **you still have to press "
+        "Enter/click Send yourself, it won't run on its own.** "
+        "3) Once sent, it opens the MS Online login page, you log in and tell Claude, "
+        "and the rest runs on its own."
     )
 
     with st.expander("Manual fallback (no Claude)"):

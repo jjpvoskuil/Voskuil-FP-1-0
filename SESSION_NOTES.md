@@ -323,3 +323,26 @@ timeout concern. Updated the button's caption to describe this actual flow inste
 "log in yourself first, then click" framing.
 
 Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 note updated).
+
+---
+
+## Session (cont'd): #74 — second live test, turned out to be working as designed
+
+Owner tested again (Claude Desktop and Chrome tabs fully closed first): button opened Claude
+Desktop, but "nothing ran or downloaded." Rather than guessing at another code fix, asked a direct
+diagnostic question first: was there unsent text in the message box? Answer: yes — there was a
+permission pop-up (the browser asking to open Claude Desktop) in front of it, and after allowing
+that, it landed on a new chat.
+
+This confirmed the deep link is actually working correctly — `claude://cowork/new?q=...`
+deliberately only prefills the composer, it does not auto-send (same pattern as a `mailto:` link
+drafting an email without sending it — a sensible safety default for a link that can kick off an
+agent). The owner just hadn't clicked Send after the permission dialog stole their attention.
+
+**Lesson worth keeping:** when a user reports "nothing happened," ask what they actually saw
+before touching code again — this could easily have turned into an unnecessary second round of
+"fixes" to something that wasn't broken. Fixed for real this time by rewriting the button's
+caption to spell out all 3 steps explicitly, including "you still have to press Enter/click Send
+yourself, it won't run on its own" in bold.
+
+Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 note updated again).
