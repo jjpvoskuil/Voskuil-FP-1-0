@@ -77,6 +77,36 @@ iframe (and its listeners) is destroyed on Streamlit's next rerun anyway
 risk of it running forever in the background -- it only lives as long as
 the current render of the page does, and backs off immediately the
 moment the user actually wants to scroll.
+
+Even with the event-driven fix above, Dashboard specifically kept
+bouncing visibly in the real browser (confirmed via a user-supplied
+screen recording -- automated MutationObserver traces kept showing a
+clean settle and couldn't reproduce it). The recording showed the
+"quiet since last correction" reveal test itself was the bug: Dashboard
+sends its content as several separate deltas several seconds apart (the
+metrics row, then the donut chart, then the holdings table, then the
+Ask Claude/chat section) -- each one capable of re-triggering
+Streamlit's own auto-scroll-to-bottom on arrival. The gap between two
+deltas can easily exceed the quiet window even though the page is
+nowhere near done, so the old logic revealed partway through the
+stream -- the recording plainly shows the holdings table and Ask Claude
+section becoming visible mid-transition, followed by more visible
+scrolling as later deltas arrived, exactly matching the user's "scrolls
+down and up a couple times" report.
+
+Fixed with two additions: (1) mark_render_complete() renders an
+invisible marker element, called from app.py right after pg.run()
+returns -- since Streamlit delivers deltas to the browser in script
+order, that marker can only exist in the real DOM once every element the
+page produced has actually arrived, which a fixed timeout can never
+guarantee. Reveal now refuses to even start its quiet-countdown until
+this marker is seen (the hard safety cap still applies regardless, so a
+page can never get stuck invisible if the marker somehow never shows
+up). (2) The quiet clock now also resets on any change to the
+container's scrollHeight, not just on scroll corrections -- a late
+Plotly chart layout pass can keep resizing the container for a bit after
+its DOM node lands without necessarily provoking a scroll event in
+between, and that's still "not actually settled yet."
 """
 
 import streamlit as st
@@ -92,16 +122,28 @@ function _getScrollContainer() {
 }
 """
 
+# id on the marker element mark_render_complete() injects -- see that
+# function's docstring. Reveal logic below polls for this before it will
+# ever start counting down to a reveal.
+_MARKER_ID = "_ui_scroll_fix_marker"
+
+_MARKER_CHECK_JS = """
+function _renderComplete() {
+    return !!window.parent.document.getElementById("%s");
+}
+""" % _MARKER_ID
+
 # Safety-net cap on how long the corrective listener can run, in case a
 # user session sits on a freshly-navigated page for a very long time
 # without ever touching it. Not meant to be reached in normal use -- the
 # real stop condition is the user manually scrolling (see _cancel below).
 _SAFETY_CAP_MS = 5 * 60 * 1000
 
-# How long the position must go without needing a correction before we
-# reveal the content -- judged by elapsed time since the last actual
-# correction, not by a fixed number of polls (see module docstring for
-# why polling missed fast back-and-forth fights).
+# How long the position must go without needing a correction AND without
+# the container's own height changing before we reveal the content --
+# judged by elapsed time since the last actual correction/resize, not by
+# a fixed number of polls (see module docstring for why polling missed
+# fast back-and-forth fights, and why height changes matter too).
 _QUIET_MS_BEFORE_REVEAL = 500
 
 # How often to check "has it been quiet long enough to reveal yet" while
@@ -119,7 +161,9 @@ _REVEAL_CHECK_INTERVAL_MS = 50
 # sign of stopping -- a short cap here was forcing a reveal WHILE still
 # mid-fight, which is exactly the visible bounce this whole mechanism
 # exists to prevent. Set generously above what heavy pages have actually
-# been observed to need.
+# been observed to need. This is the one reveal path that does NOT wait
+# for the render-complete marker -- it's the last-resort escape hatch if
+# something goes wrong upstream (marker never renders, JS error, etc.).
 _MAX_HIDE_MS = 12000
 
 # id on the <style> tag hide_main_for_scroll_fix() injects, so the
@@ -157,6 +201,33 @@ def hide_main_for_scroll_fix():
     )
 
 
+def mark_render_complete():
+    """
+    Renders a single invisible marker element -- call this from app.py
+    immediately after pg.run() returns, on every run (cheap: one empty
+    hidden div). Streamlit delivers each element to the browser as a
+    delta in the order the script creates it, so this marker can only
+    exist in the real page DOM once every element the just-finished page
+    script produced has actually arrived there -- a far stronger "is the
+    page actually done" signal than any fixed timeout.
+
+    force_scroll_to_top() and scroll_to_element() below refuse to start
+    their "gone quiet, safe to reveal" countdown until they observe this
+    marker present, so a heavy page whose content streams in over several
+    seconds as separate deltas (a chart, then a table, then a chat
+    section -- each capable of re-triggering Streamlit's own
+    auto-scroll-to-bottom on arrival) can't get revealed early into the
+    middle of that stream, which was the actual cause of Dashboard's
+    visible bounce (see module docstring). The hard safety cap in both
+    functions still applies regardless of this marker, so a page can
+    never get stuck invisible if something upstream goes wrong.
+    """
+    st.markdown(
+        f'<div id="{_MARKER_ID}" style="display:none"></div>',
+        unsafe_allow_html=True,
+    )
+
+
 # Shared JS: remove the hiding rule installed by hide_main_for_scroll_fix()
 # above, if present. Safe to call even if it was never inserted (e.g. a
 # page calls scroll_to_element() on a run that wasn't a navigation, so
@@ -186,11 +257,17 @@ def force_scroll_to_top():
     synchronously inside that handler -- catching every fight instantly,
     including ones Streamlit's own ~17ms internal loop wins/loses faster
     than any fixed-interval poll could reliably observe -- while hidden
-    behind the rule installed by hide_main_for_scroll_fix(). Reveals only
-    once the position has gone quiet (no correction needed) for a short
+    behind the rule installed by hide_main_for_scroll_fix(). Also tracks
+    the container's own scrollHeight, resetting the quiet-clock on any
+    change -- a late chart layout pass can keep resizing the container
+    without necessarily firing a scroll event in between. Reveals only
+    once BOTH the render-complete marker (see mark_render_complete) has
+    been observed AND the position/height have gone quiet for a short
     stretch of real time, so the container only ever becomes visible
-    already settled, with no bounce. After revealing, keeps reacting to
-    scroll events indefinitely (Streamlit's own behavior can still
+    already settled, with no bounce. A hard cap reveals regardless if
+    something upstream goes wrong (marker never appears, etc.), so the
+    page can never get stuck invisible. After revealing, keeps reacting
+    to scroll events indefinitely (Streamlit's own behavior can still
     re-assert itself much later on a heavy page), backing off immediately
     the instant it detects the user manually scrolling. height=0 keeps
     the iframe invisible and out of the page's layout.
@@ -198,12 +275,14 @@ def force_scroll_to_top():
     components.html(
         f"""<script>
         {_GET_SCROLL_CONTAINER_JS}
+        {_MARKER_CHECK_JS}
         {_REVEAL_JS}
         window.parent.scrollTo(0, 0);
         var _stop = false;
         var _revealed = false;
         var _hideStart = Date.now();
         var _lastFixAt = Date.now();
+        var _lastHeight = null;
         var _attachedTo = null;
         var _cancel = function() {{ _stop = true; }};
 
@@ -211,6 +290,15 @@ def force_scroll_to_top():
             var c = _getScrollContainer();
             if (c && c.scrollTop !== 0) {{
                 c.scrollTop = 0;
+                _lastFixAt = Date.now();
+            }}
+        }}
+        function _checkHeight() {{
+            var c = _getScrollContainer();
+            if (!c) return;
+            var h = c.scrollHeight;
+            if (h !== _lastHeight) {{
+                _lastHeight = h;
                 _lastFixAt = Date.now();
             }}
         }}
@@ -228,12 +316,15 @@ def force_scroll_to_top():
         }}
         _correct();
         _ensureAttached();
+        _checkHeight();
         var _iv = setInterval(function() {{
             if (_stop) {{ clearInterval(_iv); return; }}
             _correct();
             _ensureAttached();
-            if (!_revealed && (Date.now() - _lastFixAt > {_QUIET_MS_BEFORE_REVEAL}
-                                || Date.now() - _hideStart > {_MAX_HIDE_MS})) {{
+            _checkHeight();
+            if (!_revealed && (Date.now() - _hideStart > {_MAX_HIDE_MS}
+                                || (_renderComplete()
+                                    && Date.now() - _lastFixAt > {_QUIET_MS_BEFORE_REVEAL}))) {{
                 _revealMain();
                 _revealed = true;
             }}
@@ -263,11 +354,14 @@ def scroll_to_element(anchor_id: str):
 
     Same event-driven, settle-before-reveal approach as
     force_scroll_to_top() (see its docstring and the module docstring for
-    why a fixed-interval poll wasn't reliable): reacts to the container's
-    own 'scroll' event to re-apply scrollIntoView() the instant the
-    anchor drifts out of position, and only reveals once that's gone
-    quiet for a short stretch. Keeps holding indefinitely afterward,
-    backing off immediately if the user manually scrolls.
+    why a fixed-interval poll wasn't reliable, and why the quiet-clock
+    also tracks container height and gates on the render-complete
+    marker): reacts to the container's own 'scroll' event to re-apply
+    scrollIntoView() the instant the anchor drifts out of position, and
+    only reveals once that's gone quiet for a short stretch AFTER the
+    page has confirmed it's actually done rendering. Keeps holding
+    indefinitely afterward, backing off immediately if the user manually
+    scrolls.
 
     Also sets st.session_state['_scroll_to_element_fired'] -- app.py reads
     (and clears) this after the page script finishes to decide whether to
@@ -287,11 +381,13 @@ def scroll_to_element(anchor_id: str):
     components.html(
         f"""<script>
         {_GET_SCROLL_CONTAINER_JS}
+        {_MARKER_CHECK_JS}
         {_REVEAL_JS}
         var _stop = false;
         var _revealed = false;
         var _hideStart = Date.now();
         var _lastFixAt = Date.now();
+        var _lastHeight = null;
         var _attachedTo = null;
         var _cancel = function() {{ _stop = true; }};
 
@@ -301,6 +397,15 @@ def scroll_to_element(anchor_id: str):
             var top = el.getBoundingClientRect().top;
             if (Math.abs(top) > 2) {{
                 el.scrollIntoView({{block: "start", behavior: _revealed ? "smooth" : "auto"}});
+                _lastFixAt = Date.now();
+            }}
+        }}
+        function _checkHeight() {{
+            var c = _getScrollContainer();
+            if (!c) return;
+            var h = c.scrollHeight;
+            if (h !== _lastHeight) {{
+                _lastHeight = h;
                 _lastFixAt = Date.now();
             }}
         }}
@@ -318,12 +423,15 @@ def scroll_to_element(anchor_id: str):
         }}
         _correct();
         _ensureAttached();
+        _checkHeight();
         var _iv = setInterval(function() {{
             if (_stop) {{ clearInterval(_iv); return; }}
             _correct();
             _ensureAttached();
-            if (!_revealed && (Date.now() - _lastFixAt > {_QUIET_MS_BEFORE_REVEAL}
-                                || Date.now() - _hideStart > {_MAX_HIDE_MS})) {{
+            _checkHeight();
+            if (!_revealed && (Date.now() - _hideStart > {_MAX_HIDE_MS}
+                                || (_renderComplete()
+                                    && Date.now() - _lastFixAt > {_QUIET_MS_BEFORE_REVEAL}))) {{
                 _revealMain();
                 _revealed = true;
             }}

@@ -1,5 +1,5 @@
 import streamlit as st
-from ui_utils import force_scroll_to_top, hide_main_for_scroll_fix
+from ui_utils import force_scroll_to_top, hide_main_for_scroll_fix, mark_render_complete
 
 # ── Initialize user profile defaults at app startup ──────────────────────
 # These are overwritten when the Financial Modeler page is visited.
@@ -62,6 +62,17 @@ if _navigated:
     hide_main_for_scroll_fix()
 
 pg.run()
+
+# Mark that every element this run's page script produced has actually
+# been sent to the browser -- Streamlit delivers deltas in script order,
+# so this marker can only land in the real DOM after everything before
+# it already has. force_scroll_to_top()/scroll_to_element() gate their
+# reveal on seeing this (see ui_utils.py module docstring): without it, a
+# heavy page whose content streams in over several seconds as separate
+# deltas could get revealed mid-stream, which was the actual cause of
+# Dashboard's visible bounce -- a quiet gap *between* two deltas looked
+# "settled" even though the page was nowhere near done.
+mark_render_complete()
 
 # If the page itself just triggered a results-anchor scroll on this same
 # run (e.g. arriving here via navigation right as a background scan
