@@ -1,5 +1,5 @@
 import streamlit as st
-from ui_utils import force_scroll_to_top
+from ui_utils import force_scroll_to_top, hide_main_for_scroll_fix
 
 # ── Initialize user profile defaults at app startup ──────────────────────
 # These are overwritten when the Financial Modeler page is visited.
@@ -51,6 +51,15 @@ pg = st.navigation([
 _current_page_key = pg.url_path
 _navigated = st.session_state.get("_last_page_key") != _current_page_key
 st.session_state["_last_page_key"] = _current_page_key
+
+# Hide the main content the instant it exists, before the page script
+# even runs -- Streamlit's own auto-scroll-to-bottom behavior (see
+# ui_utils.py) paints before our corrective JS gets a chance to run
+# otherwise, producing a visible "lands at bottom, jumps to top" flash.
+# Whichever of force_scroll_to_top()/scroll_to_element() ends up firing
+# below is responsible for revealing it again once corrected.
+if _navigated:
+    hide_main_for_scroll_fix()
 
 pg.run()
 

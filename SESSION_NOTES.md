@@ -676,3 +676,28 @@ already-finished scan for one it just watched complete.
 
 Files touched this update: `punch_list_data.json` (#75 marked resolved). No further code
 changes needed — pushing docs only.
+
+---
+
+## Session (cont'd): #75 — eliminated the visible flash-to-bottom-then-jump-to-top
+
+Owner reported that even though the page correctly settles at the top now, it still visibly
+flashes to the bottom first, then jumps back up — disruptive on its own even with the correct
+final position.
+
+Root cause: our corrective JS lives inside a `components.html()` iframe, which loads slightly
+*after* the main page content does — so Streamlit's own auto-scroll-to-bottom paints at least
+once, visibly, before our correction gets a chance to run and jump it back.
+
+Fixed by hiding the main content area entirely (a plain CSS `visibility: hidden` rule inserted
+via `st.markdown` — CSS takes effect immediately on paint, unlike a `<script>` tag inserted the
+same way, which browsers refuse to execute) the instant a navigation is detected in `app.py`,
+*before* the page script even runs. Added `hide_main_for_scroll_fix()` to `ui_utils.py`, called
+from `app.py` right before `pg.run()` whenever `_navigated` is true. Both
+`force_scroll_to_top()` and `scroll_to_element()` now correct the scroll position first and only
+remove that hiding rule afterward — so the container only ever becomes visible already sitting at
+the right spot, no matter how long Streamlit's own native behavior takes to fire.
+
+Files touched: `ui_utils.py`, `app.py`, `punch_list_data.json` (#75 note updated again).
+py_compile clean; AppTest confirms all pages still load without exception. Deploying and
+verifying live next.
