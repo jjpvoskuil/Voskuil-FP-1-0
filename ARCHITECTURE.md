@@ -164,6 +164,14 @@ Streamlit app's own `GITHUB_TOKEN` secret, which only handles punch-list/scan-ca
 Session-start: paste the token, Claude configures the credentialed remote, verifies with a no-op
 fetch, then edits/commits/pushes directly — no copy-paste into the GitHub web editor.
 
+**Session-end: Claude updates `SESSION_NOTES.md`** with a short summary of what shipped this
+session, key decisions and why, any gotchas hit, and open follow-ups — not a transcript, just
+what's worth carrying into the next chat (added July 2026, after repeatedly re-explaining the
+same context at the start of new chats). This is *why* Claude re-reads this file every session:
+baking the instruction here — rather than depending on cross-chat memory, which doesn't reliably
+exist — is what makes it actually happen. `SESSION_NOTES.md` keeps roughly the last 8-10 sessions;
+older entries get folded into this file or the punch list before being trimmed, not just deleted.
+
 ## Architectural Debt Paid Down (July 2026)
 
 Worth keeping visible so it doesn't silently recur:

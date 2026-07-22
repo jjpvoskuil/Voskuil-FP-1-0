@@ -28,3 +28,4 @@ ms_download.py
 *.md
 !README.md
 !ARCHITECTURE.md
+!SESSION_NOTES.md
