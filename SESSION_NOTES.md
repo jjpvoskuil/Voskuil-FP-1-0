@@ -447,3 +447,30 @@ those pages' results also deserve the auto-scroll-into-view treatment.
 Files touched: `ui_utils.py`, `app.py`, `app_pages/0_Dashboard.py`,
 `app_pages/7_Equity_Scout_EDGAR.py`, `app_pages/8_Market_Screener_EDGAR.py`,
 `app_pages/9_Compare_Stocks_EDGAR.py`, `punch_list_data.json` (#75 added).
+
+---
+
+## Session (cont'd): #75 follow-up — Market Screener EDGAR results-anchor closed
+
+Owner confirmed Compare Stocks needed nothing further and asked to close the loop on Market
+Screener EDGAR, the one page intentionally left without a dedicated results-anchor in the first
+pass (it was the riskiest one to touch blind — background-thread scan + a `run_every=2`
+polling fragment).
+
+Traced the two places fresh results actually land:
+- **Re-apply Filters (no rescan)** — synchronous, same-run, same shape as Dashboard's Score All.
+- **Run Two-Stage Screen** — kicks off a background thread; an `@st.fragment(run_every=2)` polls
+  it, redrawing only itself while active so the rest of the page stays interactive; once the
+  scan finishes the fragment fires one `st.rerun()`, and the main script ingests the result via
+  an already-existing `_just_ingested` flag (guarded to fire exactly once per completed scan).
+
+Combined both into one `_scroll_to_ms_results` flag, added an anchor before the "🏆 N Checklist
+Survivors" heading, and called `scroll_to_element()` gated on that flag — same pattern as
+Dashboard/Equity Scout. Left the 2s polling fragment itself untouched; it only needed a hook at
+the moment results actually become available, which both trigger paths already made easy to
+find.
+
+Verified: py_compile clean; AppTest confirms the page loads without exception and both action
+buttons render.
+
+Files touched: `app_pages/8_Market_Screener_EDGAR.py`, `punch_list_data.json` (#75 note updated).

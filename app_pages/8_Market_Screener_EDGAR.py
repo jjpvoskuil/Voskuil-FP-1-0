@@ -16,6 +16,7 @@ from sec_utils import (
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
+from ui_utils import scroll_to_element
 import concurrent.futures
 
 st.set_page_config(page_title="Market Screener — EDGAR", layout="wide")
@@ -1527,7 +1528,16 @@ with action_col3:
     else:
         st.caption("No cached scan yet — run a full scan below first. Once complete, it's saved persistently and survives reboots.")
 
+# _scroll_to_ms_results (#75 follow-up): true only on the run that fresh
+# results actually just landed -- either a synchronous re-filter of the
+# cached Stage 1 pool, or a background full scan finishing and being
+# ingested (_just_ingested, set further down). NOT true on later reruns
+# that just redisplay st.session_state['ms_edgar_results_df'] (sorting,
+# chat, the 2s progress-fragment ticking, etc.), so the user stays free
+# to scroll wherever they want after results are already on screen.
+_scroll_to_ms_results = False
 if refilter_clicked and _has_cached_pool:
+    _scroll_to_ms_results = True
     run_filters_and_stage2(
         st.session_state['ms_edgar_stage1_raw_pool'],
         st.session_state.get('ms_edgar_stage1_raw_total', len(st.session_state['ms_edgar_stage1_raw_pool'])),
@@ -1583,6 +1593,7 @@ if _snap["active"]:
 elif _snap["finished_at"] and st.session_state.get('ms_edgar_ingested_finish_ts') != _snap["finished_at"]:
     st.session_state['ms_edgar_ingested_finish_ts'] = _snap["finished_at"]
     _just_ingested = True
+    _scroll_to_ms_results = True
 
     if _snap.get("error"):
         st.error(f"Scan failed: {_snap['error']}")
@@ -1643,6 +1654,9 @@ if 'ms_edgar_results_df' in st.session_state:
         st.info("💡 Showing results from last screen run. Click **Run Screen** to refresh.")
 
     st.divider()
+    st.markdown('<div id="ms-screener-results"></div>', unsafe_allow_html=True)
+    if _scroll_to_ms_results:
+        scroll_to_element("ms-screener-results")
     st.markdown(f"## 🏆 {len(results_df)} Checklist Survivors")
     st.caption("Cleared the Buffett/Munger funnel (10-yr avg ROIC > threshold, 10-yr avg FCF margin > threshold, "
                "a debt hurdle, no dilution). Not ranked by a composite score — sort manually below.")
