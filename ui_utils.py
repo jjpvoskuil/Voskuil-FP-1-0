@@ -174,6 +174,38 @@ strictly stronger guarantee than anything tried in this whole saga, and
 it's the first fix here that closes off the ACTUAL mechanism that was
 demonstrated to be leaking, rather than another plausible-sounding
 theory about timing.
+
+STILL not fixed -- and the user reported it happens on a cold app open
+too, not just in-app navigation, which an instant-hide-on-click can
+never cover (there's no click on a fresh page load). Asked for one more
+console capture, this time logging container scrollTop on every single
+change alongside what's rendered at a fixed point, over a full 90-second
+window covering several navigations with no time pressure.
+
+That capture finally showed the actual mechanism driving the bounce,
+and it was hiding in plain sight the whole time: right after a clean
+reveal (container genuinely visible, display:flex), scrollTop climbs in
+a smooth, steady ramp -- 0, 312, 616, 1057, 1341, ... all the way to
+~6200 (the bottom) over roughly 750ms, then snaps back to 0. Twice in a
+row in the same capture. This is a SMOOTH, ANIMATED scroll, not an
+instant jump -- and that's exactly why the event-driven correction (see
+above: "listen for 'scroll' and correct in the same handler") never
+caught it. Setting `container.scrollTop = 0` synchronously in a scroll
+handler stops an instantaneous jump dead, but it does not reliably
+cancel an in-progress compositor-driven smooth-scroll animation --
+Streamlit's own animation just continues toward its original target on
+the next frame, on its own schedule, ignoring the intervening write.
+The fight was never close: our correction runs once per JS-visible
+scroll event; the animation's next frame runs on the compositor thread
+regardless.
+
+Fixed at the root instead of trying to out-fight the animation:
+disable_smooth_scroll() forces `scroll-behavior: auto !important` on
+the container, permanently (not tied to the hide/reveal cycle at all --
+there's no reason this container should ever animate a scroll). With no
+CSS-level smooth scrolling available, Streamlit's own scrollTo() calls
+resolve instantly instead of animating, so there is no multi-frame
+animation left for anything to fight in the first place.
 """
 
 import streamlit as st
@@ -373,6 +405,41 @@ def install_instant_nav_hide():
         }})();
         </script>""",
         height=0,
+    )
+
+
+def disable_smooth_scroll():
+    """
+    Forces `scroll-behavior: auto !important` on the real scroll
+    container -- call this unconditionally, every run, from app.py. Not
+    tied to the hide/reveal cycle at all: this rule should just always
+    be there, permanently, for the lifetime of the page.
+
+    Root fix for the actual mechanism behind Dashboard's bounce (see
+    module docstring): Streamlit's own auto-scroll-to-bottom, when it
+    fires, animates smoothly over several hundred ms rather than jumping
+    instantly. A live capture from the affected user's browser showed
+    scrollTop climbing in a steady ramp all the way to the bottom after
+    a clean reveal, then snapping back -- twice in the same session. The
+    existing scroll-event-driven correction (see force_scroll_to_top())
+    cannot reliably win that fight: writing container.scrollTop = 0
+    inside a 'scroll' handler stops an instantaneous jump dead, but does
+    not reliably cancel an in-progress CSS/compositor-driven smooth
+    scroll animation -- the animation's next frame runs on the
+    compositor's own schedule and simply continues toward its original
+    target regardless of the intervening write.
+
+    Removing the ability to animate at all removes the fight entirely:
+    with scroll-behavior forced to auto, any scrollTo()/scrollIntoView()
+    call against this container (Streamlit's own included) resolves
+    instantly instead of animating, so there's no multi-frame animation
+    left for our correction -- or anything else -- to lose to.
+    """
+    st.markdown(
+        '<style id="_ui_scroll_fix_no_smooth">'
+        '[data-testid="stAppScrollToBottomContainer"], [data-testid="stMain"]'
+        " { scroll-behavior: auto !important; } </style>",
+        unsafe_allow_html=True,
     )
 
 

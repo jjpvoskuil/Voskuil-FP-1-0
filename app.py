@@ -1,5 +1,6 @@
 import streamlit as st
 from ui_utils import (
+    disable_smooth_scroll,
     force_scroll_to_top,
     hide_main_for_scroll_fix,
     install_instant_nav_hide,
@@ -56,6 +57,16 @@ pg = st.navigation([
 _current_page_key = pg.url_path
 _navigated = st.session_state.get("_last_page_key") != _current_page_key
 st.session_state["_last_page_key"] = _current_page_key
+
+# Permanently disables smooth-scroll animation on the real scroll
+# container -- see disable_smooth_scroll() docstring in ui_utils.py for
+# why this turned out to be necessary: Streamlit's own auto-scroll-to-
+# bottom animates over several hundred ms rather than jumping instantly,
+# and no amount of "catch the scroll event and correct" JS can reliably
+# cancel an already-in-progress compositor-driven animation. Removing
+# the ability to animate at all removes the fight. Called every run,
+# unconditionally, independent of the hide/reveal cycle below.
+disable_smooth_scroll()
 
 # Primary hide trigger: a client-side click listener that hides the
 # instant a sidebar nav link is clicked, before Streamlit's own routing
