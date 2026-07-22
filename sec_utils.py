@@ -1625,19 +1625,56 @@ FINANCIAL_THRESHOLDS = {
     "nim_great":             0.030,
     "efficiency_good":       0.65,    # lower is better
     "efficiency_great":      0.55,
+    # Equity/Assets — BANK thresholds. A well-capitalized bank runs roughly
+    # 8-12% equity/assets; these are NOT reused for insurers (see below) —
+    # confirmed via a real scan (#36 validation pass, July 2026): with a
+    # single shared 8%/10% threshold, 20 of 33 real insurer survivors
+    # (61%) scored a perfect 100/100 because EVERY insurer in the sample
+    # cleared "great" trivially — insurers structurally run 3-4x a bank's
+    # equity/assets ratio (they don't take deposits), so a bank-calibrated
+    # floor provides zero differentiation among them.
     "equity_assets_good":    0.08,
     "equity_assets_great":   0.10,
+    # Equity/Assets — INSURANCE thresholds, calibrated against the real
+    # July 2026 scan's classic P&C/life survivor spread (~7%-44%, median
+    # ~22%): CNO Financial's 6.8% (the weakest survivor, scored 36/100
+    # overall) sits below "good" here, while WTM/CINF/ELV (32-44%) clear
+    # "great" — actual differentiation instead of an automatic max.
+    # NOTE: monoline mortgage/credit insurers (MGIC, Radian, Essent, NMI,
+    # Enact — SIC 6351, same "insurance" bucket) run 58-78% equity/assets
+    # by business-model design (small liabilities relative to premium-
+    # funded investment portfolio, not a comparable risk profile to P&C)
+    # and will still clear "great" here easily — a known limitation of
+    # lumping monoline mortgage insurers in with classic P&C/life under
+    # one threshold set; splitting them into their own subtype is tracked
+    # as further work in punch list #70, not solved by this recalibration.
+    "equity_assets_good_insurance":  0.15,
+    "equity_assets_great_insurance": 0.25,
     "provision_ni_safe":     0.10,    # lower is better
     "provision_ni_warning":  0.25,
-    "combined_ratio_great":  0.95,    # lower is better; under 1.00 = underwriting profit
-    "combined_ratio_good":   1.00,
+    # Combined Ratio — tightened from an initial 95%/100% (#36 validation
+    # pass, July 2026): the real survivor spread for classic P&C/life
+    # insurers ran 41%-90%, clustered mostly 55%-70% in the current
+    # (benign) underwriting cycle — a 95% "great" bar cleared nearly
+    # everyone. 85%/95% still uses conventional industry benchmarks
+    # (under 100% = underwriting profit, under 90% = good, under 85% =
+    # excellent) but actually separates the weaker survivors (CNO 90%,
+    # Elevance 87%) from the stronger ones instead of everyone maxing out.
+    "combined_ratio_great":  0.85,    # lower is better; under 1.00 = underwriting profit
+    "combined_ratio_good":   0.95,
 }
 
 FINANCIAL_FUNNEL_THRESHOLDS = {
     "lookback_years":          10,
     "min_history_years":       5,
     "roe_avg_min":             0.10,
-    "equity_assets_min":       0.06,   # capital adequacy floor
+    "equity_assets_min":            0.06,   # bank capital adequacy floor
+    # Insurance capital floor — separate from the bank floor for the same
+    # reason as the score thresholds above (insurers structurally run much
+    # higher equity/assets than banks). 12% is set so a real weak survivor
+    # like CNO Financial (6.8%) actually fails this gate instead of passing
+    # it trivially under the old shared 6% floor.
+    "equity_assets_min_insurance":  0.12,
     "efficiency_ratio_max":    0.70,   # banks — latest-period, lower is better
     "combined_ratio_max":      1.00,   # insurers — 10-yr avg, lower is better
     "dilution_lookback_years": 5,
@@ -1684,16 +1721,22 @@ def score_financial_firm_breakdown(data: dict, subtype: str, weights: dict = Non
         pts = 0
     criteria.append({"name": "ROE", "points_earned": pts, "points_max": max_pts, "missing": roe is None})
 
-    # Equity / Assets — both subtypes. Capital cushion / leverage proxy,
-    # substituting for Debt/FCF (a debt-multiple gate is meaningless for a
+    # Equity / Assets — both subtypes, but NOT the same thresholds.
+    # Substitutes for Debt/FCF (a debt-multiple gate is meaningless for a
     # bank — deposits/borrowings ARE the raw material of the business).
+    # Insurers structurally run 3-4x a bank's equity/assets ratio (no
+    # deposit-funded leverage), so a shared bank/insurer threshold set
+    # let almost every real insurer max this criterion trivially — see
+    # the equity_assets_*_insurance comments in FINANCIAL_THRESHOLDS.
     max_pts = w["Equity / Assets"]
     eqa = data.get("equity_to_assets")
+    eqa_great = t["equity_assets_great_insurance"] if subtype == "insurance" else t["equity_assets_great"]
+    eqa_good  = t["equity_assets_good_insurance"]  if subtype == "insurance" else t["equity_assets_good"]
     if eqa is not None:
-        if eqa >= t["equity_assets_great"]:  pts = max_pts
-        elif eqa >= t["equity_assets_good"]: pts = round(max_pts * 0.60)
-        elif eqa > 0:                        pts = round(max_pts * 0.25)
-        else:                                pts = 0
+        if eqa >= eqa_great:  pts = max_pts
+        elif eqa >= eqa_good: pts = round(max_pts * 0.60)
+        elif eqa > 0:         pts = round(max_pts * 0.25)
+        else:                 pts = 0
     else:
         pts = 0
     criteria.append({"name": "Equity / Assets", "points_earned": pts, "points_max": max_pts, "missing": eqa is None})
@@ -1779,8 +1822,9 @@ def evaluate_financial_firm_funnel(facts: dict, subtype: str, thresholds: dict =
     roe_r    = _historical_average(history.get("roe", []), t["lookback_years"], t["min_history_years"])
     roe_pass = bool(roe_r["sufficient"] and roe_r["avg"] is not None and roe_r["avg"] > t["roe_avg_min"])
 
-    eqa          = latest.get("equity_to_assets")
-    capital_pass = eqa is not None and eqa >= t["equity_assets_min"]
+    eqa           = latest.get("equity_to_assets")
+    equity_floor  = t["equity_assets_min_insurance"] if subtype == "insurance" else t["equity_assets_min"]
+    capital_pass  = eqa is not None and eqa >= equity_floor
 
     dil_r         = _dilution_check(history.get("diluted_shares", []), t["dilution_lookback_years"])
     dilution_pass = dil_r["passed"] is True  # None (insufficient data) does not pass
