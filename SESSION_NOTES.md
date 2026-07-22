@@ -292,3 +292,34 @@ owner's own Dashboard should be treated as the actual first test. Expected behav
 will ask permission to open Claude Desktop the first time; that's normal.
 
 Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 added and closed).
+
+---
+
+## Session (cont'd): #74 fix — deep-link button didn't prefill; redesigned to a login-first flow
+
+Owner clicked the new "Refresh MS Data via Claude" button: Claude Desktop opened, but the prompt
+was blank. Root cause: `st.link_button` opens URLs via `window.open()`, and browsers' handoff of
+`window.open()` calls to the OS for non-http(s) schemes is inconsistent — the query string
+(`q=`/`folder=`) was getting dropped before Claude Desktop ever saw it. Fixed by switching to a
+raw `<a href="claude://...">` anchor rendered via `st.markdown(unsafe_allow_html=True)` — a direct
+anchor click is treated as a real top-level navigation attempt, which browsers hand off to the OS
+protocol handler (and its confirmation dialog) with the query string intact.
+
+While fixing that, the owner also pushed back usefully on the earlier scheduled-task offer: their
+MS Online session times out quickly, so a recurring unattended scheduled task wouldn't reliably
+work anyway (it'd frequently hit an expired session with nobody there to re-authenticate). Instead
+asked for: click the button, have it open the MS Online login page automatically, then run
+everything else on its own once they confirm they're logged in — essentially "background" within
+the constraint that a human still has to clear MS's own login/MFA gate.
+
+Redesigned the prefilled prompt to script exactly that: Step 1 (done immediately, before cloning
+the repo or anything else) is opening `https://www.morganstanleyclientserv.com` in a new Chrome
+tab and waiting for a one-word "logged in" confirmation. Step 2 (once confirmed) runs the entire
+rest of the macro — clone, navigate all 3 report pages, download all 5 files, convert, validate
+via AppTest, commit, push — autonomously, with an explicit instruction not to check in again until
+done or something breaks. This also front-loads the time-sensitive part (getting the login tab
+open) ahead of anything slower (like waiting on a fresh GitHub PAT), which matters given the
+timeout concern. Updated the button's caption to describe this actual flow instead of the old
+"log in yourself first, then click" framing.
+
+Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#74 note updated).

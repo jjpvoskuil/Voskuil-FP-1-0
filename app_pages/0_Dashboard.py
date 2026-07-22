@@ -76,27 +76,40 @@ with st.sidebar:
         st.caption("📅 No data uploaded yet")
     else:
         st.caption("📅 Last updated: unknown")
-    st.caption("**Step 1:** log into MS Online in Chrome yourself (Claude never handles your credentials).")
-
-    # Deep-links into Claude Desktop (#74) — claude://cowork/new opens a new
-    # Cowork session with a prefilled prompt and an attached folder, so
-    # clicking this button is "step 2" instead of manually opening Claude
-    # and re-typing the request each time. Support doc:
+    # One-click flow (#75): the prompt itself scripts the login handoff --
+    # Claude opens the MS Online login page as its very first action (no
+    # need to log in before clicking), waits for a one-word confirmation
+    # once you've logged in, then runs the rest of the macro end-to-end
+    # without further check-ins. This matters because MS Online's session
+    # times out quickly, so we don't want to burn time on setup/cloning
+    # before the login tab is even open.
+    #
+    # Deep-links into Claude Desktop (#74) — claude://cowork/new opens a
+    # new Cowork session with a prefilled prompt and an attached folder.
+    # Support doc:
     # https://support.claude.com/en/articles/14729294-open-claude-desktop-with-a-link
     _ms_refresh_prompt = (
-        "Refresh Morgan Stanley data for Voskuil FP 1.0. I'm already logged "
-        "into MS Online in Chrome. Please: clone jjpvoskuil/Voskuil-FP-1-0 "
-        "(ask me for a fresh GitHub PAT), then using Claude in Chrome "
-        "navigate Accounts > Holdings, Accounts > Activity (Current Year, "
-        "then Prior Year), and Accounts > Realized Gain/Loss > Details "
-        "(Current Year, then Previous Year), and download all 5 files. "
-        "Convert them to CSV matching the existing ms_*.csv files in the "
-        "repo, validate the conversion by running app_pages/0_Dashboard.py "
-        "through streamlit.testing.v1.AppTest (no exceptions, sane totals), "
-        "then commit and push. See SESSION_NOTES.md in the repo for the "
-        "exact workflow and gotchas from last time — e.g. the Realized G/L "
-        "year dropdown is a native <select> that needs a JS value change, "
-        "not clicks."
+        "Refresh Morgan Stanley data for Voskuil FP 1.0. "
+        "Step 1 (do this immediately, don't wait to ask): open "
+        "https://www.morganstanleyclientserv.com in a new Chrome tab via "
+        "Claude in Chrome, tell me it's open, then wait for me to reply "
+        "that I've logged in -- my MS Online session times out fast, so "
+        "open the tab right away rather than checking in first. "
+        "Step 2 (once I confirm I'm logged in, run this whole step "
+        "autonomously -- don't check in again until it's done or something "
+        "goes wrong): clone jjpvoskuil/Voskuil-FP-1-0 if you don't already "
+        "have local access (ask me for a fresh GitHub PAT), then navigate "
+        "Accounts > Holdings, Accounts > Activity (Current Year, then "
+        "Prior Year), and Accounts > Realized Gain/Loss > Details (Current "
+        "Year, then Previous Year), and download all 5 files -- you have "
+        "my permission to download all 5 without asking again. Convert "
+        "them to CSV matching the existing ms_*.csv files in the repo, "
+        "validate by running app_pages/0_Dashboard.py through "
+        "streamlit.testing.v1.AppTest (no exceptions, sane totals), then "
+        "commit and push. Report back when done. See SESSION_NOTES.md in "
+        "the repo for the exact workflow and gotchas from last time -- "
+        "e.g. the Realized G/L year dropdown is a native <select> that "
+        "needs a JS value change, not clicks."
     )
     # NOTE: this hardcodes the owner's actual Mac path rather than using
     # Path.home() -- this code executes server-side on Streamlit Cloud, so
@@ -121,10 +134,14 @@ with st.sidebar:
         'display:block; text-align:center; text-decoration:none; '
         'background-color:#FF4B4B; color:white; font-weight:600; '
         'padding:0.5rem 1rem; border-radius:0.5rem; margin-bottom:0.25rem;'
-        '">🔄 Step 2: Refresh MS Data via Claude</a>'
+        '">🔄 Refresh MS Data via Claude</a>'
     )
     st.markdown(_ms_refresh_html, unsafe_allow_html=True)
-    st.caption("First time: your browser will ask to open Claude Desktop — allow it.")
+    st.caption(
+        "Opens Claude Desktop, which opens the MS Online login page for you. "
+        "Log in there, tell Claude, and the rest runs on its own. "
+        "First click: your browser will ask permission to open Claude Desktop — allow it."
+    )
 
     with st.expander("Manual fallback (no Claude)"):
         st.markdown(
