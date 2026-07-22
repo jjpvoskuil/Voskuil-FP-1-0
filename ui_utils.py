@@ -261,11 +261,16 @@ def install_instant_nav_hide():
     page's content had already started growing on screen).
 
     Call this unconditionally, every rerun, from app.py, before pg.run()
-    -- cheap (a few dozen bytes of JS), and idempotent by design: it
-    checks a flag on the parent window so the listener only ever gets
-    attached once per browser session no matter how many times this
-    function itself gets called (once per rerun, since the iframe it
-    runs in is destroyed and recreated each time).
+    -- cheap (a few dozen bytes of JS). Deliberately re-attaches a FRESH
+    listener on every single call rather than attaching once and never
+    again: this function's own iframe (like any components.html() call)
+    is destroyed on the very next rerun, and a listener whose defining
+    realm has been torn down stops firing even though it's technically
+    still registered -- so "install once per session" would silently go
+    dead after the first navigation. The previous run's listener (if
+    any) is removed first via a reference stashed on the parent window,
+    so this stays idempotent without ever leaving a dead listener as the
+    only one attached.
 
     Skips hiding entirely if the clicked link's path matches the current
     page (i.e. clicking the already-active page isn't a real navigation)
@@ -309,10 +314,24 @@ def install_instant_nav_hide():
                 insertHide();
             }}
 
-            if (!window.parent.__scrollFixNavHideInstalled) {{
-                window.parent.__scrollFixNavHideInstalled = true;
-                doc.addEventListener("click", onNavClick, true);
+            // Re-attach fresh on every single call rather than "only once ever"
+            // -- this function's OWN iframe (and everything defined inside it,
+            // including this very listener function) gets torn down on the
+            // NEXT Streamlit rerun, at which point the listener silently stops
+            // firing even though it's technically still attached to `doc` (a
+            // dead V8 realm, not a live one). An earlier "install once per
+            // session" guard here caused exactly that: it fired correctly for
+            // the first navigation (whose iframe was still alive) and then
+            // silently did nothing for every navigation after that, falling
+            // back to the slower server-side path with no visible error.
+            // Removing the previous listener before adding this run's fresh
+            // one keeps this idempotent (no stacking duplicates) without ever
+            // leaving a dead one as the only one attached.
+            if (window.parent.__scrollFixNavHideListener) {{
+                doc.removeEventListener("click", window.parent.__scrollFixNavHideListener, true);
             }}
+            window.parent.__scrollFixNavHideListener = onNavClick;
+            doc.addEventListener("click", onNavClick, true);
         }})();
         </script>""",
         height=0,
