@@ -536,3 +536,21 @@ render instead of guessing a fixed number.
 
 Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). Re-verifying live
 after this deploy.
+
+---
+
+## Session (cont'd): #75 — stabilization heuristic replaced with cancel-on-user-scroll hold
+
+The height-stabilization approach wasn't fully reliable either — Dashboard has multiple
+sequential async loading phases with brief pauses between them, so `scrollHeight` could look
+"settled" for a full second and release control, only for another phase of content to grow
+afterward and let Streamlit's native scroll-to-bottom win again with nothing left correcting it.
+
+Replaced with something simpler and more robust: hold the scroll position unconditionally for a
+fixed 12-second window (comfortably longer than any page's observed render time), but cancel
+immediately the moment a wheel/touchstart/mousedown event fires on the scroll container — so a
+deliberate user scroll during that window is never fought, while Streamlit's own automatic
+re-scrolling has nothing left to win against once our hold is active.
+
+Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). Deploying and
+re-verifying live next.

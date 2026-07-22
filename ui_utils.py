@@ -28,20 +28,22 @@ data-testid="stAppScrollToBottomContainer" that has its OWN overflow-y:
 auto (the document/window itself doesn't scroll at all in this layout).
 That container is a chat-app-style "stick to bottom" widget -- Streamlit's
 own frontend forces it to auto-scroll to the bottom on mount and keeps
-re-asserting that as long as the container's content keeps growing in
-height (e.g. while a page like Dashboard is still fetching/scoring
-holdings and appending elements), via an internal polling loop. Pages
-without st.chat_input get a plain data-testid="stMain" section instead,
-with no such behavior -- included below as a fallback selector so this
-keeps working if a page's chat_input is ever removed.
+re-asserting that for as long as the container's content keeps growing
+in height (e.g. while a page like Dashboard is still fetching/scoring
+holdings across multiple sequential phases with brief pauses between
+them). Pages without st.chat_input get a plain data-testid="stMain"
+section instead, with no such behavior -- included below as a fallback
+selector so this keeps working if a page's chat_input is ever removed.
 
-Because that native behavior keeps re-asserting itself for as long as
-content keeps growing (not a fixed delay), the corrective loops below are
-content-stabilization-based rather than a fixed timeout: keep forcing the
-scroll position on every tick until the container's scrollHeight hasn't
-changed for about a second (i.e. the page has actually finished
-rendering), then stop -- with a generous hard cap as a safety net so a
-page that never truly stabilizes can't pin the scroll position forever.
+A content-height-stabilization heuristic (stop once scrollHeight hasn't
+changed for ~1s) was tried first and wasn't reliable -- some pages have a
+brief pause between loading phases that looks like "settled" but isn't,
+letting Streamlit's native behavior win once real growth resumes after
+our loop had already given up. Simpler and more robust: hold the scroll
+position unconditionally for a fixed window (comfortably longer than any
+page's real render time), but cancel immediately the moment the user
+manually scrolls/touches/clicks-and-drags the container, so a deliberate
+scroll during that window is never fought.
 """
 
 import streamlit.components.v1 as components
@@ -55,6 +57,11 @@ function _getScrollContainer() {
         || doc.querySelector('[data-testid="stMain"]');
 }
 """
+
+# How long to keep re-asserting the scroll position after navigation /
+# an action, in milliseconds. Comfortably longer than any page's slowest
+# observed render time (Dashboard's holdings scoring included).
+_HOLD_MS = 12000
 
 
 def force_scroll_to_top():
@@ -70,32 +77,30 @@ def force_scroll_to_top():
     scroll position on the real scrolling container (see module docstring
     -- it's a specific inner <section>, not the window/document itself).
     Streamlit's own "scroll chat_input into view on mount" behavior keeps
-    re-asserting itself for as long as page content keeps growing (some
-    pages fetch/score data for several seconds after first paint), so
-    this keeps forcing scrollTop=0 until the container's height has been
-    stable for ~1s, then stops -- after that the user is free to scroll
-    wherever they want. height=0 keeps the iframe invisible and out of
-    the page's layout.
+    re-asserting itself for as long as page content keeps growing, so
+    this keeps forcing scrollTop=0 for a fixed window, but backs off the
+    instant it detects the user manually scrolling -- so a deliberate
+    scroll during that window is never overridden. height=0 keeps the
+    iframe invisible and out of the page's layout.
     """
     components.html(
         f"""<script>
         {_GET_SCROLL_CONTAINER_JS}
         window.parent.scrollTo(0, 0);
-        var _lastHeight = -1;
-        var _stableTicks = 0;
+        var _stop = false;
+        var _cancel = function() {{ _stop = true; }};
+        var _c0 = _getScrollContainer();
+        if (_c0) {{
+            ['wheel', 'touchstart', 'mousedown'].forEach(function(evt) {{
+                _c0.addEventListener(evt, _cancel, {{once: true, passive: true}});
+            }});
+        }}
         var _iv = setInterval(function() {{
+            if (_stop) {{ clearInterval(_iv); return; }}
             var c = _getScrollContainer();
-            if (!c) return;
-            if (c.scrollTop !== 0) {{ c.scrollTop = 0; }}
-            if (c.scrollHeight === _lastHeight) {{
-                _stableTicks++;
-            }} else {{
-                _stableTicks = 0;
-                _lastHeight = c.scrollHeight;
-            }}
-            if (_stableTicks > 10) {{ clearInterval(_iv); }}
+            if (c && c.scrollTop !== 0) {{ c.scrollTop = 0; }}
         }}, 100);
-        setTimeout(function() {{ clearInterval(_iv); }}, 15000);
+        setTimeout(function() {{ clearInterval(_iv); }}, {_HOLD_MS});
         </script>""",
         height=0,
     )
@@ -118,32 +123,28 @@ def scroll_to_element(anchor_id: str):
     this scrolls the user back to the same spot regardless of what
     they're doing elsewhere on the page.
 
-    Same re-assertion approach as force_scroll_to_top(): scrollIntoView()
-    correctly walks up to the real scrolling container on its own, but a
-    single call can still lose the race against Streamlit's own
-    scroll-to-bottom-on-mount behavior on chat_input pages while results
-    are still rendering, so this keeps re-applying it until the results
-    container's height has stabilized.
+    Same hold-and-back-off approach as force_scroll_to_top(): keeps
+    re-applying scrollIntoView() for a fixed window (in case content above
+    the anchor is still growing and shifting its position), but backs off
+    immediately if the user manually scrolls.
     """
     components.html(
         f"""<script>
         {_GET_SCROLL_CONTAINER_JS}
-        var _lastHeight = -1;
-        var _stableTicks = 0;
+        var _stop = false;
+        var _cancel = function() {{ _stop = true; }};
+        var _c0 = _getScrollContainer();
+        if (_c0) {{
+            ['wheel', 'touchstart', 'mousedown'].forEach(function(evt) {{
+                _c0.addEventListener(evt, _cancel, {{once: true, passive: true}});
+            }});
+        }}
         var _iv = setInterval(function() {{
+            if (_stop) {{ clearInterval(_iv); return; }}
             var el = window.parent.document.getElementById("{anchor_id}");
             if (el) {{ el.scrollIntoView({{behavior: "smooth", block: "start"}}); }}
-            var c = _getScrollContainer();
-            var h = c ? c.scrollHeight : -1;
-            if (h === _lastHeight) {{
-                _stableTicks++;
-            }} else {{
-                _stableTicks = 0;
-                _lastHeight = h;
-            }}
-            if (_stableTicks > 10) {{ clearInterval(_iv); }}
-        }}, 100);
-        setTimeout(function() {{ clearInterval(_iv); }}, 15000);
+        }}, 150);
+        setTimeout(function() {{ clearInterval(_iv); }}, {_HOLD_MS});
         </script>""",
         height=0,
     )
