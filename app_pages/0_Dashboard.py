@@ -107,9 +107,23 @@ with st.sidebar:
         "claude://cowork/new?q=" + quote(_ms_refresh_prompt)
         + "&folder=" + quote("/Users/JohnV/Downloads")
     )
-    st.link_button("🔄 Step 2: Refresh MS Data via Claude", _ms_refresh_url, use_container_width=True,
-                   help="Opens a new Claude Cowork session with the refresh task pre-loaded. "
-                        "Your browser may ask permission to open Claude Desktop the first time.")
+    # A raw <a href="claude://..."> click, rather than st.link_button
+    # (which opens links via window.open()), turned out to matter here:
+    # window.open()'s handoff to the OS for non-http(s) schemes is
+    # inconsistent across browsers and appears to drop the query string in
+    # at least Chrome -- Claude Desktop opened but landed on a blank
+    # composer instead of the prefilled prompt. A direct anchor click is
+    # treated as a real top-level navigation attempt, which browsers hand
+    # off to the OS protocol handler (and its "Open in Claude Desktop?"
+    # confirmation) intact, query string included.
+    _ms_refresh_html = (
+        '<a href="' + _ms_refresh_url + '" target="_self" style="'
+        'display:block; text-align:center; text-decoration:none; '
+        'background-color:#FF4B4B; color:white; font-weight:600; '
+        'padding:0.5rem 1rem; border-radius:0.5rem; margin-bottom:0.25rem;'
+        '">🔄 Step 2: Refresh MS Data via Claude</a>'
+    )
+    st.markdown(_ms_refresh_html, unsafe_allow_html=True)
     st.caption("First time: your browser will ask to open Claude Desktop — allow it.")
 
     with st.expander("Manual fallback (no Claude)"):
