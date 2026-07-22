@@ -155,3 +155,45 @@ Unicode. Verified this with a throwaway `pd.DataFrame.sort_values()` check befor
 the approach, rather than assuming it.
 
 Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#71 added and closed).
+
+---
+
+## Session (cont'd): #72 — Dashboard holdings scores now persist across redeploys
+
+Owner reported: "sorting gets rid of all the scoring." Before assuming the new #71 sort-header
+code was the culprit, diagnosed with `streamlit.testing.v1.AppTest` — ran the ACTUAL
+`0_Dashboard.py` script headlessly (not a reimplementation), seeded `session_state` to simulate a
+completed "Score All Holdings" run, scripted a click on a sort header, and confirmed
+`holding_scores`/`holding_raw_data` are untouched by the click. So the sort code itself was never
+the bug.
+
+Real cause: `st.session_state` is in-memory only and gets wiped on every Streamlit Cloud
+reboot/redeploy — and a git push triggers exactly that (this is the same behavior already
+documented in this project re: pushing while a Market Screener scan is running). The #71 sort-UX
+push itself was almost certainly what wiped the owner's in-progress scoring; clicking a sort
+header right after was just the first interaction that surfaced the now-empty state, not the
+cause of it.
+
+Fix: reused the exact persistence pattern Market Screener already has for its scan cache
+(`github_store.py`'s `github_get_json`/`github_put_json`, GitHub Contents API). New
+`dashboard_holdings_score_cache.json`: written right after "Score All Holdings" finishes (with
+each holding's bulky `_history`/`_latest` EDGAR series stripped first — Dashboard never reads
+those, only Compare Stocks/Equity Scout do, so no reason to pay for them here), and loaded once per
+fresh session if `session_state` doesn't already have scores in memory. Added a "saved
+<timestamp>, persists across reloads" note next to the scored-count message so it's visible that
+this is now durable.
+
+Verified end-to-end against the real page code with `AppTest`: faked `fetch_fundamentals_edgar`
+(fast, no real network) plus faked `github_get_json`/`github_put_json` (captured the actual
+payload instead of hitting GitHub), scored a fresh session, then spun up a completely separate
+second `AppTest` session pointed at that captured payload to simulate a post-redeploy reload —
+confirmed scores repopulate with no button click, and survive a subsequent sort-header click too.
+
+**Note for next session:** `AppTest` (from `streamlit.testing.v1`) turned out to be a genuinely
+good tool for this kind of "does clicking X actually cause Y" question on this app — it runs the
+real page script headlessly and lets you script clicks/reruns and inspect `session_state`
+directly, which is more convincing than static code reading for anything involving Streamlit's
+rerun/session-state model. Worth reaching for again for future UI-behavior bug reports rather than
+reasoning from the code alone.
+
+Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#72 added and closed).

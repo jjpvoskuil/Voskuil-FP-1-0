@@ -629,6 +629,15 @@
       "priority": "Low",
       "done": true,
       "created": "2026-07-22"
+    },
+    {
+      "id": 72,
+      "title": "Persist Dashboard holdings scores across Streamlit Cloud redeploys/reboots",
+      "note": "Reported by owner: after using the new #71 sort headers, the holdings Score/Signal columns reverted to unscored, as if sorting itself wiped the data. Diagnosed with streamlit.testing.v1.AppTest (ran the actual page script headlessly, seeded session_state to simulate a completed 'Score All Holdings' run, then scripted a click on a sort header) -- confirmed clicking a sort header does NOT clear st.session_state.holding_scores/holding_raw_data; the real cause is that st.session_state lives only in memory and is wiped on every Streamlit Cloud reboot/redeploy (which every git push triggers, same as the already-documented Market Screener scan-kill behavior) -- so scoring done before a push (like the #71 push itself) is gone the next time the page loads, and the owner's first sort click after that redeploy is what surfaced the blank state. Fix: adopted the same GitHub-Contents-API persistence pattern already used by the Market Screener scan cache (github_store.py) -- new dashboard_holdings_score_cache.json, written via github_put_json() right after 'Score All Holdings' completes (raw_data pruned of the bulky _history/_latest EDGAR series first, which Dashboard never reads anyway) and loaded via github_get_json() once per fresh session if session_state doesn't already have scores in memory. A 'saved <timestamp>, persists across reloads' note now shows next to the scored-count success message. Verified end-to-end with AppTest against the real page code: fake fetch_fundamentals_edgar + faked github_get_json/github_put_json, scored a fresh session, captured the cache payload, then started a SECOND brand-new AppTest session (simulating a post-redeploy reload) pointed at that captured payload and confirmed scores repopulate without clicking anything, and survive a subsequent sort-header click too.",
+      "phase": "Aesthetics and UX",
+      "priority": "Medium",
+      "done": true,
+      "created": "2026-07-22"
     }
   ],
   "phases": [

@@ -4,11 +4,13 @@ import plotly.express as px
 import requests
 import time
 import sys, os
+from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
 from ui_utils import force_scroll_to_top
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
 from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS
+from github_store import github_get_json, github_put_json
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
@@ -22,6 +24,14 @@ TAX_FILE_PRIOR = 'ms_realized_gl_prior.csv'
 TRANS_FILE_YTD   = 'ms_transactions_ytd.csv'
 TRANS_FILE_PRIOR = 'ms_transactions_prior.csv'
 APP_URL   = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
+
+# Persistent holdings-score cache (#72) — Streamlit Cloud's filesystem and
+# in-memory session_state both reset on every reboot/redeploy (which a git
+# push triggers), so "Score All Holdings" results would otherwise vanish
+# the moment anything gets pushed, or whenever the app recycles from
+# inactivity. Same GitHub-Contents-API persistence pattern already used by
+# the Market Screener's scan cache (github_store.py).
+HOLDINGS_SCORE_CACHE_PATH = "dashboard_holdings_score_cache.json"
 
 DEFAULT_HOLD_THRESHOLDS = {
     "min_roic":      0.12,
@@ -364,6 +374,23 @@ if df_holdings_raw is not None:
     if 'holding_raw_data'   not in st.session_state: st.session_state.holding_raw_data   = {}
     if 'scoring_weights'    not in st.session_state: st.session_state.scoring_weights    = DEFAULT_WEIGHTS.copy()
     if 'committed_weights'  not in st.session_state: st.session_state.committed_weights  = DEFAULT_WEIGHTS.copy()
+
+    # ── Load persisted holdings scores (#72) ────────────────────────────
+    # Runs once per browser session. If this session doesn't already have
+    # scores in memory (fresh session, or session_state got reset by a
+    # redeploy), pull the last-saved scoring run from GitHub instead of
+    # showing everything as unscored until the owner re-clicks "Score All."
+    if 'holdings_cache_load_attempted' not in st.session_state:
+        st.session_state['holdings_cache_load_attempted'] = True
+        if not st.session_state.holding_scores:
+            _cached, _sha, _err = github_get_json(HOLDINGS_SCORE_CACHE_PATH)
+            if _cached and not _err:
+                st.session_state.holding_scores            = _cached.get('scores', {})
+                st.session_state.holding_sources           = _cached.get('sources', {})
+                st.session_state.holding_raw_data          = _cached.get('raw_data', {})
+                st.session_state.holdings_cache_timestamp  = _cached.get('scored_timestamp')
+            elif _err:
+                st.session_state.holdings_cache_load_error = _err
     if 'hold_thresholds'    not in st.session_state: st.session_state.hold_thresholds    = DEFAULT_HOLD_THRESHOLDS.copy()
     st.session_state.holding_weights = st.session_state.committed_weights
 
@@ -526,9 +553,18 @@ if df_holdings_raw is not None:
             msg = f"✅ {scored_count} holdings scored via SEC EDGAR"
             if failed_count > 0:
                 msg += f" ({failed_count} unavailable — foreign ADRs or no EDGAR filings)"
+            _ts = st.session_state.get('holdings_cache_timestamp')
+            if _ts:
+                try:
+                    _ts_str = datetime.fromisoformat(_ts).strftime("%b %d, %Y %I:%M %p UTC")
+                    msg += f" — saved {_ts_str}, persists across reloads"
+                except Exception:
+                    pass
             st.success(msg)
         else:
             st.caption("Scores not yet loaded. Click the button above.")
+        if st.session_state.get('holdings_cache_load_error'):
+            st.caption(f"⚠️ Couldn't load saved scores: {st.session_state['holdings_cache_load_error']}")
 
     if run_scoring:
         progress_bar = st.progress(0)
@@ -558,6 +594,30 @@ if df_holdings_raw is not None:
         progress_bar.progress(1.0)
         scored_ok = len([s for s in scores.values() if s is not None])
         status_text.markdown(f"✅ Done — {scored_ok} of {n_symbols} scored via SEC EDGAR.")
+
+        # ── Persist to GitHub (#72) — survives the next redeploy/reboot ──
+        # instead of living only in this browser tab's in-memory
+        # session_state. _history/_latest (bulky per-year EDGAR series,
+        # only used for trend charts on other pages) are dropped before
+        # saving since Dashboard itself never reads them.
+        _cache_timestamp = datetime.now(timezone.utc).isoformat()
+        _cache_payload = {
+            "scored_timestamp": _cache_timestamp,
+            "scores":  scores,
+            "sources": sources,
+            "raw_data": {
+                sym: {k: v for k, v in d.items() if k not in ("_history", "_latest")}
+                for sym, d in raw_data_cache.items() if d is not None
+            },
+        }
+        _ok, _msg = github_put_json(
+            HOLDINGS_SCORE_CACHE_PATH, _cache_payload,
+            commit_message=f"Dashboard holdings score cache — {scored_ok} of {n_symbols} scored",
+        )
+        if _ok:
+            st.session_state.holdings_cache_timestamp = _cache_timestamp
+        else:
+            st.warning(f"Scored successfully, but couldn't save for next time: {_msg}")
 
     st.divider()
 
