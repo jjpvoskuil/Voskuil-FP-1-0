@@ -197,3 +197,57 @@ rerun/session-state model. Worth reaching for again for future UI-behavior bug r
 reasoning from the code alone.
 
 Files touched: `app_pages/0_Dashboard.py`, `punch_list_data.json` (#72 added and closed).
+
+---
+
+## Session (cont'd): #73 — MS data refresh, rebuilt for Mac (with a working automated macro)
+
+Owner switched from Windows to Mac, breaking the old `run_push.bat` flow entirely (hardcoded
+`C:\Users\John Voskuil\Downloads`, Windows desktop shortcut). Asked to try automating the whole
+refresh via Claude driving the browser, with a Mac-compatible manual process as the fallback if
+that didn't pan out.
+
+**The automated macro worked.** Using the Claude in Chrome extension (already connected on the
+owner's Mac) against the owner's own already-logged-in MS Online session: navigated to Accounts >
+Holdings, clicked Download; Accounts > Activity, set the year filter to Current Year then Prior
+Year, downloading both; Accounts > Realized Gain/Loss > Details, same for Current/Previous Year.
+Picked up all 5 resulting .xlsx files from `~/Downloads` via a Cowork-connected folder (mounted
+into the sandbox bash environment too, so the same session could read them, convert, and push).
+
+One real snag, resolved: the Realized Gain/Loss year picker is a genuine native `<select>` whose
+OS-rendered dropdown doesn't show up in extension screenshots and doesn't respond to coordinate
+clicks or keyboard arrows while focused (unlike the Activity page's year picker, which is a
+custom-rendered dropdown that worked fine with plain clicks). Fixed by using the Chrome
+extension's JS execution tool to set `select.value` directly and dispatch `input`/`change` events
+— confirmed this genuinely changed the app's state (not just a visual no-op) via the resulting
+URL query param (`period=2`) and the page's data actually updating to Previous Year figures.
+**Worth remembering for future MS Online automation: if a dropdown looks like a plain click
+should work but nothing happens, check whether it's a real native `<select>` (via `read_page`)
+before assuming the click coordinates are wrong — the fix is JS, not more clicking.**
+
+Converted all 5 xlsx exports to CSV matching the exact structure `get_clean_df()` expects
+(verified column layout against the anchor row of each: "Account Number" for Holdings/Realized
+G&L, "Activity Date" for Activity). Validated the ENTIRE pipeline end-to-end by running the real
+`app_pages/0_Dashboard.py` through `streamlit.testing.v1.AppTest` against the new files — no
+exceptions, and the computed Total Market Value ($3,926,287.92) matched MS Online's live total
+exactly, which is about as strong a correctness signal as this kind of change can get.
+
+Also rebuilt the manual fallback for Mac, since the automated path may not always be available or
+preferred: `rename_files.py`/`push_files.py` now use `Path.home()/"Downloads"` instead of a
+hardcoded Windows path. Also fixed a latent fragility in the original `rename_files.py`: it used to
+guess Current vs. Prior year purely from download order/mtime ("assume Current Year was
+downloaded first") — now it reads each file's own report header text (MS Online prints "...from
+Current Year" / "Previous Year Realized Gain/Loss..." right in the export) so it's correct
+regardless of download order. Added `run_push.command` (Mac double-clickable, `chmod +x`) next to
+the now-legacy `run_push.bat` (kept, marked legacy, not deleted, path hardcoding fixed too in case
+it's ever run on Windows again).
+
+Updated the Dashboard sidebar's refresh instructions (both options: ask Claude, or the manual
+script) and corrected an inaccurate ARCHITECTURE.md claim that MS Online "blocks automated/
+headless downloads" — it blocks headless/server-side scraping, not a real logged-in browser
+session under a human's own authentication, which is what actually happened here.
+
+Files touched: `ms_holdings.csv`, `ms_transactions_ytd.csv`, `ms_transactions_prior.csv`,
+`ms_realized_gl_current.csv`, `ms_realized_gl_prior.csv` (all refreshed with live data),
+`rename_files.py`, `push_files.py`, `run_push.command` (new), `run_push.bat`,
+`app_pages/0_Dashboard.py` (sidebar instructions), `ARCHITECTURE.md`, `punch_list_data.json`.

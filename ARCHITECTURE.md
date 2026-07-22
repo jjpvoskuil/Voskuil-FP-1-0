@@ -40,7 +40,7 @@ Cloud, version-controlled on GitHub (`jjpvoskuil/Voskuil-FP-1-0`). Two parallel 
 | Version Control | GitHub | `jjpvoskuil/Voskuil-FP-1-0`, `main` branch |
 | Primary financial data | **SEC EDGAR** Company Facts API | Free, no rate-limit risk at this scale, direct from source (no third-party normalization) |
 | Pricing data | **yfinance** | Live price, market cap, sector, dividend yield — EDGAR has no pricing data at all |
-| Portfolio data | Manual Morgan Stanley CSV export | `rename_files.py` → `push_files.py` via a desktop shortcut, since MS Online blocks automated/headless downloads |
+| Portfolio data | Morgan Stanley CSV export | Primary (#73): ask Claude in a Cowork chat (with Chrome access) to "refresh MS data" — it drives the user's own logged-in browser session to Holdings/Activity/Realized G&L, downloads all 5 files, converts, and pushes. Correction: MS Online does NOT block this — it only blocks *headless*/server-side scraping; a real logged-in browser session works fine. Manual fallback (Mac): `rename_files.py` → `push_files.py` via `run_push.command` |
 | ~~Polygon.io~~ | **Fully retired** | Was the original primary data source; do not reintroduce references to it as current |
 
 ## App Structure — Page Map
@@ -92,9 +92,10 @@ reachable from the sidebar.
                     (same 4 consumers as above)
 
                      ┌─────────────────────┐
-                     │  Morgan Stanley CSV  │  Manual export → rename →
-                     │  (manual export)     │  push_files.py → GitHub
-                     └──────────┬───────────┘
+                     │  Morgan Stanley CSV  │  Claude+Chrome macro (#73,
+                     │  (Holdings/Activity/  │  primary) or manual export →
+                     │  Realized G&L)        │  rename_files.py → push_files.py
+                     └──────────┬───────────┘  → GitHub
                                 ▼
                             Dashboard
 ```

@@ -19,7 +19,7 @@ from pathlib import Path
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO  = os.environ.get("GITHUB_REPO",  "jjpvoskuil/Voskuil-FP-1-0")
-DOWNLOADS    = Path(r"C:\Users\John Voskuil\Downloads")
+DOWNLOADS    = Path.home() / "Downloads"
 
 # Map: local xlsx filename → GitHub CSV filename
 FILES = {
@@ -74,8 +74,9 @@ def main():
 
     if not GITHUB_TOKEN:
         print("  ERROR: GITHUB_TOKEN not set as environment variable")
-        print("  Run: setx GITHUB_TOKEN \"your_token_here\"")
-        print("  Then close and reopen Command Prompt\n")
+        print("  Add this line to ~/.zshrc (or ~/.bash_profile), then open a new terminal tab:")
+        print('      export GITHUB_TOKEN="your_token_here"')
+        print()
         return
 
     results = {}

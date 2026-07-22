@@ -1,35 +1,74 @@
 """
-rename_files.py — Auto-rename MS Online downloaded files
-=========================================================
-Finds the most recently downloaded MS Online files in your
-Downloads folder and renames them to standard names for push_files.py.
+rename_files.py — Auto-rename MS Online downloaded files (Mac/Linux/Windows)
+=============================================================================
+Finds the most recently downloaded MS Online files in your Downloads folder
+and renames/copies them to standard names for push_files.py.
 
-Run this immediately after downloading all 5 files from MS Online.
+Run this immediately after downloading all 5 files from MS Online:
+  - Holdings
+  - Activity -> Current Year
+  - Activity -> Prior Year
+  - Realized Gain/Loss -> Current Year
+  - Realized Gain/Loss -> Prior Year
 
 DEFAULT MS FILENAMES:
-  Holdings Ungrouped.xlsx      → ms_holdings.xlsx
-  Activity.xlsx                → ms_transactions_ytd.xlsx   (most recent)
-  Activity (1).xlsx            → ms_transactions_prior.xlsx (second most recent)
-  Realized GL.xlsx             → ms_realized_gl_current.xlsx (most recent)
-  Realized GL (1).xlsx         → ms_realized_gl_prior.xlsx  (second most recent)
+  Holdings Ungrouped.xlsx      -> ms_holdings.xlsx
+  Activity.xlsx / Activity (1).xlsx       -> ms_transactions_ytd.xlsx / ms_transactions_prior.xlsx
+  Realized GL.xlsx / Realized GL (1).xlsx -> ms_realized_gl_current.xlsx / ms_realized_gl_prior.xlsx
+
+NOTE ON CURRENT VS. PRIOR YEAR (#73): earlier versions of this script guessed
+Current vs. Prior year from download order/timestamp ("assume Current Year
+was downloaded first"), which is fragile -- it's wrong if you download them
+in the other order, or re-download just one. This version instead opens each
+candidate file and reads the actual report header text MS Online prints
+inside the file itself ("... from Current Year" / "... from Prior Year" for
+Activity; "Current Year Realized Gain/Loss ..." / "Previous Year Realized
+Gain/Loss ..." for Realized G/L), so it's correct regardless of download
+order.
 """
 
 import shutil
 import glob
 from pathlib import Path
-from datetime import datetime
 
-DOWNLOADS = Path(r"C:\Users\John Voskuil\Downloads")
+import pandas as pd
 
-def find_latest(pattern: str, n: int = 1) -> list:
+DOWNLOADS = Path.home() / "Downloads"
+
+
+def find_recent(pattern: str, n: int = 5) -> list:
     """Find the n most recently modified files matching pattern."""
     matches = [Path(f) for f in glob.glob(str(DOWNLOADS / pattern))]
     matches.sort(key=lambda f: f.stat().st_mtime, reverse=True)
     return matches[:n]
 
 
-def rename_file(src: Path, dest_name: str) -> bool:
-    """Copy src to dest_name in Downloads. Returns True on success."""
+def read_header_text(path: Path, max_rows: int = 8) -> str:
+    """Read the first few rows of an MS Online xlsx export and join any
+    text found into one lowercased string, for simple substring checks
+    like 'current year' / 'prior year' / 'previous year'."""
+    try:
+        df = pd.read_excel(path, header=None, nrows=max_rows)
+    except Exception:
+        return ""
+    cells = []
+    for _, row in df.iterrows():
+        cells.extend(str(v) for v in row.dropna().tolist())
+    return " ".join(cells).lower()
+
+
+def classify_year(path: Path) -> str:
+    """Returns 'current', 'prior', or 'unknown' based on the file's own
+    report header text -- not download order or mtime."""
+    text = read_header_text(path)
+    if "current year" in text:
+        return "current"
+    if "prior year" in text or "previous year" in text:
+        return "prior"
+    return "unknown"
+
+
+def copy_file(src: Path, dest_name: str) -> bool:
     if not src.exists():
         print(f"  SKIP — not found: {src.name}")
         return False
@@ -39,89 +78,75 @@ def rename_file(src: Path, dest_name: str) -> bool:
     return True
 
 
+def handle_year_pair(glob_pattern: str, label: str, current_name: str, prior_name: str) -> dict:
+    print(f"\n  {label}:")
+    candidates = find_recent(glob_pattern, n=5)
+    if not candidates:
+        print(f"  SKIP — no {glob_pattern} files found")
+        return {current_name: False, prior_name: False}
+
+    results = {current_name: False, prior_name: False}
+    seen = {"current": None, "prior": None}
+    for f in candidates:
+        year = classify_year(f)
+        if year in seen and seen[year] is None:
+            seen[year] = f
+        if seen["current"] and seen["prior"]:
+            break
+
+    if seen["current"] is None or seen["prior"] is None:
+        print("  Could not identify both Current and Prior year files by content.")
+        for f in candidates[:4]:
+            print(f"    - {f.name}: looks like '{classify_year(f)}'")
+        print(f"  Make sure you downloaded BOTH Current Year and Prior Year for {label.lower()}.")
+    if seen["current"] is not None:
+        results[current_name] = copy_file(seen["current"], current_name)
+    if seen["prior"] is not None:
+        results[prior_name] = copy_file(seen["prior"], prior_name)
+    return results
+
+
 def main():
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  Voskuil FP — Rename MS Downloads")
-    print("="*60)
-    print(f"  Downloads folder: {DOWNLOADS}\n")
+    print("=" * 60)
+    print(f"  Downloads folder: {DOWNLOADS}")
 
     results = {}
 
-    # ── Holdings ──────────────────────────────────────────────────────────────
-    print("  Holdings:")
-    matches = find_latest("Holdings Ungrouped*.xlsx", 1)
+    print("\n  Holdings:")
+    matches = find_recent("Holdings Ungrouped*.xlsx", 1)
     if matches:
-        results["ms_holdings.xlsx"] = rename_file(matches[0], "ms_holdings.xlsx")
+        results["ms_holdings.xlsx"] = copy_file(matches[0], "ms_holdings.xlsx")
     else:
         print("  SKIP — no Holdings Ungrouped*.xlsx found")
         results["ms_holdings.xlsx"] = False
 
-    # ── Activity — two files, sorted by time ─────────────────────────────────
-    print("\n  Activity (Transactions):")
-    matches = find_latest("Activity*.xlsx", 2)
-    if len(matches) >= 2:
-        # Most recent = whichever was downloaded last
-        # We ask user to download Current Year first, Prior Year second
-        # So most recent = Prior Year, second most recent = Current Year
-        # BUT this depends on download order — let's confirm with user
-        print(f"  Found {len(matches)} Activity files:")
-        for i, f in enumerate(matches):
-            mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%H:%M:%S")
-            print(f"    [{i+1}] {f.name} (downloaded at {mtime})")
-        print()
-        print("  Assuming download order: Current Year first, Prior Year second")
-        print("  (Most recently downloaded = Prior Year)")
-        results["ms_transactions_ytd.xlsx"]   = rename_file(matches[1], "ms_transactions_ytd.xlsx")
-        results["ms_transactions_prior.xlsx"]  = rename_file(matches[0], "ms_transactions_prior.xlsx")
-    elif len(matches) == 1:
-        print(f"  Only 1 Activity file found — assigning as Current Year")
-        results["ms_transactions_ytd.xlsx"]  = rename_file(matches[0], "ms_transactions_ytd.xlsx")
-        results["ms_transactions_prior.xlsx"] = False
-        print("  SKIP ms_transactions_prior.xlsx — download Prior Year file and re-run")
-    else:
-        print("  SKIP — no Activity*.xlsx files found")
-        results["ms_transactions_ytd.xlsx"]   = False
-        results["ms_transactions_prior.xlsx"]  = False
+    results.update(handle_year_pair(
+        "Activity*.xlsx", "Activity (Transactions)",
+        "ms_transactions_ytd.xlsx", "ms_transactions_prior.xlsx",
+    ))
+    results.update(handle_year_pair(
+        "Realized GL*.xlsx", "Realized Gain/Loss",
+        "ms_realized_gl_current.xlsx", "ms_realized_gl_prior.xlsx",
+    ))
 
-    # ── Realized G/L — two files, sorted by time ─────────────────────────────
-    print("\n  Realized G/L:")
-    matches = find_latest("Realized GL*.xlsx", 2)
-    if len(matches) >= 2:
-        print(f"  Found {len(matches)} Realized GL files:")
-        for i, f in enumerate(matches):
-            mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%H:%M:%S")
-            print(f"    [{i+1}] {f.name} (downloaded at {mtime})")
-        print()
-        print("  Assuming download order: Current Year first, Prior Year second")
-        results["ms_realized_gl_current.xlsx"] = rename_file(matches[1], "ms_realized_gl_current.xlsx")
-        results["ms_realized_gl_prior.xlsx"]   = rename_file(matches[0], "ms_realized_gl_prior.xlsx")
-    elif len(matches) == 1:
-        print(f"  Only 1 Realized GL file found — assigning as Current Year")
-        results["ms_realized_gl_current.xlsx"] = rename_file(matches[0], "ms_realized_gl_current.xlsx")
-        results["ms_realized_gl_prior.xlsx"]   = False
-        print("  SKIP ms_realized_gl_prior.xlsx — download Prior Year file and re-run")
-    else:
-        print("  SKIP — no Realized GL*.xlsx files found")
-        results["ms_realized_gl_current.xlsx"] = False
-        results["ms_realized_gl_prior.xlsx"]   = False
-
-    # ── Summary ───────────────────────────────────────────────────────────────
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  SUMMARY")
-    print("="*60)
+    print("=" * 60)
     all_ok = True
     for name, ok in results.items():
         status = "OK  " if ok else "FAIL"
         print(f"  {status} — {name}")
         if not ok:
             all_ok = False
-    print("="*60)
+    print("=" * 60)
 
     if all_ok:
-        print("\n  All files renamed. Now run: python push_files.py\n")
+        print("\n  All files renamed. Now run: python3 push_files.py\n")
     else:
-        print("\n  Some files missing. Download them from MS Online and re-run.\n")
-        print("  Then run: python push_files.py\n")
+        print("\n  Some files missing/unidentified. Download them from MS Online and re-run.\n")
+        print("  Then run: python3 push_files.py\n")
 
 
 if __name__ == "__main__":

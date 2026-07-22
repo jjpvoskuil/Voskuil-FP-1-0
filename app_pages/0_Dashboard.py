@@ -77,15 +77,19 @@ with st.sidebar:
         st.caption("📅 Last updated: unknown")
     st.info(
         "**To refresh MS data:**\n\n"
-        "1. Log into MS Online\n"
-        "2. Download these 5 files:\n"
+        "**Option A —** log into MS Online, then ask Claude (Cowork, with "
+        "Chrome access) to \"refresh MS data\" — it navigates Holdings/"
+        "Activity/Realized G&L, downloads all 5 files, and pushes them here "
+        "for you.\n\n"
+        "**Option B (manual) —** log into MS Online, download these 5 files "
+        "to your Downloads folder:\n"
         "   - Holdings\n"
         "   - Activity → Current Year\n"
         "   - Activity → Prior Year\n"
         "   - Realized G/L → Current Year\n"
-        "   - Realized G/L → Prior Year\n"
-        "3. Double-click **run_push.bat** on your Desktop\n"
-        "4. Reload this page",
+        "   - Realized G/L → Prior Year\n\n"
+        "then double-click **run_push.command** in the repo folder (Mac). "
+        "Then reload this page.",
         icon="💡"
     )
     st.divider()
