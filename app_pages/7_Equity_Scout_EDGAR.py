@@ -3,7 +3,7 @@ import requests
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS
+from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS, score_financial_firm_display
 from claude_utils import ask_claude_about_equity
 from ui_utils import force_scroll_to_top
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
@@ -179,23 +179,31 @@ def score_stock(data, weights):
                      "note": "Munger's capital allocation test: management that consistently earns 20%+ ROIC is compounding your wealth. Below 12% means they're destroying value with every reinvestment dollar.",
                      "missing": roic is None})
 
-    max_pts  = weights["Debt / FCF"]
-    debt_fcf = data.get("debt_to_fcf")
-    ic       = data.get("interest_coverage") or 0
-    is_nc    = data.get("is_net_creditor", False)
-    if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS["debt_fcf_safe"]:      pts, verdict = max_pts, "Fortress"
-        elif debt_fcf < THRESHOLDS["debt_fcf_warning"]: pts, verdict = round(max_pts * 0.50), "Manageable"
+    # Debt gate (#32): dual-hurdle, mirroring sec_utils.score_stock_breakdown()
+    # — pass if EITHER Debt/FCF OR Debt/CADS clears the bar, so structural
+    # float-users with thin/negative FCF but healthy operating cash
+    # generation aren't penalized by a naive FCF-based multiple alone.
+    max_pts   = weights["Debt / FCF"]
+    debt_fcf  = data.get("debt_to_fcf")
+    debt_cads = data.get("debt_to_cads")
+    ic        = data.get("interest_coverage") or 0
+    is_nc     = data.get("is_net_creditor", False)
+    candidates    = [d for d in (debt_fcf, debt_cads) if d is not None]
+    debt_multiple = min(candidates) if candidates else None
+    if debt_multiple is not None:
+        if debt_multiple < THRESHOLDS["debt_fcf_safe"]:      pts, verdict = max_pts, "Fortress"
+        elif debt_multiple < THRESHOLDS["debt_fcf_warning"]: pts, verdict = round(max_pts * 0.50), "Manageable"
         elif ic >= THRESHOLDS["interest_coverage_safe"] or is_nc:
                                                          pts, verdict = round(max_pts * 0.50), "High Debt, Well Covered"
         else:                                            pts, verdict = 0, "Overleveraged"
     else:
         pts, verdict = 0, "No Data"
+    debt_label = "Debt / CADS" if (debt_multiple is not None and debt_multiple == debt_cads and debt_fcf != debt_cads) else "Debt / Free Cash Flow"
     criteria.append({"name": "Debt / Free Cash Flow",
-                     "value": f"{debt_fcf:.1f}x" if debt_fcf is not None else "N/A",
+                     "value": f"{debt_multiple:.1f}x ({debt_label})" if debt_multiple is not None else "N/A",
                      "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                     "note": "Munger's inversion: 'What kills a great business?' Excessive debt when capital becomes scarce. A fortress balance sheet means never being a forced seller. Under 3x Debt/FCF = structural survivor.",
-                     "missing": debt_fcf is None})
+                     "note": "Munger's inversion: 'What kills a great business?' Excessive debt when capital becomes scarce. A fortress balance sheet means never being a forced seller. Under 3x Debt/FCF (or Debt/CADS) = structural survivor.",
+                     "missing": debt_multiple is None})
 
     max_pts = weights["Gross Margin"]
     gm      = data.get("gross_margin")
@@ -407,11 +415,19 @@ if analyze and ticker_input:
         st.stop()
 
     # Financial/cyclical firm warnings
-    if data.get("is_financial"):
+    financial_subtype = data.get("financial_subtype")
+    if financial_subtype in ("bank", "insurance"):
+        st.info(
+            f"🏦 **{financial_subtype.title()} detected** (SIC {data.get('sic')}) — "
+            "using the alternative bank/insurer scoring framework (ROE, Equity/Assets, "
+            + ("Efficiency Ratio, Net Interest Margin, Provision/NI" if financial_subtype == "bank" else "Combined Ratio")
+            + ") instead of standard FCF/ROIC/Gross Margin. See punch list #36/#70."
+        )
+    elif data.get("is_financial"):
         st.warning(
             f"⚠️ **Financial firm detected** (SIC {data.get('sic')}) — "
-            "Standard FCF/debt/margin scoring is unreliable for banks, insurers, and asset managers. "
-            "Score shown for reference only. See punch list #36."
+            "Standard FCF/debt/margin scoring is unreliable for brokers, REITs, and other financials. "
+            "Score shown for reference only. See punch list #70."
         )
     if data.get("is_cyclical"):
         st.warning(
@@ -420,7 +436,12 @@ if analyze and ticker_input:
             "Full-cycle analysis recommended. See punch list #37."
         )
 
-    raw_score, rebalanced_score, missing_names, criteria = score_stock(data, weights)
+    if financial_subtype in ("bank", "insurance"):
+        rebalanced_score, criteria = score_financial_firm_display(data, financial_subtype)
+        raw_score     = sum(c["points_earned"] for c in criteria)
+        missing_names = [c["name"] for c in criteria if c.get("missing")]
+    else:
+        raw_score, rebalanced_score, missing_names, criteria = score_stock(data, weights)
     verdict_label, verdict_color = score_to_verdict(rebalanced_score)
 
     st.session_state[_cache_key] = {

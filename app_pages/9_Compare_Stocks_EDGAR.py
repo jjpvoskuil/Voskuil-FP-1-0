@@ -23,7 +23,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown
+from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display
 from claude_utils import ask_claude_about_equity, get_user_profile
 from ui_utils import force_scroll_to_top
 
@@ -283,7 +283,11 @@ scores = {}
 dcf_results = {}
 for i, t in enumerate(active_tickers):
     d = fundamentals[t]
-    score, criteria = score_stock_breakdown(d, weights)
+    subtype = d.get("financial_subtype")
+    if subtype in ("bank", "insurance"):
+        score, criteria = score_financial_firm_display(d, subtype)
+    else:
+        score, criteria = score_stock_breakdown(d, weights)
     scores[t] = (score, criteria)
     label, emoji = score_to_label(score)
     dcf = compute_dcf_value(d, dcf_assumptions)
@@ -307,8 +311,10 @@ for i, t in enumerate(active_tickers):
 
         st.caption(f"**Mkt Cap:** {fmt_val(d.get('market_cap'))}")
         st.caption(f"**Sector:** {d.get('sector', 'N/A')}")
-        if d.get("is_financial"):
-            st.caption("🏦 Financial firm")
+        if d.get("financial_subtype") in ("bank", "insurance"):
+            st.caption(f"🏦 {d['financial_subtype'].title()} — alt scoring (#36/#70)")
+        elif d.get("is_financial"):
+            st.caption("🏦 Financial firm (reference-only score)")
         if d.get("is_cyclical"):
             st.caption("🔄 Cyclical")
 
@@ -318,7 +324,11 @@ st.divider()
 st.markdown("#### Score Breakdown")
 st.caption("Points earned / max per criterion, using your currently committed scoring weights.")
 
-criteria_names = [c["name"] for c in scores[active_tickers[0]][1]]
+criteria_names = []
+for t in active_tickers:
+    for c in scores[t][1]:
+        if c["name"] not in criteria_names:
+            criteria_names.append(c["name"])
 breakdown_rows = []
 for cname in criteria_names:
     row = {"Criterion": cname}

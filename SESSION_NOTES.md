@@ -68,3 +68,63 @@ Files touched: `edgar_concept_map.py`, `sec_utils.py`, `app_pages/8_Market_Scree
 
 Also set up this session: added the "Session-end: update SESSION_NOTES.md" convention to
 `ARCHITECTURE.md`'s Development Workflow section — this file didn't exist before this session.
+
+---
+
+## Session: #32 + #70 — bank/insurer scoring parity across Dashboard, Equity Scout, Compare Stocks
+
+Follow-up to the #36 session above. Owner asked to bring Dashboard, Equity Scout, and Compare
+Stocks up to the same bar as Market Screener on two fronts: #32 (CADS-based dual-hurdle debt
+metric) and #70 (bank/insurer alt scoring). Scoped via two explicit choices up front: **score-only
+update** (keep these 3 pages' continuous 0-100 score UX, do NOT add Market Screener's pass/fail
+funnel checklist to them), and **all three pages in this session**, not one at a time.
+
+**#32 (CADS dual-hurdle):** `sec_utils.score_stock_breakdown()`'s Debt/FCF criterion now takes
+`min(debt_to_fcf, debt_to_cads)` (whichever is available/lower) instead of only looking at
+`debt_to_fcf` — same "pass on either hurdle" philosophy already used by the Market Screener funnel.
+Dashboard and Compare Stocks import this function directly, so they inherited the fix for free.
+Equity Scout has its own local duplicate `score_stock()` (a richer version with per-criterion
+value/verdict/note strings, not just points) — ported the identical fix there by hand.
+
+**#70 (bank/insurer alt scoring, 3 pages):** `fetch_fundamentals_edgar()` (the shared EDGAR fetch
+used by all 3 pages) now surfaces `financial_subtype`, `debt_to_cads`, and the 6 bank/insurer
+derived metrics (`roe`, `equity_to_assets`, `nim_proxy`, `efficiency_ratio`, `provision_to_ni`,
+`combined_ratio`) that were already being computed internally but never returned. Added a new
+`sec_utils.score_financial_firm_display()` — wraps `score_financial_firm_breakdown()` and adds
+`value`/`verdict`/`note` to each criterion (percentages/x-multiples formatted, qualitative labels
+like "Excellent"/"Good"/"Weak"), so all 3 pages get Equity Scout-quality display richness from one
+shared function instead of 3 copies of formatting logic.
+
+Per page:
+- **Equity Scout**: branches to the alt scorer when `financial_subtype` is bank/insurance; the old
+  blanket "Score shown for reference only, see #36" warning is now an info banner that only fires
+  for genuinely un-scored subtypes (brokers/REITs/other_financial) — bank/insurer tickers get a
+  real, tailored score instead of an apology.
+- **Compare Stocks**: branches per-ticker in the scoring loop (so a bank + an industrial can be
+  compared side by side, each scored on its own framework). Fixed a latent bug while in there: the
+  "Score Breakdown" table only pulled criterion names from `active_tickers[0]` — now unions names
+  across *all* compared tickers, so a mixed comparison doesn't silently drop rows just because the
+  first ticker happens to use a different framework.
+- **Dashboard**: "Score All Holdings" branches to the alt scorer for bank/insurance holdings, with
+  a small "🏦 Bank/Insurance scoring" caption under the badge so it's clear which framework produced
+  a given number. Also made `hold_verdict()` (the Hold/Add/Trim "Signal" column) subtype-aware —
+  it was still judging bank/insurer holdings against ROIC/Debt-FCF thresholds, which would have
+  produced a Signal that contradicted a properly-computed alt Score sitting right next to it. Now
+  substitutes ROE for ROIC and Equity/Assets for Debt/FCF, same swap the score itself makes.
+
+**Not in scope, left as-is on purpose:** `other_financial` subtypes (brokers/REITs/monoline
+mortgage insurers) still score under the standard framework on these 3 pages — only Market
+Screener has the skip-checkbox exclusion UX for them, and giving them a proper third framework is
+still #70's still-open remainder (loss ratio/PMIERs-style metrics for monoline insurers, AUM/fee
+metrics for brokers, FFO for REITs).
+
+**Testing:** synthetic tests (`/tmp/test/test_page_parity.py` — not committed, scratch only)
+covering: dual-hurdle takes the better of the two debt multiples, legacy single-metric path
+unaffected, missing-both case still flags as missing, `score_financial_firm_display()` adds
+value/verdict/note correctly for both bank and insurance criteria sets, non-bank/insurance subtype
+still returns `(None, [])`. All passing. No live real-data spot-check this time (no scan running to
+compare against) — worth a quick spot-check on a known bank/insurer holding (e.g. JPM, PGR) next
+session once deployed, same as the #36 real-data pass caught a real calibration bug last time.
+
+Files touched: `sec_utils.py`, `app_pages/0_Dashboard.py`, `app_pages/7_Equity_Scout_EDGAR.py`,
+`app_pages/9_Compare_Stocks_EDGAR.py`, `punch_list_data.json` (#32 and #70 both marked done).

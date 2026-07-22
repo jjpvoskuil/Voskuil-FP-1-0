@@ -1121,9 +1121,20 @@ def fetch_fundamentals_edgar(ticker):
     short_term_debt = latest.get("short_term_debt", 0) or 0
     total_debt   = long_term_debt + short_term_debt
     debt_to_fcf  = latest.get("debt_to_fcf")
+    debt_to_cads = latest.get("debt_to_cads")
     int_coverage = latest.get("int_coverage")
     owner_earn   = latest.get("owner_earnings")
     dna          = latest.get("dna")
+
+    # Bank/insurer alternative-scoring fields (#70) — populated only when
+    # meta["financial_subtype"] is "bank" or "insurance"; None otherwise.
+    financial_subtype = meta.get("financial_subtype")
+    roe             = latest.get("roe")
+    equity_to_assets = latest.get("equity_to_assets")
+    nim_proxy       = latest.get("nim_proxy")
+    efficiency_ratio = latest.get("efficiency_ratio")
+    provision_to_ni = latest.get("provision_to_ni")
+    combined_ratio  = latest.get("combined_ratio")
 
     # 4. Valuation metrics (need price)
     fcf_yield   = (fcf / market_cap) if (fcf and market_cap and market_cap > 0) else None
@@ -1194,8 +1205,18 @@ def fetch_fundamentals_edgar(ticker):
         "short_term_debt":  short_term_debt,
         "total_debt":       total_debt,
         "debt_to_fcf":      debt_to_fcf,
+        "debt_to_cads":     debt_to_cads,
         "interest_coverage": int_coverage,
         "is_net_creditor":  is_net_creditor,
+
+        # Bank/insurer alternative scoring (#70)
+        "financial_subtype": financial_subtype,
+        "roe":              roe,
+        "equity_to_assets": equity_to_assets,
+        "nim_proxy":        nim_proxy,
+        "efficiency_ratio": efficiency_ratio,
+        "provision_to_ni":  provision_to_ni,
+        "combined_ratio":   combined_ratio,
 
         # Owner earnings
         "owner_earnings":   owner_earn,
@@ -1793,6 +1814,64 @@ def score_financial_firm_breakdown(data: dict, subtype: str, weights: dict = Non
     return rebalanced, criteria
 
 
+# Verdict labels per criterion name, keyed by a coarse tier so all three
+# consuming pages (Dashboard, Equity Scout, Compare Stocks) render the same
+# language for the same underlying result (#70). Mirrors the tier logic
+# already embedded inline in score_financial_firm_breakdown()/THRESHOLDS.
+def _financial_firm_verdict(name: str, pts: int, max_pts: int) -> str:
+    if max_pts <= 0:
+        return "No Data"
+    frac = pts / max_pts
+    if frac >= 0.99:  return "Excellent"
+    elif frac >= 0.55: return "Good"
+    elif frac >= 0.20: return "Weak"
+    else:              return "Poor" if pts > 0 else "No Data"
+
+
+def score_financial_firm_display(data: dict, subtype: str, weights: dict = None):
+    """
+    Display-ready wrapper around score_financial_firm_breakdown() (#70) —
+    adds "value" (formatted string) and "verdict" (qualitative label) to
+    each criterion so Equity Scout, Compare Stocks, and Dashboard can render
+    bank/insurer scores with the same value/verdict/note richness as
+    score_stock() on the standard path, without each page re-deriving its
+    own formatting rules.
+
+    Returns (rebalanced_score, criteria) — same shape as
+    score_financial_firm_breakdown(), with "value" and "verdict" keys added
+    to each criterion dict. Returns (None, []) for non-bank/insurance
+    subtypes, same as the underlying function.
+    """
+    rebalanced, criteria = score_financial_firm_breakdown(data, subtype, weights)
+    if not criteria:
+        return rebalanced, criteria
+
+    fmt_pct = lambda v: f"{v:.1%}" if v is not None else "N/A"
+    fmt_x   = lambda v: f"{v:.2f}x" if v is not None else "N/A"
+    value_fields = {
+        "ROE":                 ("roe", fmt_pct),
+        "Equity / Assets":     ("equity_to_assets", fmt_pct),
+        "Efficiency Ratio":    ("efficiency_ratio", fmt_pct),
+        "Net Interest Margin": ("nim_proxy", fmt_pct),
+        "Provision / NI":      ("provision_to_ni", fmt_pct),
+        "Combined Ratio":      ("combined_ratio", fmt_x),
+    }
+    notes = {
+        "ROE":                 "Return on Equity — the standard profitability yardstick for a leveraged balance-sheet business, where ROIC (which treats leverage as a cost) doesn't apply the same way.",
+        "Equity / Assets":     "Capital cushion — substitutes for Debt/FCF, which is meaningless for a bank or insurer since deposits/policy liabilities ARE the raw material of the business, not optional leverage.",
+        "Efficiency Ratio":    "Noninterest expense / revenue — the single most-watched bank cost-control metric. Lower is better.",
+        "Net Interest Margin": "Net interest income / total assets (proxy for NII / average earning assets) — the core spread a bank earns on its balance sheet.",
+        "Provision / NI":      "Loan-loss provision as a share of net income — flags credit-quality deterioration before it shows up elsewhere.",
+        "Combined Ratio":      "Losses + underwriting expense / premiums earned. Under 1.00x = underwriting profit; over 1.00x means the insurer needs investment income from the float to be profitable overall.",
+    }
+    for c in criteria:
+        field, fmt = value_fields.get(c["name"], (None, None))
+        c["value"]  = fmt(data.get(field)) if field else "N/A"
+        c["verdict"] = _financial_firm_verdict(c["name"], c["points_earned"], c["points_max"])
+        c["note"]    = notes.get(c["name"], "")
+    return rebalanced, criteria
+
+
 def evaluate_financial_firm_funnel(facts: dict, subtype: str, thresholds: dict = None) -> dict:
     """
     Pass/fail checklist for bank/insurer tickers (#36) — the alt-framework
@@ -1897,18 +1976,29 @@ def score_stock_breakdown(data: dict, weights: dict):
         pts = 0
     criteria.append({"name": "ROIC", "points_earned": pts, "points_max": max_pts, "missing": roic is None})
 
-    max_pts  = weights["Debt / FCF"]
-    debt_fcf = data.get('debt_to_fcf')
-    ic       = data.get('interest_coverage') or 0
-    is_nc    = data.get('is_net_creditor', False)
-    if debt_fcf is not None:
-        if debt_fcf < THRESHOLDS['debt_fcf_safe']:        pts = max_pts
-        elif debt_fcf < THRESHOLDS['debt_fcf_warning']:   pts = round(max_pts * 0.50)
+    # Debt gate (#32): dual-hurdle, mirroring the Buffett funnel's
+    # philosophy — pass if EITHER Debt/FCF OR Debt/CADS clears the bar,
+    # so structural float-users (insurers, etc.) with thin/negative FCF
+    # but healthy operating cash generation aren't penalized by a
+    # naive FCF-based multiple alone. Debt/CADS uses the same safe/warning
+    # thresholds as Debt/FCF since both are total-debt-to-cash-proxy
+    # multiples calibrated on the same scale. When both are available,
+    # score off whichever multiple is lower (more favorable).
+    max_pts   = weights["Debt / FCF"]
+    debt_fcf  = data.get('debt_to_fcf')
+    debt_cads = data.get('debt_to_cads')
+    ic        = data.get('interest_coverage') or 0
+    is_nc     = data.get('is_net_creditor', False)
+    candidates = [d for d in (debt_fcf, debt_cads) if d is not None]
+    debt_multiple = min(candidates) if candidates else None
+    if debt_multiple is not None:
+        if debt_multiple < THRESHOLDS['debt_fcf_safe']:        pts = max_pts
+        elif debt_multiple < THRESHOLDS['debt_fcf_warning']:   pts = round(max_pts * 0.50)
         elif ic >= THRESHOLDS['interest_coverage_safe'] or is_nc: pts = round(max_pts * 0.50)
-        else:                                              pts = 0
+        else:                                                   pts = 0
     else:
         pts = 0
-    criteria.append({"name": "Debt/FCF", "points_earned": pts, "points_max": max_pts, "missing": debt_fcf is None})
+    criteria.append({"name": "Debt/FCF", "points_earned": pts, "points_max": max_pts, "missing": debt_multiple is None})
 
     max_pts = weights["Gross Margin"]
     gm      = data.get('gross_margin')

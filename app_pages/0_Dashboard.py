@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
 from ui_utils import force_scroll_to_top
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock
+from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
@@ -111,17 +111,38 @@ def score_to_badge(score):
         return "—"
 
 def hold_verdict(data, thresholds):
-    """Returns (verdict, color, icon) based on Buffett hold/add/trim logic."""
+    """Returns (verdict, color, icon) based on Buffett hold/add/trim logic.
+
+    Banks/insurers (#70): ROIC and Debt/FCF are meaningless for a leveraged
+    balance-sheet business (deposits/policy liabilities ARE the raw material,
+    not optional leverage), so the quality leg substitutes ROE for ROIC and
+    Equity/Assets for Debt/FCF -- the same swap score_financial_firm_breakdown()
+    makes for the Score column, so Signal and Score don't contradict each other.
+    """
     if data is None:
         return "—", "#888888", ""
-    roic      = data.get("roic")
-    debt_fcf  = data.get("debt_to_fcf")
     poe       = data.get("price_owner_earn")
     fcf_yield = data.get("fcf_yield")
-    quality_ok = (
-        (roic     is None or roic     >= thresholds["min_roic"]) and
-        (debt_fcf is None or debt_fcf <= thresholds["max_debt_fcf"])
-    )
+    subtype   = data.get("financial_subtype")
+    if subtype in ("bank", "insurance"):
+        roe = data.get("roe")
+        eqa = data.get("equity_to_assets")
+        eqa_good = (FINANCIAL_THRESHOLDS["equity_assets_good_insurance"] if subtype == "insurance"
+                    else FINANCIAL_THRESHOLDS["equity_assets_good"])
+        quality_ok = (
+            (roe is None or roe >= FINANCIAL_THRESHOLDS["roe_good"]) and
+            (eqa is None or eqa >= eqa_good)
+        )
+    else:
+        roic      = data.get("roic")
+        debt_fcf  = data.get("debt_to_fcf")
+        debt_cads = data.get("debt_to_cads")
+        debt_candidates = [d for d in (debt_fcf, debt_cads) if d is not None]
+        debt_multiple   = min(debt_candidates) if debt_candidates else None
+        quality_ok = (
+            (roic         is None or roic         >= thresholds["min_roic"]) and
+            (debt_multiple is None or debt_multiple <= thresholds["max_debt_fcf"])
+        )
     value_ok = (
         (poe       is None or poe       <= thresholds["max_poe"]) and
         (fcf_yield is None or fcf_yield >= thresholds["min_fcf_yield"])
@@ -521,7 +542,10 @@ if df_holdings_raw is not None:
             status_text.markdown(f"⏳ Scoring **{symbol}** — {i+1} of {n_symbols}")
             data = fetch_score_data(symbol)
             if data is not None:
-                scores[symbol]          = score_stock(data, active_weights)
+                if data.get("financial_subtype") in ("bank", "insurance"):
+                    scores[symbol], _ = score_financial_firm_breakdown(data, data["financial_subtype"])
+                else:
+                    scores[symbol]      = score_stock(data, active_weights)
                 sources[symbol]         = data.get("source", "edgar")
                 raw_data_cache[symbol]  = data
             else:
@@ -621,6 +645,9 @@ if df_holdings_raw is not None:
             if badge != "—":
                 color = "#2ecc71" if badge.startswith("🟢") else "#f39c12" if badge.startswith("🟡") else "#e67e22" if badge.startswith("🟠") else "#e74c3c"
                 st.markdown(f"<span style='font-weight:bold; color:{color}'>{badge}</span>", unsafe_allow_html=True)
+                _row_data = st.session_state.holding_raw_data.get(row['Symbol'])
+                if _row_data and _row_data.get("financial_subtype") in ("bank", "insurance"):
+                    st.caption(f"🏦 {_row_data['financial_subtype'].title()} scoring")
             else:
                 st.caption("—")
         with c7:
