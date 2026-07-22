@@ -1,14 +1,12 @@
 """
 ui_utils.py — small, reusable Streamlit UI workarounds.
 
-Scroll behavior (#76): two distinct helpers for two distinct situations,
-which used to be conflated into a single force_scroll_to_top() called
-unconditionally at the end of every page. That meant literally any
-interaction on a page -- a chat message, a sort click, a slider drag --
-re-forced the viewport back to the absolute page top, fighting the user's
-own scrolling and, on slower-rendering pages, sometimes losing a timing
-race against Streamlit's native "scroll chat_input into view" behavior and
-landing at the bottom instead. Replaced with:
+Scroll behavior (#76 / #75 follow-up): two distinct helpers for two
+distinct situations, which used to be conflated into a single
+force_scroll_to_top() called unconditionally at the end of every page.
+That meant literally any interaction on a page -- a chat message, a sort
+click, a slider drag -- re-forced the viewport back to the absolute page
+top, fighting the user's own scrolling. Replaced with:
 
   - force_scroll_to_top(): now called centrally from app.py, only when the
     user has actually just navigated to a different page (not on every
@@ -20,9 +18,36 @@ landing at the bottom instead. Replaced with:
     the page top, and doesn't fire again on unrelated reruns (e.g.
     interacting with a chat box further down), so the user stays free to
     scroll wherever they want after that.
+
+Real scroll container (found by inspecting the live app's DOM via Claude
+in Chrome, since our first pass at this -- a plain window.scrollTo(0,0) --
+turned out to silently do nothing): Streamlit renders the whole app inside
+a same-origin iframe, and on any page that includes st.chat_input, wraps
+the main content in a special section with
+data-testid="stAppScrollToBottomContainer" that has its OWN overflow-y:
+auto (the document/window itself doesn't scroll at all in this layout).
+That container is a chat-app-style "stick to bottom" widget -- Streamlit's
+own frontend forces it to auto-scroll to the bottom on mount and
+re-asserts that any time content resizes while it thinks the user is "at
+bottom", via an internal polling loop that keeps running for a second or
+two after the page settles. A single corrective scrollTop=0 fired once
+loses that race. Pages without st.chat_input get a plain
+data-testid="stMain" section instead, with no such behavior -- included
+below as a fallback selector so this keeps working if a page's chat_input
+is ever removed.
 """
 
 import streamlit.components.v1 as components
+
+# Shared JS: locate the real scrolling container inside the app's own
+# window (one level up from the iframe this script itself runs in).
+_GET_SCROLL_CONTAINER_JS = """
+function _getScrollContainer() {
+    var doc = window.parent.document;
+    return doc.querySelector('[data-testid="stAppScrollToBottomContainer"]')
+        || doc.querySelector('[data-testid="stMain"]');
+}
+"""
 
 
 def force_scroll_to_top():
@@ -34,14 +59,27 @@ def force_scroll_to_top():
     would fight the user's own scrolling on every later interaction.
 
     Mechanism: st.components.v1.html() renders in a same-origin iframe, so
-    a tiny script inside it can reach into window.parent (the actual
-    browser tab) and reset scroll position after Streamlit's own scroll
-    behavior (e.g. auto-revealing a bottom-pinned st.chat_input) has
-    already fired. height=0 keeps it invisible and out of the page's
-    layout.
+    a tiny script inside it can reach window.parent.document and reset
+    scroll position on the real scrolling container (see module docstring
+    -- it's a specific inner <section>, not the window/document itself).
+    Streamlit's own "scroll chat_input into view on mount" behavior keeps
+    re-asserting itself for a second or two via its own polling loop, so
+    this re-applies scrollTop=0 on an interval for a few seconds rather
+    than firing once, then stops -- after that the user is free to scroll
+    wherever they want. height=0 keeps the iframe invisible and out of
+    the page's layout.
     """
     components.html(
-        "<script>window.parent.scrollTo(0, 0);</script>",
+        f"""<script>
+        {_GET_SCROLL_CONTAINER_JS}
+        window.parent.scrollTo(0, 0);
+        var _start = Date.now();
+        var _iv = setInterval(function() {{
+            var c = _getScrollContainer();
+            if (c && c.scrollTop !== 0) {{ c.scrollTop = 0; }}
+            if (Date.now() - _start > 3000) {{ clearInterval(_iv); }}
+        }}, 50);
+        </script>""",
         height=0,
     )
 
@@ -62,11 +100,21 @@ def scroll_to_element(anchor_id: str):
     that happens to redisplay cached results, or every interaction with
     this scrolls the user back to the same spot regardless of what
     they're doing elsewhere on the page.
+
+    Same re-assertion approach as force_scroll_to_top(): scrollIntoView()
+    correctly walks up to the real scrolling container on its own, but a
+    single call can still lose the race against Streamlit's own
+    scroll-to-bottom-on-mount behavior on chat_input pages, so this
+    repeats the call for a couple seconds before giving up control.
     """
     components.html(
         f"""<script>
-        var el = window.parent.document.getElementById("{anchor_id}");
-        if (el) {{ el.scrollIntoView({{behavior: "smooth", block: "start"}}); }}
+        var _start = Date.now();
+        var _iv = setInterval(function() {{
+            var el = window.parent.document.getElementById("{anchor_id}");
+            if (el) {{ el.scrollIntoView({{behavior: "smooth", block: "start"}}); }}
+            if (Date.now() - _start > 2000) {{ clearInterval(_iv); }}
+        }}, 200);
         </script>""",
         height=0,
     )

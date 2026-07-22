@@ -474,3 +474,41 @@ Verified: py_compile clean; AppTest confirms the page loads without exception an
 buttons render.
 
 Files touched: `app_pages/8_Market_Screener_EDGAR.py`, `punch_list_data.json` (#75 note updated).
+
+---
+
+## Session (cont'd): #75 real bug found — force_scroll_to_top() was targeting the wrong DOM node
+
+Owner reported Market Screener EDGAR still opening at the top and then auto-scrolling to the
+BOTTOM a second or two later, on every open — meaning the earlier fix hadn't actually fixed the
+underlying problem in production, despite clean py_compile and AppTest runs (those can't catch
+this class of bug — it's real-browser DOM behavior, invisible to a headless Python test).
+
+Investigated live via Claude in Chrome against the deployed app instead of theorizing further.
+Found via direct DOM inspection + reading Streamlit's own minified frontend bundle:
+`window.scrollTo(0, 0)` was scrolling the *outer document*, which has zero scroll range in this
+Streamlit layout (the whole app renders inside a same-origin iframe, and body/documentElement
+scrollHeight always equals the viewport height — there's nothing to scroll there). The actual
+scrolling container is a specific inner `<section data-testid="stAppScrollToBottomContainer">`
+with its own `overflow-y: auto`. That data-testid name is not a coincidence — it's Streamlit's
+own built-in chat-style "stick to bottom" widget, automatically wrapped around the main content
+on any page containing `st.chat_input` (which is all four live pages with an "Ask Claude"
+section: Dashboard, Equity Scout, Market Screener, Compare Stocks). It force-scrolls to bottom
+on mount and re-asserts that via an internal ~17ms polling loop for a second or two while content
+settles — exactly the delay the owner described. Pages without `chat_input` get a plain
+`data-testid="stMain"` section with none of this behavior.
+
+Fix: rewrote `force_scroll_to_top()` and `scroll_to_element()` in `ui_utils.py` to target
+`[data-testid="stAppScrollToBottomContainer"]` directly (falling back to `[data-testid="stMain"]`
+for chat_input-less pages) instead of `window.scrollTo`, and to keep re-asserting scroll position
+on an interval for 2-3 seconds after firing instead of a single one-shot call — long enough to
+outlast Streamlit's own settle window, after which the user is free to scroll normally.
+
+**Pattern worth remembering:** py_compile and AppTest both passed cleanly on the original
+"fix" — neither can catch a bug like this, since it's about which real DOM element a piece of
+injected JS happens to hit in an actual browser, not anything expressible in Python/Streamlit's
+own component tree. When a user reports a *visual/behavioral* bug that passed all our usual
+checks, the fastest path to ground truth is looking at the live app directly (Claude in Chrome +
+reading the actual frontend bundle) rather than iterating on more Python-side guesses.
+
+Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again).
