@@ -554,3 +554,25 @@ re-scrolling has nothing left to win against once our hold is active.
 
 Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). Deploying and
 re-verifying live next.
+
+---
+
+## Session (cont'd): #75 — fixed hold also proved insufficient, now holds indefinitely
+
+A longer live soak test (Claude in Chrome, polling every 1s) told a clearer story: scrollTop
+correctly stayed at 0 continuously from load through 40+ seconds of polling — well past the
+12-second hold — then drifted back to the bottom sometime shortly after polling stopped, with
+scrollHeight already constant the whole time (no content growth to explain it). Streamlit's
+native re-snap-to-bottom appears tied to some internal event (focus, a delayed resize, or
+similar) firing at an unpredictable time, not a fixed content-settle window — so picking a longer
+fixed number would just delay the same failure, not fix it.
+
+Removed the fixed hold entirely. `force_scroll_to_top()` and `scroll_to_element()` now correct
+the scroll position indefinitely, bounded only by a 5-minute safety-net cap not meant to be
+reached in practice, backing off immediately and only when the user actually
+scrolls/touches/drags the container. This is safe to run indefinitely because each
+`components.html()` iframe (and its correction interval) gets destroyed on Streamlit's next
+rerun anyway — it only ever lives as long as the current page render does.
+
+Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). Deploying and
+soak-testing live next.

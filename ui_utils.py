@@ -39,11 +39,20 @@ A content-height-stabilization heuristic (stop once scrollHeight hasn't
 changed for ~1s) was tried first and wasn't reliable -- some pages have a
 brief pause between loading phases that looks like "settled" but isn't,
 letting Streamlit's native behavior win once real growth resumes after
-our loop had already given up. Simpler and more robust: hold the scroll
-position unconditionally for a fixed window (comfortably longer than any
-page's real render time), but cancel immediately the moment the user
-manually scrolls/touches/clicks-and-drags the container, so a deliberate
-scroll during that window is never fought.
+our loop had already given up. A fixed hold window (e.g. 12s) wasn't
+reliable either -- live testing against the deployed app showed
+Streamlit's own re-snap-to-bottom firing anywhere from a few seconds up
+to 30+ seconds after load, seemingly tied to some internal event (focus,
+a delayed resize, etc.) rather than a fixed content-settle time. Rather
+than keep guessing at a number, this just holds the position
+indefinitely: keep forcing scrollTop=0 on every tick, with NO fixed
+expiry, and rely entirely on cancelling the instant the user manually
+scrolls/touches/drags the container. This is safe because the injected
+iframe (and its interval) is destroyed on Streamlit's next rerun anyway
+(components.html() re-creates it fresh each script run), so there's no
+risk of it running forever in the background -- it only lives as long as
+the current render of the page does, and backs off immediately the
+moment the user actually wants to scroll.
 """
 
 import streamlit.components.v1 as components
@@ -58,10 +67,11 @@ function _getScrollContainer() {
 }
 """
 
-# How long to keep re-asserting the scroll position after navigation /
-# an action, in milliseconds. Comfortably longer than any page's slowest
-# observed render time (Dashboard's holdings scoring included).
-_HOLD_MS = 12000
+# Safety-net cap on how long the corrective interval can run, in case a
+# user session sits on a freshly-navigated page for a very long time
+# without ever touching it. Not meant to be reached in normal use -- the
+# real stop condition is the user manually scrolling (see _cancel below).
+_SAFETY_CAP_MS = 5 * 60 * 1000
 
 
 def force_scroll_to_top():
@@ -100,7 +110,7 @@ def force_scroll_to_top():
             var c = _getScrollContainer();
             if (c && c.scrollTop !== 0) {{ c.scrollTop = 0; }}
         }}, 100);
-        setTimeout(function() {{ clearInterval(_iv); }}, {_HOLD_MS});
+        setTimeout(function() {{ clearInterval(_iv); }}, {_SAFETY_CAP_MS});
         </script>""",
         height=0,
     )
@@ -144,7 +154,7 @@ def scroll_to_element(anchor_id: str):
             var el = window.parent.document.getElementById("{anchor_id}");
             if (el) {{ el.scrollIntoView({{behavior: "smooth", block: "start"}}); }}
         }}, 150);
-        setTimeout(function() {{ clearInterval(_iv); }}, {_HOLD_MS});
+        setTimeout(function() {{ clearInterval(_iv); }}, {_SAFETY_CAP_MS});
         </script>""",
         height=0,
     )
