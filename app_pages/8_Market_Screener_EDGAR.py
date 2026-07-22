@@ -1586,6 +1586,16 @@ if run_screen:
 _snap = _scan_snapshot()
 _just_ingested = False
 if _snap["active"]:
+    # Remember that THIS session actually watched a scan in progress --
+    # used below to decide whether ingesting its results should also
+    # scroll to them. The background scan state is shared across every
+    # session/tab; without this, simply opening the page fresh and
+    # discovering an already-finished scan from earlier (that this
+    # session never watched run) would look identical to "I was just
+    # watching this and it finished" and wrongly trigger a scroll on a
+    # plain navigation -- exactly the disruptive behavior #75 set out to
+    # fix in the first place.
+    st.session_state['ms_edgar_watched_active_scan'] = True
     st.markdown("### Stage 1 — Checklist Scan (running in background)")
     _render_scan_progress_fragment()
 
@@ -1593,7 +1603,11 @@ if _snap["active"]:
 elif _snap["finished_at"] and st.session_state.get('ms_edgar_ingested_finish_ts') != _snap["finished_at"]:
     st.session_state['ms_edgar_ingested_finish_ts'] = _snap["finished_at"]
     _just_ingested = True
-    _scroll_to_ms_results = True
+    # Only scroll to results if this session actually watched the scan
+    # run (see comment above) -- not on a fresh page load that happens
+    # to discover a scan someone else (or an earlier visit) finished.
+    if st.session_state.pop('ms_edgar_watched_active_scan', False):
+        _scroll_to_ms_results = True
 
     if _snap.get("error"):
         st.error(f"Scan failed: {_snap['error']}")

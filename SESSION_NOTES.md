@@ -576,3 +576,40 @@ rerun anyway — it only ever lives as long as the current page render does.
 
 Files touched: `ui_utils.py`, `punch_list_data.json` (#75 note updated again). Deploying and
 soak-testing live next.
+
+---
+
+## Session (cont'd): #75 — second real bug found on Market Screener: stale-scan scroll trigger
+
+With the DOM-container scroll fix deployed and confirmed via a 33+ second soak test (Dashboard
+correctly stayed pinned to the top the whole time, no interaction needed to hold it there),
+re-checked Market Screener specifically — the page originally reported — and found it landing
+mid-page on the "15 Checklist Survivors" results heading instead of the true top, on a plain
+sidebar-click navigation with zero button clicks.
+
+Root cause: Market Screener's background scan state is shared globally across every
+session/tab (it's a module-level dict + lock, not per-user session_state), so `_just_ingested`
+(added in the earlier #75 follow-up specifically to trigger `scroll_to_element` when a scan
+completes) was true not only when a session actually watches a scan run to completion, but also
+the very first time *any* fresh session opens the page and discovers an already-finished scan
+from earlier — a different visit, a different tab, even leftover from this session's own
+testing — that it hasn't "seen" yet. That's indistinguishable from "I was just watching this
+finish" under the original logic, so it fired the results-scroll on a plain page open — the
+exact disruptive behavior #75 was trying to eliminate in the first place, just via a different
+code path than the DOM-container bug.
+
+Fixed by tracking `st.session_state['ms_edgar_watched_active_scan']`, set `True` only while THIS
+session actually observes `_snap['active'] == True`, and consumed (popped) when deciding whether
+to scroll on ingestion — so scroll-to-results now only fires for a session that genuinely watched
+the scan run, not one that just walked in on a stale finished result from elsewhere.
+
+**Pattern worth remembering (second time this session):** the reported symptom ("opens at top,
+scrolls to bottom after a second or two") had two independent causes layered on top of each
+other — the DOM scroll-container bug (fixed first, confirmed via live soak test) and this
+stale-shared-state bug (only visible once the first was fixed and Market Screener was re-checked
+specifically). Fixing the first symptom-shaped bug isn't the same as fixing the report; worth
+re-testing the exact page/scenario the user named after each fix, not just declaring victory once
+*a* plausible cause is addressed.
+
+Files touched: `app_pages/8_Market_Screener_EDGAR.py`, `punch_list_data.json` (#75 note updated
+again). Deploying and verifying live next.
