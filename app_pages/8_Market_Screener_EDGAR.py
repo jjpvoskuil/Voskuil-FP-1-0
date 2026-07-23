@@ -58,26 +58,36 @@ def _facts_cache_shard_path(ticker: str) -> str:
     return f"edgar_facts_cache/shard_{shard:02d}.json"
 
 
-def _load_facts_cache_shards(tickers: list) -> dict:
+def _load_facts_cache_shards(tickers: list) -> tuple:
     """
     Loads every shard file touched by this ticker list, once, up front
     (called from the main thread before the background scan starts --
     same "load once, hand it to the workers" pattern as
-    get_ticker_cik_map()). Returns {TICKER: {"fetched_at": iso_str,
-    "facts": {...}}}. Missing/unreadable shards are treated as empty
-    (a cold cache, not an error) -- worst case is that scan just fetches
-    everything fresh, same as before this feature existed.
+    get_ticker_cik_map()). Returns (cache, errors):
+      cache  -- {TICKER: {"fetched_at": iso_str, "facts": {...}}}
+      errors -- list of "{path}: {message}" strings for any shard that
+                came back with a real error (as opposed to a clean 404,
+                which just means that shard hasn't been written yet --
+                a cold cache, not a problem).
+
+    First version of this discarded github_get_json()'s own error
+    message entirely (read into a throwaway `_err` and never looked
+    at) -- same class of bug as the original _save_facts_cache_updates()
+    silently swallowing write failures. Surfacing read errors here too
+    so a load-side problem shows up in the UI instead of just quietly
+    looking like "cold cache, fetch everything fresh" with no
+    indication anything was wrong.
     """
     shard_paths = sorted({_facts_cache_shard_path(t) for t in tickers})
     cache = {}
+    errors = []
     for path in shard_paths:
-        try:
-            data, _sha, _err = github_get_json(path)
-        except Exception:
-            data = None
+        data, _sha, err = github_get_json(path)
+        if err:
+            errors.append(f"{path}: {err}")
         if data:
             cache.update(data)
-    return cache
+    return cache, errors
 
 
 def _facts_cache_entry_fresh(entry: dict) -> bool:
@@ -1838,7 +1848,15 @@ if run_screen:
             facts_cache = {}
         else:
             with st.spinner("Loading cached EDGAR history..."):
-                facts_cache = _load_facts_cache_shards(tickers_to_scan)
+                facts_cache, _load_errors = _load_facts_cache_shards(tickers_to_scan)
+            st.caption(f"📦 Loaded {len(facts_cache):,} cached ticker(s) from GitHub before starting.")
+            if _load_errors:
+                st.warning(
+                    f"⚠️ {len(_load_errors)} cache shard(s) failed to load (scan will just fetch "
+                    f"those tickers fresh from EDGAR instead, same as a cold cache):\n\n"
+                    + "\n".join(f"- {e}" for e in _load_errors[:10])
+                    + (f"\n- … +{len(_load_errors)-10} more" if len(_load_errors) > 10 else "")
+                )
 
         _start_stage1_scan_background(
             tickers_to_scan, ticker_cik_map, funnel_thresholds,
