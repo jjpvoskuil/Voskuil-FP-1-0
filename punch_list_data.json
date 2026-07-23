@@ -597,10 +597,10 @@
     {
       "id": 68,
       "title": "Tag-to-Watchlist + dedicated Watchlist page",
-      "note": "Add a tag/star control on Market Screener result cards (main funnel survivors AND Emerging Candidates from #67) to add a ticker to a persistent Watchlist. Watchlist should live on its own page (not just session state) so tagged names persist across sessions/reboots \u2014 likely GitHub-backed via github_store.py, same pattern as the punch list and scan cache. This also satisfies/extends the existing open item #1 (\"Watchlist \u2014 save top screener candidates\") and #14 (\"Watchlist persistence across sessions\") \u2014 consider consolidating those into this item once scoped.",
+      "note": "SHIPPED (July 2026). Expanded scope during implementation, per owner: not just Market Screener -- a \u2b50 Watchlist add-only checkbox now lives on Dashboard (holdings), Equity Scout, Market Screener (main funnel results), and Compare Stocks. Removal only happens on the new dedicated Watchlist page (app_pages/10_Watchlist.py), deliberately, so an accidental uncheck on a scan page can't wipe a tracked position's history. Persisted via GitHub (watchlist_data.json, same github_store.py pattern as the punch list/scan cache). Extended well past the original ask: any watchlisted ticker can be tagged into a paper 'Watch Portfolio' with hypothetical Buy/Sell $ transactions (average-cost basis), and its performance over any date range is compared against the real Dashboard holdings using the same money-weighted XIRR methodology for both baskets (watchlist_utils.py). Holdings-side reconstruction is best-effort -- MS only exports current + prior year transaction activity, so date ranges older than that fall back to assuming today's share counts, flagged explicitly in the UI, not hidden. Math cross-checked against an independent scipy solver before shipping. Not yet wired to the Emerging Candidates section (#67 isn't built yet) -- add that hook when #67 ships. Formally consolidates/supersedes #1 and #14 (both already marked done, kept as-is).",
       "phase": "Equity Scoring",
       "priority": "High",
-      "done": false,
+      "done": true,
       "created": "2026-07-20"
     },
     {

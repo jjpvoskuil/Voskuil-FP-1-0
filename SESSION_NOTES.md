@@ -11,6 +11,51 @@ decisions that still matter. Newest entries at the top.
 
 ---
 
+## 2026-07-22 — Watchlist + paper Watch Portfolio (#68, scope expanded)
+
+Punch list #68 started as "add a tag/star control on Market Screener, dedicated Watchlist page."
+Scoped up live with the owner into something bigger: a ⭐ Watchlist checkbox on **all four**
+scoring pages (Dashboard holdings, Equity Scout, Market Screener, Compare Stocks), a new
+`app_pages/10_Watchlist.py` page, and a paper "Watch Portfolio" — hypothetical Buy/Sell $
+transactions against any watchlisted ticker, with performance compared against the real Dashboard
+holdings over any date range.
+
+**Key design decision, direct from the owner:** the checkboxes on the four source pages are
+**add-only**. Unchecking one does nothing — removing a ticker (and its transaction history) only
+happens on the Watchlist page itself, with a confirm step if it has money allocated. This was a
+deliberate call to avoid an accidental uncheck on a scan page silently wiping a tracked position.
+
+**New module `watchlist_utils.py`** — GitHub-backed persistence (`watchlist_data.json`, same
+SHA-checked `github_store.py` pattern as the punch list/scan cache), average-cost-basis position
+tracking, and the return-calc engine: an XIRR (money-weighted, annualized) solver written from
+scratch (Newton's method + bisection fallback, no scipy dependency needed at runtime) plus a
+simpler Dietz-style total-return figure as a sanity-check companion number. **Same
+`period_return()` function is used for both the watch portfolio and the reconstructed real-holdings
+basket** — that was the point of the "compare returns" ask: one methodology, two baskets, not two
+different calculations that happen to both produce percentages.
+
+**Holdings-side reconstruction is best-effort, and says so in the UI.** MS only exports current +
+prior year transaction activity (`ms_transactions_ytd.csv` / `_prior.csv`), so reconstructing share
+counts at an arbitrary past date walks backward from today's known holdings using that log — a
+date range older than the available log falls back to assuming today's share counts were held the
+whole time, which is flagged explicitly in the comparison panel, not hidden.
+
+**Validation before trusting the math** (per the standing convention — this is financial-calculation
+code): wrote synthetic test cases for the XIRR solver, position summary (average-cost buy/sell/
+realized-gain math), and `period_return()`, cross-checked independently against `scipy.optimize.
+brentq` on the same cashflows — all matched to 1e-6. Also ran the new Watchlist page end-to-end
+through `streamlit.testing.v1.AppTest` with a seeded watchlist and mocked pricing (no live network
+needed for the test) — renders cleanly empty, renders cleanly populated, and a hand-checked
+example (buy 5 AAPL shares for $900, later worth $1,000) came back with exactly the expected 11.1%
+simple return / ~112.6% annualized XIRR for that short a holding period.
+
+**Not done yet:** no hook into the "Emerging Candidates" section on Market Screener, because #67
+(which creates that section) hasn't shipped yet — add the Watchlist checkbox there when it does.
+Punch list #1 and #14 (both already marked done) are noted in #68 as formally superseded/
+consolidated by this, left as-is rather than reopened.
+
+---
+
 ## 2026-07-20/21 — Bank/insurer alternative scoring (#36)
 
 Punch list #36 asked for a way to score banks/insurers instead of hard-excluding them from

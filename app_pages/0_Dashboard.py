@@ -12,6 +12,7 @@ from ui_utils import scroll_to_element
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
 from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS
 from github_store import github_get_json, github_put_json
+from watchlist_utils import add_to_watchlist, is_watchlisted
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
@@ -730,7 +731,7 @@ if df_holdings_raw is not None:
                     st.session_state.holdings_sort_asc = cfg["default_asc"]
 
     # ── Column Headers ─────────────────────────────────────────────────
-    h1, h2, h3, h4, h5, h6, h7, h8, h9 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8])
+    h1, h2, h3, h4, h5, h6, h7, h8, h9, h10 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8, 0.9])
     _sort_header(h1, "Symbol")
     _sort_header(h2, "Name")
     _sort_header(h3, "Type")
@@ -740,6 +741,7 @@ if df_holdings_raw is not None:
     _sort_header(h7, "Signal")
     _sort_header(h8, "SI")
     with h9: st.markdown("**Analysis**")
+    with h10: st.markdown("**Watch**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     # ── Apply sort (after header buttons, so a click this run is reflected
@@ -751,7 +753,7 @@ if df_holdings_raw is not None:
 
     # ── Rows ───────────────────────────────────────────────────────────
     for _, row in display_df.iterrows():
-        c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8])
+        c1, c2, c3, c4, c5, c6, c7, c8, c9, c10 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8, 0.9])
         with c1:
             st.markdown(f"**{row['Symbol']}**")
         with c2:
@@ -804,6 +806,21 @@ if df_holdings_raw is not None:
             if st.button("🔍 Deep Dive", key=f"dive_{row['Symbol']}", use_container_width=True, type="primary"):
                 st.session_state["dive_ticker"] = row['Symbol']
                 st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")
+        with c10:
+            # Add-only control (#68) -- removal only happens on the
+            # Watchlist page itself, deliberately, so an accidental
+            # uncheck here can't silently wipe a tracked position's
+            # buy/sell history. Checking it writes once (idempotent);
+            # unchecking here does nothing.
+            _already_watched = is_watchlisted(row['Symbol'])
+            _watch_checked = st.checkbox(
+                "⭐", value=_already_watched, key=f"dash_watch_{row['Symbol']}",
+                disabled=_already_watched,
+                help="On Watchlist" if _already_watched else "Add to Watchlist",
+            )
+            if _watch_checked and not _already_watched:
+                add_to_watchlist(row['Symbol'], name=row.get('Name', row['Symbol']), source="Dashboard")
+                st.rerun()
 
     st.caption("Foreign ADRs and companies without SEC EDGAR filings will show as unscored — see the summary message above for a count.")
     if run_scoring:

@@ -7,6 +7,7 @@ from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_v
 from claude_utils import ask_claude_about_equity
 from ui_utils import scroll_to_element
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
+from watchlist_utils import add_to_watchlist, is_watchlisted
 
 POLY_URL = "https://api.polygon.io"
 
@@ -521,11 +522,23 @@ if _cache_key and _cache_key in st.session_state:
     yahoo_link = f"https://finance.yahoo.com/quote/{ticker_input}"
     edgar_link = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json" if cik else None
 
-    rl1, rl2, rl3, rl4 = st.columns([1, 1, 1, 5])
+    rl1, rl2, rl3, rl4, rl5 = st.columns([1, 1, 1, 3.5, 1.3])
     with rl1: st.link_button("📋 SEC Filings", sec_link)
     with rl2: st.link_button("📈 Yahoo Finance", yahoo_link)
     if edgar_link:
         with rl3: st.link_button("🏛️ EDGAR Facts", edgar_link)
+    with rl5:
+        # Add-only control (#68) -- removal only happens on the Watchlist
+        # page itself. See Dashboard's matching control for the rationale.
+        _already_watched = is_watchlisted(ticker_input)
+        _watch_checked = st.checkbox(
+            "⭐ Watchlist", value=_already_watched, key=f"scout_watch_{ticker_input}",
+            disabled=_already_watched,
+            help="On Watchlist" if _already_watched else "Add to Watchlist",
+        )
+        if _watch_checked and not _already_watched:
+            add_to_watchlist(ticker_input, name=data.get('name', ticker_input), source="Equity Scout")
+            st.rerun()
 
     # Data source badge
     missing_concepts = data.get("missing_concepts", [])

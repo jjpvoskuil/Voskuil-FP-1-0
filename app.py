@@ -36,6 +36,7 @@ pg = st.navigation([
     st.Page("app_pages/7_Equity_Scout_EDGAR.py",  title="Equity Scout",         icon="🔍"),
     st.Page("app_pages/8_Market_Screener_EDGAR.py", title="Market Screener",    icon="📡"),
     st.Page("app_pages/9_Compare_Stocks_EDGAR.py",  title="Compare Stocks",     icon="⚖️"),
+    st.Page("app_pages/10_Watchlist.py",          title="Watchlist",           icon="⭐"),
     st.Page("app_pages/3_Financial_Modeler.py",   title="Financial Modeler",    icon="🏔️"),
     st.Page("app_pages/4_MS_Financial_Modeler.py",title="MS Financial Modeler", icon="🏦"),
     st.Page("app_pages/5_Downloads.py",           title="Downloads",            icon="⬇️"),

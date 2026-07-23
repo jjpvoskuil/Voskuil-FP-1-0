@@ -17,6 +17,7 @@ from sec_utils import (
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
+from watchlist_utils import add_to_watchlist, is_watchlisted
 from ui_utils import scroll_to_element
 import concurrent.futures
 
@@ -2143,6 +2144,22 @@ if 'ms_edgar_results_df' in st.session_state:
                 elif not checked and ticker in _selected:
                     _selected.remove(ticker)
                     st.session_state['ms_selected_tickers'] = _selected
+
+                # Add-only Watchlist control (#68) -- separate from the
+                # "Select" checkbox above (that one drives Compare, this
+                # one drives the Watchlist page). Removal only happens on
+                # the Watchlist page itself.
+                _already_watched = is_watchlisted(ticker)
+                _watch_checked = st.checkbox(
+                    "⭐ Watch",
+                    value=_already_watched,
+                    key=f"ms_watch_{ticker}_{rank}",
+                    disabled=_already_watched,
+                    help="On Watchlist" if _already_watched else f"Add {ticker} to Watchlist",
+                )
+                if _watch_checked and not _already_watched:
+                    add_to_watchlist(ticker, name=row.get('name', ticker), source="Market Screener")
+                    st.rerun()
 
             div = row.get('dividend_yield')
             if div is not None and not (isinstance(div, float) and pd.isna(div)) and div > 0:

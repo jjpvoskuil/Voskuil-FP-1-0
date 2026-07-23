@@ -3,7 +3,7 @@
 *Living document. The repo copy is the source of truth — if this and Claude's Project Knowledge
 ever disagree, trust this file. See "Keeping This Current" at the bottom.*
 
-*Last updated: July 6, 2026*
+*Last updated: July 22, 2026*
 
 ---
 
@@ -56,6 +56,7 @@ mixed, icon-less, stale-page sidebar bug we hit and fixed in July 2026.
 | 🔍 Equity Scout | `7_Equity_Scout_EDGAR.py` | Single-ticker deep dive — full scoring, DCF, historical trends, 10-K-aware Claude agent |
 | 📡 Market Screener | `8_Market_Screener_EDGAR.py` | Broad-universe scan (S&P 500 or ~7,000 US common stocks), persistent scan cache, quant-only Claude agent |
 | ⚖️ Compare Stocks | `9_Compare_Stocks_EDGAR.py` | Side-by-side comparison (2-5 tickers), score breakdown, combined trend charts, 10-K-aware Claude agent |
+| ⭐ Watchlist | `10_Watchlist.py` | Cross-page ⭐-tagged tickers (add-only from the other four pages, removal only here); tag into a paper "Watch Portfolio" with hypothetical Buy/Sell $ transactions, compare its date-range performance against real Dashboard holdings using the same XIRR methodology for both (#68) |
 | 🏔️ Financial Modeler | `3_Financial_Modeler.py` | Retirement/cash-flow modeling |
 | 🏦 MS Financial Modeler | `4_MS_Financial_Modeler.py` | MS-holdings-specific modeling |
 | ⬇️ Downloads | `5_Downloads.py` | Data export |
@@ -142,6 +143,7 @@ Two things need to survive that, so both are backed by GitHub instead of local d
   - **Market Screener's scan cache** (`market_screener_scan_cache.json`) — the Stage 1
     quality-floor survivor pool, so a multi-minute full-universe scan doesn't have to be re-run on
     every reboot. Shows last-scan date/universe next to the re-run buttons.
+  - **Watchlist** (`watchlist_data.json`, via `watchlist_utils.py`) — tagged tickers, notes, and each ticker's paper Buy/Sell transaction ledger (#68).
 
 ## Claude Agent Integrations
 
