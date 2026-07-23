@@ -1590,15 +1590,121 @@ def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
 
 
 def score_to_label(score):
-    """Action rating from a 0-100 score -- shared by Compare Stocks and the
-    Watchlist page so a given score always maps to the same label/emoji
-    everywhere it's shown, rather than each page defining its own cutoffs."""
+    """Pure quality-score label -- score thresholds only, no price/value
+    check. Superseded as the app-wide recommendation verdict by
+    investment_verdict() below (a stock scoring 100/100 on quality alone
+    can still be priced too rich to buy -- see investment_verdict()'s
+    docstring for the NVDA case that prompted this). Kept for callers
+    that specifically want a quality-only readout."""
     if score is None:
         return "—", ""
     if score >= 80:   return "Strong Buy", "🟢"
     elif score >= 65: return "Watch", "🟡"
     elif score >= 45: return "Caution", "🟠"
     else:             return "Avoid", "🔴"
+
+
+# ── Canonical investment verdict (quality + value gate) ──────────────────────
+# Moved here from Dashboard's hold_verdict() so the SAME assessment drives
+# the recommendation everywhere a buy/hold/trim-style verdict is shown
+# (Dashboard, Equity Scout, Compare Stocks) -- not just holdings.
+#
+# Root cause this fixes: Equity Scout showed NVDA as "Strong Buy" (driven
+# purely by score_to_verdict(rebalanced_score) -- a quality-only
+# threshold) while Dashboard showed the same NVDA as "Hold" (driven by
+# hold_verdict()'s quality-AND-value gate). Same stock, same underlying
+# data, two different verdicts, because the two pages were answering two
+# different questions with two different formulas. Confirmed the split
+# wasn't a data bug: NVDA's quality is genuinely excellent (10-yr avg
+# ROIC ~20%, minimal debt) AND its price is genuinely rich (P/Owner
+# Earnings ~43x vs a 25x cap, FCF yield ~1.9% vs a 3% floor) -- both
+# things are true at once, so a page that only checks quality will
+# always disagree with a page that also checks price, for exactly this
+# kind of expensive-but-wonderful business.
+#
+# Returns a stable "tier" key (not page-specific wording) so each page
+# can label it however fits that page's context -- Dashboard's "Trim"
+# implies an existing position, which doesn't make sense for a stock
+# you're just researching on Equity Scout -- while guaranteeing the
+# same stock always lands in the same tier everywhere:
+#   "buy"     -- quality_ok AND value_ok   (good business, attractively priced)
+#   "hold"    -- quality_ok AND NOT value_ok (good business, not attractively priced)
+#   "avoid"   -- NOT quality_ok             (weak business, regardless of price)
+#   "unrated" -- not enough data to assess either leg
+#
+# Bank/insurer quality leg substitutes ROE for ROIC and Equity/Assets for
+# Debt/FCF (deposits/policy liabilities ARE the raw material for a
+# leveraged balance-sheet business, not optional leverage) -- the same
+# swap score_financial_firm_breakdown() makes for the Score, so tier and
+# Score don't contradict each other for a bank/insurer either.
+#
+# Every individual check is written as "metric is None OR metric clears
+# the bar" -- deliberately, so a stock missing ONE metric doesn't get
+# unfairly downgraded on that gap alone (same rebalancing philosophy as
+# the Score). But if EVERY metric is missing, every check vacuously
+# passes, which used to fall through to "buy" -- a false positive on a
+# stock the app actually knows nothing about. Guarded: if there's
+# nothing at all to evaluate, returns "unrated".
+
+VERDICT_THRESHOLDS = {
+    "min_roic":      0.12,
+    "max_debt_fcf":  5.0,
+    "max_poe":       25.0,
+    "min_fcf_yield": 0.03,
+}
+
+
+def investment_verdict(data, thresholds=None):
+    """Returns {"tier", "color", "icon", "quality_ok", "value_ok",
+    "quality_inputs"} -- see module comment above."""
+    t = {**VERDICT_THRESHOLDS, **(thresholds or {})}
+    if data is None:
+        return {"tier": "unrated", "color": "#888888", "icon": "",
+                "quality_ok": None, "value_ok": None, "quality_inputs": (None, None)}
+
+    poe       = data.get("price_owner_earn")
+    fcf_yield = data.get("fcf_yield")
+    subtype   = data.get("financial_subtype")
+
+    if subtype in ("bank", "insurance"):
+        roe = data.get("roe")
+        eqa = data.get("equity_to_assets")
+        eqa_good = (FINANCIAL_THRESHOLDS["equity_assets_good_insurance"] if subtype == "insurance"
+                    else FINANCIAL_THRESHOLDS["equity_assets_good"])
+        quality_ok = (
+            (roe is None or roe >= FINANCIAL_THRESHOLDS["roe_good"]) and
+            (eqa is None or eqa >= eqa_good)
+        )
+        quality_inputs = (roe, eqa)
+    else:
+        roic      = data.get("roic_10yr_avg")   # (#34) 10-yr avg, cash basis
+        debt_fcf  = data.get("debt_to_fcf")
+        debt_cads = data.get("debt_to_cads")
+        debt_candidates = [d for d in (debt_fcf, debt_cads) if d is not None]
+        debt_multiple   = min(debt_candidates) if debt_candidates else None
+        quality_ok = (
+            (roic          is None or roic          >= t["min_roic"]) and
+            (debt_multiple is None or debt_multiple <= t["max_debt_fcf"])
+        )
+        quality_inputs = (roic, debt_multiple)
+
+    value_ok = (
+        (poe       is None or poe       <= t["max_poe"]) and
+        (fcf_yield is None or fcf_yield >= t["min_fcf_yield"])
+    )
+
+    if all(v is None for v in (*quality_inputs, poe, fcf_yield)):
+        return {"tier": "unrated", "color": "#888888", "icon": "",
+                "quality_ok": None, "value_ok": None, "quality_inputs": quality_inputs}
+    if not quality_ok:
+        return {"tier": "avoid", "color": "#e74c3c", "icon": "🔴",
+                "quality_ok": False, "value_ok": value_ok, "quality_inputs": quality_inputs}
+    elif value_ok:
+        return {"tier": "buy", "color": "#2ecc71", "icon": "🟢",
+                "quality_ok": True, "value_ok": True, "quality_inputs": quality_inputs}
+    else:
+        return {"tier": "hold", "color": "#f39c12", "icon": "🟡",
+                "quality_ok": True, "value_ok": False, "quality_inputs": quality_inputs}
 
 
 # ── Canonical 5-criteria scoring engine ──────────────────────────────────────

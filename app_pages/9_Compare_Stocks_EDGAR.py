@@ -23,7 +23,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display, score_to_label
+from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display, investment_verdict
 from claude_utils import ask_claude_about_equity, get_user_profile
 from watchlist_utils import add_to_watchlist, is_watchlisted
 
@@ -283,7 +283,13 @@ for i, t in enumerate(active_tickers):
     else:
         score, criteria = score_stock_breakdown(d, weights)
     scores[t] = (score, criteria)
-    label, emoji = score_to_label(score)
+    # (verdict overhaul) same quality+value gate as Dashboard/Equity Scout
+    # -- see sec_utils.investment_verdict() -- rather than a quality-only
+    # score threshold, so a name doesn't look like a "Strong Buy" here
+    # while Dashboard shows "Hold" for the same underlying reason.
+    _verdict = investment_verdict(d)
+    label = {"buy": "Strong Buy", "hold": "Hold", "avoid": "Avoid", "unrated": "—"}[_verdict["tier"]]
+    emoji = _verdict["icon"]
     dcf = compute_dcf_value(d, dcf_assumptions)
     dcf_results[t] = dcf
     with summary_cols[i]:

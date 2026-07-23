@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
 from ui_utils import scroll_to_element
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS
+from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS, investment_verdict, VERDICT_THRESHOLDS
 from github_store import github_get_json, github_put_json
 from watchlist_utils import add_to_watchlist, is_watchlisted
 
@@ -101,12 +101,10 @@ APP_URL   = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 # the Market Screener's scan cache (github_store.py).
 HOLDINGS_SCORE_CACHE_PATH = "dashboard_holdings_score_cache.json"
 
-DEFAULT_HOLD_THRESHOLDS = {
-    "min_roic":      0.12,
-    "max_debt_fcf":  5.0,
-    "max_poe":       25.0,
-    "min_fcf_yield": 0.03,
-}
+# (verdict overhaul) now sec_utils.VERDICT_THRESHOLDS -- kept as a local
+# alias so the rest of this file (session-state init, sliders, reset
+# button) doesn't need to change.
+DEFAULT_HOLD_THRESHOLDS = VERDICT_THRESHOLDS
 
 # ─────────────────────────────────────────────
 # EDGAR DATA FETCH (holdings scoring)
@@ -138,63 +136,23 @@ def score_to_badge(score):
     except Exception:
         return "—"
 
+# (verdict overhaul) Thin wrapper around sec_utils.investment_verdict() --
+# the canonical quality+value gate is now shared with Equity Scout and
+# Compare Stocks (see that function's docstring for why: this exact gate
+# used to live only here, so a holding's Signal and a research
+# candidate's headline verdict could disagree for the same stock, same
+# data, same underlying reasons). This wrapper only maps the shared
+# "tier" to Dashboard's holding-specific wording (Add/Hold/Trim implies
+# an existing position, which fits Dashboard but not a page where you're
+# just researching a name).
+_TIER_TO_DASHBOARD_LABEL = {"buy": "Add", "hold": "Hold", "avoid": "Trim", "unrated": "—"}
+
 def hold_verdict(data, thresholds):
-    """Returns (verdict, color, icon) based on Buffett hold/add/trim logic.
-
-    Banks/insurers (#70): ROIC and Debt/FCF are meaningless for a leveraged
-    balance-sheet business (deposits/policy liabilities ARE the raw material,
-    not optional leverage), so the quality leg substitutes ROE for ROIC and
-    Equity/Assets for Debt/FCF -- the same swap score_financial_firm_breakdown()
-    makes for the Score column, so Signal and Score don't contradict each other.
-
-    Bug fixed here (found via ASML, July 2026): every individual check below
-    is written as "metric is None OR metric clears the bar" -- deliberately,
-    so a stock missing ONE metric doesn't get unfairly Trimmed on that gap
-    alone (same rebalancing philosophy as the Score column). But that means
-    if EVERY metric is missing, every check vacuously passes and this used
-    to fall through to "Add" -- a false buy signal on a holding the app
-    actually knows nothing about, which is worse than useless. Guarded
-    below: if there's literally nothing to evaluate, show unrated ("—"),
-    matching what the Score column already does for the same holding.
-    """
-    if data is None:
-        return "—", "#888888", ""
-    poe       = data.get("price_owner_earn")
-    fcf_yield = data.get("fcf_yield")
-    subtype   = data.get("financial_subtype")
-    if subtype in ("bank", "insurance"):
-        roe = data.get("roe")
-        eqa = data.get("equity_to_assets")
-        eqa_good = (FINANCIAL_THRESHOLDS["equity_assets_good_insurance"] if subtype == "insurance"
-                    else FINANCIAL_THRESHOLDS["equity_assets_good"])
-        quality_ok = (
-            (roe is None or roe >= FINANCIAL_THRESHOLDS["roe_good"]) and
-            (eqa is None or eqa >= eqa_good)
-        )
-        quality_inputs = (roe, eqa)
-    else:
-        roic      = data.get("roic_10yr_avg")  # (#34) 10-yr avg, cash basis
-        debt_fcf  = data.get("debt_to_fcf")
-        debt_cads = data.get("debt_to_cads")
-        debt_candidates = [d for d in (debt_fcf, debt_cads) if d is not None]
-        debt_multiple   = min(debt_candidates) if debt_candidates else None
-        quality_ok = (
-            (roic         is None or roic         >= thresholds["min_roic"]) and
-            (debt_multiple is None or debt_multiple <= thresholds["max_debt_fcf"])
-        )
-        quality_inputs = (roic, debt_multiple)
-    value_ok = (
-        (poe       is None or poe       <= thresholds["max_poe"]) and
-        (fcf_yield is None or fcf_yield >= thresholds["min_fcf_yield"])
-    )
-    if all(v is None for v in (*quality_inputs, poe, fcf_yield)):
-        return "—", "#888888", ""
-    if not quality_ok:
-        return "Trim", "#e74c3c", "🔴"
-    elif quality_ok and value_ok:
-        return "Add", "#2ecc71", "🟢"
-    else:
-        return "Hold", "#f39c12", "🟡"
+    """Returns (verdict, color, icon) -- Add/Hold/Trim/— -- from the shared
+    investment_verdict() gate. See sec_utils.investment_verdict() for the
+    actual quality/value logic."""
+    v = investment_verdict(data, thresholds)
+    return _TIER_TO_DASHBOARD_LABEL[v["tier"]], v["color"], v["icon"]
 
 @st.cache_data
 def fetch_sec_tickers():

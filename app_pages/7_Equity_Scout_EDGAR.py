@@ -3,7 +3,7 @@ import requests
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS, score_financial_firm_display
+from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS, score_financial_firm_display, investment_verdict
 from claude_utils import ask_claude_about_equity
 from ui_utils import scroll_to_element
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
@@ -256,11 +256,20 @@ def score_stock(data, weights):
     return raw_score, rebalanced, missing_names, criteria
 
 
-def score_to_verdict(score):
-    if score >= 80:   return "Strong Buy", "#2ecc71"
-    elif score >= 65: return "Watch Closely", "#f39c12"
-    elif score >= 45: return "Proceed with Caution", "#e67e22"
-    else:             return "Avoid", "#e74c3c"
+# (verdict overhaul) Thin wrapper around sec_utils.investment_verdict() --
+# same quality+value gate Dashboard uses for its Add/Hold/Trim Signal, so
+# a name doesn't score "Strong Buy" here while showing "Hold" on
+# Dashboard for the same underlying reason (see investment_verdict()'s
+# docstring for the NVDA case this fixes: excellent quality but priced
+# above the value gate's P/Owner-Earnings and FCF-yield bars). Score
+# alone no longer drives the headline verdict -- it's quality+value,
+# same as everywhere else the verdict is shown; the numeric Conviction
+# Score below still reflects quality alone.
+_TIER_TO_RESEARCH_LABEL = {"buy": "Strong Buy", "hold": "Hold", "avoid": "Avoid", "unrated": "—"}
+
+def score_to_verdict(data):
+    v = investment_verdict(data)
+    return _TIER_TO_RESEARCH_LABEL[v["tier"]], v["color"]
 
 
 # ── Query params ─────────────────────────────────────────────────────────────
@@ -456,7 +465,7 @@ if analyze and ticker_input:
         missing_names = [c["name"] for c in criteria if c.get("missing")]
     else:
         raw_score, rebalanced_score, missing_names, criteria = score_stock(data, weights)
-    verdict_label, verdict_color = score_to_verdict(rebalanced_score)
+    verdict_label, verdict_color = score_to_verdict(data)
 
     st.session_state[_cache_key] = {
         "data": data, "raw_score": raw_score, "rebalanced_score": rebalanced_score,
