@@ -335,6 +335,7 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
             "error": d["error"], "name": ticker, "price": None,
             "dcf_value": None, "margin_of_safety": None, "dcf_error": None,
             "score": None, "action_label": "—", "action_emoji": "",
+            "foreign_currency": None,
         }
     subtype = d.get("financial_subtype")
     if subtype in ("bank", "insurance"):
@@ -353,6 +354,10 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
         "score": score,
         "action_label": label,
         "action_emoji": emoji,
+        # #11: set when this ticker's EDGAR financials were pulled from a
+        # non-USD unit (e.g. "EUR" for ASML) and FX-converted -- surfaced
+        # in the Watchlist table footnote rather than hidden.
+        "foreign_currency": d.get("foreign_currency"),
     }
 
 

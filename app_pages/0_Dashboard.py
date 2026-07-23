@@ -146,6 +146,16 @@ def hold_verdict(data, thresholds):
     not optional leverage), so the quality leg substitutes ROE for ROIC and
     Equity/Assets for Debt/FCF -- the same swap score_financial_firm_breakdown()
     makes for the Score column, so Signal and Score don't contradict each other.
+
+    Bug fixed here (found via ASML, July 2026): every individual check below
+    is written as "metric is None OR metric clears the bar" -- deliberately,
+    so a stock missing ONE metric doesn't get unfairly Trimmed on that gap
+    alone (same rebalancing philosophy as the Score column). But that means
+    if EVERY metric is missing, every check vacuously passes and this used
+    to fall through to "Add" -- a false buy signal on a holding the app
+    actually knows nothing about, which is worse than useless. Guarded
+    below: if there's literally nothing to evaluate, show unrated ("—"),
+    matching what the Score column already does for the same holding.
     """
     if data is None:
         return "—", "#888888", ""
@@ -161,6 +171,7 @@ def hold_verdict(data, thresholds):
             (roe is None or roe >= FINANCIAL_THRESHOLDS["roe_good"]) and
             (eqa is None or eqa >= eqa_good)
         )
+        quality_inputs = (roe, eqa)
     else:
         roic      = data.get("roic")
         debt_fcf  = data.get("debt_to_fcf")
@@ -171,10 +182,13 @@ def hold_verdict(data, thresholds):
             (roic         is None or roic         >= thresholds["min_roic"]) and
             (debt_multiple is None or debt_multiple <= thresholds["max_debt_fcf"])
         )
+        quality_inputs = (roic, debt_multiple)
     value_ok = (
         (poe       is None or poe       <= thresholds["max_poe"]) and
         (fcf_yield is None or fcf_yield >= thresholds["min_fcf_yield"])
     )
+    if all(v is None for v in (*quality_inputs, poe, fcf_yield)):
+        return "—", "#888888", ""
     if not quality_ok:
         return "Trim", "#e74c3c", "🔴"
     elif quality_ok and value_ok:

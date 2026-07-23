@@ -546,6 +546,9 @@ if _cache_key and _cache_key in st.session_state:
         st.caption(f"📡 Data: SEC EDGAR Company Facts  ·  Pricing: yfinance  ·  Missing XBRL concepts: {len(missing_concepts)}")
     else:
         st.caption("📡 Data: SEC EDGAR Company Facts (primary)  ·  Pricing: yfinance")
+    _foreign_ccy = data.get("foreign_currency")
+    if _foreign_ccy:
+        st.caption(f"💱 Financials reported in {_foreign_ccy} — converted to USD using historical FX rates, period by period (#11)")
 
     st.divider()
 

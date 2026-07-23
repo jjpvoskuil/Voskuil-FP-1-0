@@ -1173,3 +1173,97 @@ Verified live with a 100ms-resolution reveal-timing poller: Compare
 Stocks now goes from click to visible in ~3.5s, down from a flat 15s.
 Dashboard re-checked immediately after — still settles with no bounce.
 Punch list #75 still `done: false` pending the owner's own check.
+
+## Watchlist page rework — collapsed table, buy/sell, dual performance line
+
+Owner asked for three changes to the Watchlist page (`10_Watchlist.py`):
+collapse the top "Full Watchlist" section into a tighter table with the
+same DCF/Score/Action/SI columns as Compare Stocks; merge the Watch
+Portfolio table with buy/sell so a Buy $ or Sell $ entered inline and an
+"Execute Trades" click updates the table directly, instead of a separate
+form; and add the real-holdings line alongside the watch-portfolio line
+on the bottom performance chart, both indexed to 100 at the range start
+so they're comparable regardless of dollar scale.
+
+Added `get_ticker_snapshot()` to `watchlist_utils.py` (cached, wraps
+`fetch_fundamentals_edgar()` → `score_stock_breakdown()` /
+`score_financial_firm_display()` → `compute_dcf_value()` →
+`score_to_label()`) so the Watchlist table can show the same numbers as
+Compare Stocks. Moved `score_to_label()` into `sec_utils.py` as the
+shared source of truth (was duplicated locally in Compare Stocks).
+
+Both the Full Watchlist remove-confirm flow and the Watch Portfolio
+buy/sell reset hit the same Streamlit gotcha: popping a `data_editor`'s
+session_state key and calling `st.rerun()` does not actually reset the
+widget — it re-renders under the same key with its last-known value.
+Fixed with a generation-counter key suffix (`f"..._{gen}"`, bump `gen` in
+session_state) to force a genuinely fresh widget instance each time.
+
+Tested with `streamlit.testing.v1.AppTest` end to end (edit Buy $, click
+Execute, confirm table + transaction ledger update; confirm buy+sell on
+the same row is rejected). Hit a second gotcha here: seeding a
+data_editor's edited state in `at.session_state` only reliably takes if
+set before that widget's first-ever render in the AppTest session —
+setting it after an earlier default render doesn't stick even across a
+follow-up rerun. Restructured tests to seed all state before the first
+`.run()`. All scenarios passed.
+
+## ASML: false "Avoid" + no DCF, vs. "Add" on Dashboard — root cause and fix
+
+Owner flagged that ASML showed "Add" on the Dashboard signal but "Avoid"
+with no DCF value on the Watchlist page, and asked whether the Dashboard
+"Add" was ever legitimate. Verified live against real SEC EDGAR data via
+`web_fetch` (direct sandbox network calls to EDGAR/yfinance are blocked)
+that ASML (CIK 0000937966) has 16+ years of complete us-gaap XBRL data
+via Form 20-F filings — the prior punch list note claiming "no SEC
+filings" was wrong. The actual issue: every value is reported in EUR
+units, never USD, and `sec_utils.py` only ever read `units.get("USD",
+[])`, so all of ASML's financial data was silently dropped with no error
+- API call succeeded, extraction just found nothing under the one key it
+checked.
+
+Two compounding bugs, both owner-approved to fix in the same pass
+("Let's fix both now"):
+
+1. FX conversion (`sec_utils.py`): added `_pick_unit_observations()` to
+detect whichever currency key is actually present (falls back through
+`units` skipping "shares"), and `fetch_fx_rate(currency, on_date)`
+(cached, {CCY}USD=X via yfinance) to get the historical rate as of each
+period's own end date, not today's spot rate, so a 2019 EUR figure
+converts at the 2019 rate. Each observation is converted before merging
+into the fundamentals dict. `diluted_shares` is exempted (share counts
+aren't currency-denominated). Tracks which currency was used in
+`meta["foreign_currency"]`, now returned from
+`fetch_fundamentals_edgar()`.
+
+2. `hold_verdict()` vacuous-pass bug (`0_Dashboard.py`): this
+Buffett-style Hold/Add/Trim signal (separate from the 0-100 score)
+deliberately treats a missing individual metric as passing that check,
+as a rebalancing-philosophy choice — but with all-EUR data returning
+nothing under "USD", every metric was missing at once, and every
+vacuously-true check summed to a false "Add". Added a guard: if every
+scoring input is None, return unrated ("—") instead of falling through
+to Add/Trim logic.
+
+Surfaced the conversion in the UI so it's never silent again: Equity
+Scout, Compare Stocks, and the Watchlist page each show a "FX-converted
+from home-currency EDGAR filings" caption (with the specific currency)
+whenever `foreign_currency` is set for a shown ticker.
+
+Tested with three scripts: `test_fx_conversion.py` (mocked EUR-shaped
+EDGAR response, confirms extraction/conversion/currency-tagging, confirms
+diluted_shares is not converted) - 9/9 passed. `test_hold_verdict.py`
+(extracted the function's source via `ast.get_source_segment()` since
+it's defined inline in a page script, `exec()`'d standalone, tested
+all-None, partial-data, full-data cases) - 7/7 passed, existing non-None
+behavior unaffected. `test_asml_e2e.py` (realistic EUR-millions ASML
+financials through the full fetch to score to DCF pipeline) - fcf/roic/
+gross_margin now populate instead of None, score 52 ("Caution" instead of
+"Avoid"), DCF now computes ($477.81/share) instead of erroring on "FCF
+unavailable". Also re-verified the Watchlist page's new caption renders
+correctly via AppTest with a mocked ASML/EUR snapshot.
+
+Punch list #11's note was factually wrong (claimed ASML has no SEC
+filings) - corrected with the real diagnosis and this fix; left at Low
+priority/open since it hasn't been spot-checked against a live production
+run yet (sandbox has no direct EDGAR/yfinance access).

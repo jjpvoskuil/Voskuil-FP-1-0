@@ -310,6 +310,8 @@ for i, t in enumerate(active_tickers):
             st.caption("🏦 Financial firm (reference-only score)")
         if d.get("is_cyclical"):
             st.caption("🔄 Cyclical")
+        if d.get("foreign_currency"):
+            st.caption(f"💱 Reported in {d['foreign_currency']}, FX-converted (#11)")
 
         # Add-only Watchlist control (#68) -- removal only happens on the
         # Watchlist page itself, same as the other three source pages.

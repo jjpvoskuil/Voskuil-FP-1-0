@@ -19,6 +19,7 @@ import time
 import threading
 import requests
 import concurrent.futures
+from datetime import datetime, timedelta
 import streamlit as st
 from edgar_concept_map import (
     CONCEPT_MAP, FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES,
@@ -197,6 +198,70 @@ def _roic_denominator_reliable(net_income, invested_cap) -> bool:
     return invested_cap >= 0.5 * abs(net_income)
 
 
+@st.cache_data(ttl=86400)
+def fetch_fx_rate(currency: str, on_date: str):
+    """
+    Historical <currency>/USD rate nearest on or before `on_date` (ISO
+    string), via yfinance's FX tickers (e.g. "EUR" -> "EURUSD=X"). Rate is
+    USD per 1 unit of `currency` -- multiply a foreign-currency amount by
+    this to convert to USD. Returns (rate, actual_date_used) or
+    (None, None) on failure. USD always returns (1.0, on_date) with no
+    network call.
+
+    Added for #11 (foreign filer scoring, ASML/ARGX/etc.) — see
+    _pick_unit_observations() below for why this is needed at all: foreign
+    private issuers report XBRL financials in their home currency under
+    the SAME us-gaap tags a domestic filer would use, just a different
+    unit key, so a per-period historical rate (not today's spot rate) is
+    what makes a 2015 EUR figure and a 2024 EUR figure both land in
+    roughly the right USD ballpark instead of all being skewed by
+    whatever EUR/USD happens to be today.
+    """
+    if currency == "USD":
+        return 1.0, on_date
+    try:
+        import yfinance as yf
+        target = datetime.fromisoformat(on_date).date()
+        start = (target - timedelta(days=8)).isoformat()
+        end   = (target + timedelta(days=1)).isoformat()
+        hist = yf.Ticker(f"{currency}USD=X").history(start=start, end=end)
+        if hist.empty:
+            return None, None
+        hist = hist[hist.index.date <= target]
+        if hist.empty:
+            return None, None
+        return float(hist.iloc[-1]["Close"]), hist.index[-1].date().isoformat()
+    except Exception:
+        return None, None
+
+
+def _pick_unit_observations(units: dict, field: str):
+    """
+    Returns (observations, currency) for a CONCEPT_MAP field's raw XBRL
+    `units` dict. Prefers USD (the common case, zero behavior change for
+    domestic filers); "diluted_shares" prefers a literal share count and
+    is never currency-converted. For every other field, falls back to
+    whatever OTHER currency unit is present with data -- foreign private
+    issuers normally report in exactly one home currency, so "the other
+    non-shares unit with data" is a safe pick without needing to guess
+    which currency in advance. Caller is responsible for FX-converting
+    the returned observations if currency != "USD".
+    """
+    if field == "diluted_shares":
+        if units.get("shares"):
+            return units["shares"], "shares"
+        if units.get("USD"):
+            return units["USD"], "USD"  # some filers mistag share counts as USD
+        return [], None
+    if units.get("USD"):
+        return units["USD"], "USD"
+    for key, obs in units.items():
+        if key == "shares" or not obs:
+            continue
+        return obs, key
+    return [], None
+
+
 def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     """Internal: does the actual Company Facts fetch + parse once CIK is known."""
     # Fetch Company Facts JSON
@@ -274,6 +339,7 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     history = {}   # field → sorted list of annual observations
 
     all_annual_ends = []  # track all period end dates to find fiscal year
+    foreign_currencies_used = set()  # non-USD currencies actually pulled from, for meta/UI
 
     for field, concepts in CONCEPT_MAP.items():
         merged_by_end = {}  # end date -> observation dict
@@ -285,18 +351,17 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
             concept_data = us_gaap[concept]
             units        = concept_data.get("units", {})
 
-            # Most financial concepts use USD; shares use "shares"
-            unit_key = "USD"
-            if field in ("diluted_shares",):
-                unit_key = "shares"
-                if unit_key not in units:
-                    unit_key = "USD"  # some filers tag shares in USD units
-
-            observations = units.get(unit_key, [])
-            if not observations:
-                # Try the other unit key as fallback
-                alt = "shares" if unit_key == "USD" else "USD"
-                observations = units.get(alt, [])
+            # #11: foreign private issuers (ASML, ARGX, etc.) tag financials
+            # under the SAME us-gaap concepts a domestic filer would use --
+            # just in their home currency's unit key (EUR, GBP, JPY...)
+            # instead of USD. Without this fallback, every $ field for a
+            # filer like that silently comes back empty (not an error --
+            # the API call succeeds, there's just nothing under "USD"),
+            # which used to make the whole company look unscoreable even
+            # though 15+ years of clean XBRL history is sitting right there.
+            observations, currency = _pick_unit_observations(units, field)
+            if currency and currency not in ("USD", "shares"):
+                foreign_currencies_used.add(currency)
 
             # Filter to annual (10-K) filings only
             # EDGAR uses "form" field: "10-K", "10-K/A", "20-F" (foreign filers)
@@ -337,13 +402,24 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
             # processed in priority order, only add an end date if a
             # higher-priority concept hasn't already claimed it.
             for end, o in seen_ends.items():
-                if o.get("val") is None:
+                val = o.get("val")
+                if val is None:
                     continue
+                # FX-convert non-USD, non-share-count values using the
+                # HISTORICAL rate as of that specific period's end date --
+                # not today's spot rate -- so a 2015 EUR figure and a 2024
+                # EUR figure both land in roughly the right USD ballpark
+                # instead of all being skewed by whatever EUR/USD is today.
+                if currency and currency not in ("USD", "shares"):
+                    fx_rate, _ = fetch_fx_rate(currency, end)
+                    if fx_rate is None:
+                        continue  # can't convert reliably -- skip rather than guess
+                    val = val * fx_rate
                 if end not in merged_by_end:
                     merged_by_end[end] = {
                         "period": o["end"][:4],          # fiscal year as string e.g. "2024"
                         "end":    o["end"],               # exact period end date
-                        "value":  o.get("val"),           # raw value in USD or shares
+                        "value":  val,                    # USD (or shares) after any FX conversion
                         "filed":  o.get("filed", ""),     # filing date
                         "form":   o.get("form", ""),
                     }
@@ -354,6 +430,11 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
             all_annual_ends.extend([h["end"] for h in field_history])
             history[field] = field_history
             latest[field]  = field_history[-1]["value"]  # most recent annual
+
+    # Surface the foreign-currency fallback in meta so the UI can flag it
+    # rather than silently presenting FX-converted figures as if they were
+    # native USD filings (#11).
+    meta["foreign_currency"] = sorted(foreign_currencies_used)[0] if foreign_currencies_used else None
 
     # 5. Identify missing fields
     missing = [f for f in CONCEPT_MAP if f not in latest]
@@ -1180,6 +1261,11 @@ def fetch_fundamentals_edgar(ticker):
         "sic":              meta.get("sic"),
         "data_source":      "SEC EDGAR Company Facts",
         "missing_concepts": missing,
+        # #11: set when this filer's financials were pulled from a non-USD
+        # unit (e.g. "EUR" for ASML) and converted via historical FX rate --
+        # surfaced so the UI can flag it rather than presenting a converted
+        # figure as if it were a native USD filing.
+        "foreign_currency": meta.get("foreign_currency"),
 
         # Pricing (yfinance)
         "price":            price,

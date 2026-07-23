@@ -87,10 +87,13 @@ if not si_loaded:
         st.caption("Optional — adds an SI column showing how many of 82 tracked value investors hold each ticker.")
 
 table_rows = []
+_foreign_currency_tickers = {}
 with st.spinner("Fetching price/score/DCF snapshots..."):
     for ticker in sorted(items.keys()):
         item = items[ticker]
         snap = wl.get_ticker_snapshot(ticker, weights)
+        if snap.get("foreign_currency"):
+            _foreign_currency_tickers[ticker] = snap["foreign_currency"]
         mos = snap.get("margin_of_safety")
         row = {
             "Ticker": ticker,
@@ -132,6 +135,9 @@ wl_edited = st.data_editor(
     wl_table_df, column_config=wl_column_config, hide_index=True,
     use_container_width=True, key=f"wl_full_table_editor_{_wl_editor_gen}",
 )
+if _foreign_currency_tickers:
+    _fc_note = ", ".join(f"{t} ({c})" for t, c in sorted(_foreign_currency_tickers.items()))
+    st.caption(f"💱 FX-converted from home-currency EDGAR filings (#11): {_fc_note}")
 
 # ── Apply Watch Portfolio toggles (one write per detected change) ──
 for _, _row in wl_edited.iterrows():
