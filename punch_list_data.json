@@ -599,7 +599,7 @@
       "title": "Tag-to-Watchlist + dedicated Watchlist page",
       "note": "Add a tag/star control on Market Screener result cards (main funnel survivors AND Emerging Candidates from #67) to add a ticker to a persistent Watchlist. Watchlist should live on its own page (not just session state) so tagged names persist across sessions/reboots \u2014 likely GitHub-backed via github_store.py, same pattern as the punch list and scan cache. This also satisfies/extends the existing open item #1 (\"Watchlist \u2014 save top screener candidates\") and #14 (\"Watchlist persistence across sessions\") \u2014 consider consolidating those into this item once scoped.",
       "phase": "Equity Scoring",
-      "priority": "Medium",
+      "priority": "High",
       "done": false,
       "created": "2026-07-20"
     },
