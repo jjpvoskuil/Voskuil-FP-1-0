@@ -1267,3 +1267,58 @@ Punch list #11's note was factually wrong (claimed ASML has no SEC
 filings) - corrected with the real diagnosis and this fix; left at Low
 priority/open since it hasn't been spot-checked against a live production
 run yet (sandbox has no direct EDGAR/yfinance access).
+
+## ASML follow-up: bulk Company Facts endpoint dropping data — companyconcept fallback
+
+Owner reported ASML still showed no score on Dashboard and no EDGAR data
+on Equity Scout after the FX-conversion fix above deployed. Pulled the
+live `dashboard_holdings_score_cache.json` auto-commit from right after
+that deploy (`97bbb1a`, timestamped after the `f95329e` push, confirming
+the redeploy had picked up the new code) — ASML's cached raw data showed
+35 of 36 CONCEPT_MAP fields missing, `foreign_currency: None`, `error:
+None`, `cik: "0000937966"` (correct). Only `diluted_shares` succeeded —
+the one field whose unit is "shares", never FX-dependent, which meant
+the general concept-lookup mechanism worked but every currency-tagged
+concept came back empty.
+
+Verified live via `web_fetch` against SEC's per-concept companyconcept
+endpoint (`data.sec.gov/api/xbrl/companyconcept/CIK0000937966/us-gaap/
+{Assets,NetIncomeLoss}.json`) that both concepts DO have full EUR history
+for ASML — 16+ years, most recent filing Feb 2026. So the data exists and
+is properly tagged under us-gaap; the bulk Company Facts endpoint
+(`companyfacts/CIK....json`, one giant JSON per company) is what's
+coming back missing these concepts for this filer specifically, while
+still including the (much smaller) shares-count concept. Couldn't
+confirm exact root cause on SEC's side directly (sandbox has no direct
+network access to data.sec.gov, and `web_fetch`'s own size cap truncates
+ASML's multi-MB bulk response before reaching the relevant part of the
+JSON either way) — but the mechanism doesn't matter for the fix: the
+lighter per-concept endpoint reliably has the data the bulk endpoint is
+dropping.
+
+Refactored the per-field merge logic in `sec_utils.py` into two shared
+helpers — `_merge_field_history()` (filtering/FX/merge logic, unchanged
+behavior) and `_fetch_concept_units_via_companyconcept()` (single-concept
+fetch via the lighter endpoint) — so `_fetch_company_facts_for_cik()` can
+run the exact same merge logic against either data source. Added a
+fallback pass: if the bulk endpoint's pass leaves 2 or fewer fields
+populated (a company with genuinely limited data, like a small industrial
+company missing a few insurance-only fields, will still have far more
+than 2 — this threshold only catches companies where the bulk fetch
+essentially failed), retry every still-missing field one concept at a
+time via companyconcept before giving up. Scoped tightly on purpose —
+this adds up to ~35 extra HTTP requests only for the rare pathological
+case, not for the common case where bulk Company Facts already works.
+
+Tested with two new scripts: `test_companyconcept_fallback.py` (mocks
+the bulk endpoint returning almost nothing, as observed for ASML in
+production, and the companyconcept endpoint returning real EUR data for
+Assets/NetIncomeLoss/StockholdersEquity/Revenues) — confirms the
+fallback fires, correctly FX-converts, and populates `latest`/
+`foreign_currency`. `test_fallback_not_triggered.py` (mocks a normal
+company with rich bulk USD data across several concepts) — confirms the
+fallback does NOT fire and makes zero extra requests, so there's no
+regression/slowdown for the common case. Re-ran the three test scripts
+from the earlier FX-conversion fix (`test_fx_conversion.py`,
+`test_asml_e2e.py`, `test_hold_verdict.py`) against the refactored code —
+all still pass unchanged.

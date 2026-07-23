@@ -19,7 +19,7 @@ import time
 import threading
 import requests
 import concurrent.futures
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import streamlit as st
 from edgar_concept_map import (
     CONCEPT_MAP, FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES,
@@ -262,6 +262,119 @@ def _pick_unit_observations(units: dict, field: str):
     return [], None
 
 
+def _is_annual_observation(obs):
+    """
+    True if an XBRL observation represents a full fiscal year, not a
+    quarterly/interim sub-period some concepts include even inside annual
+    filings (segment data, interim comparatives). Instant (point-in-time)
+    balance-sheet concepts have no "start" date at all and always pass
+    through unchecked.
+    """
+    start = obs.get("start")
+    end   = obs.get("end")
+    if not start or not end:
+        return True
+    try:
+        d0 = date.fromisoformat(start)
+        d1 = date.fromisoformat(end)
+        days = (d1 - d0).days
+        return 340 <= days <= 400  # full fiscal year window
+    except Exception:
+        return True
+
+
+def _merge_field_history(field, concepts, get_units, foreign_currencies_used):
+    """
+    Core per-field merge: given a field's candidate concept names (in
+    priority order) and a `get_units(concept) -> units_dict_or_None`
+    lookup, returns a sorted list of annual observations (oldest to
+    newest) merged across every candidate that has data, FX-converting
+    non-USD values using the historical rate as of each period's own end
+    date (not today's spot rate).
+
+    Factored out so the bulk Company Facts pass and the companyconcept
+    fallback pass below (#11 continued) share identical filtering/merge/
+    FX logic — only where the raw units dict comes from differs.
+    """
+    merged_by_end = {}
+    for concept in concepts:
+        units = get_units(concept)
+        if not units:
+            continue
+
+        # #11: foreign private issuers (ASML, ARGX, etc.) tag financials
+        # under the SAME us-gaap concepts a domestic filer would use --
+        # just in their home currency's unit key (EUR, GBP, JPY...)
+        # instead of USD.
+        observations, currency = _pick_unit_observations(units, field)
+        if currency and currency not in ("USD", "shares"):
+            foreign_currencies_used.add(currency)
+
+        annual_obs = [
+            o for o in observations
+            if o.get("form") in ("10-K", "10-K/A", "20-F", "20-F/A")
+            and o.get("end")
+            and _is_annual_observation(o)
+        ]
+        if not annual_obs:
+            continue
+
+        # Within THIS concept, if multiple entries share the same end
+        # date (e.g. original + amended), prefer the latest filed
+        seen_ends = {}
+        for o in sorted(annual_obs, key=lambda x: x.get("filed", "")):
+            seen_ends[o["end"]] = o
+
+        for end, o in seen_ends.items():
+            val = o.get("val")
+            if val is None:
+                continue
+            if currency and currency not in ("USD", "shares"):
+                fx_rate, _ = fetch_fx_rate(currency, end)
+                if fx_rate is None:
+                    continue  # can't convert reliably -- skip rather than guess
+                val = val * fx_rate
+            if end not in merged_by_end:
+                merged_by_end[end] = {
+                    "period": o["end"][:4],
+                    "end":    o["end"],
+                    "value":  val,
+                    "filed":  o.get("filed", ""),
+                    "form":   o.get("form", ""),
+                }
+    return sorted(merged_by_end.values(), key=lambda x: x["end"])
+
+
+def _fetch_concept_units_via_companyconcept(cik: str, concept: str):
+    """
+    Single-concept fetch via SEC's lighter-weight companyconcept endpoint
+    (data.sec.gov/api/xbrl/companyconcept/CIK{cik}/us-gaap/{concept}.json),
+    returning just that concept's raw "units" dict (or None if this
+    company has no data for it -- typically a 404, since most filers only
+    use a subset of candidate tags -- or the request fails outright).
+
+    Added for #11: confirmed in production that the BULK Company Facts
+    endpoint can come back with its us-gaap dict missing core financial-
+    statement concepts (Assets, NetIncomeLoss, etc.) for at least one
+    foreign private issuer with a very long 20-F history (ASML), even
+    though those exact same concepts return full historical data through
+    this per-concept endpoint -- verified directly against real EDGAR
+    data (16+ years, filed as recently as Feb 2026). Root cause on SEC's
+    side unconfirmed (possibly a generation/size quirk for filers with
+    unusually long or voluminous XBRL history) -- the fallback in
+    _fetch_company_facts_for_cik() below doesn't need to know why, just
+    that per-concept fetches recover the data the bulk endpoint dropped.
+    """
+    url = f"{EDGAR_BASE}/api/xbrl/companyconcept/CIK{cik}/us-gaap/{concept}.json"
+    try:
+        resp = _sec_get(url, timeout=15)
+        if resp.status_code != 200:
+            return None
+        return resp.json().get("units") or None
+    except Exception:
+        return None
+
+
 def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     """Internal: does the actual Company Facts fetch + parse once CIK is known."""
     # Fetch Company Facts JSON
@@ -342,94 +455,41 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     foreign_currencies_used = set()  # non-USD currencies actually pulled from, for meta/UI
 
     for field, concepts in CONCEPT_MAP.items():
-        merged_by_end = {}  # end date -> observation dict
-
-        for concept in concepts:
-            if concept not in us_gaap:
-                continue
-
-            concept_data = us_gaap[concept]
-            units        = concept_data.get("units", {})
-
-            # #11: foreign private issuers (ASML, ARGX, etc.) tag financials
-            # under the SAME us-gaap concepts a domestic filer would use --
-            # just in their home currency's unit key (EUR, GBP, JPY...)
-            # instead of USD. Without this fallback, every $ field for a
-            # filer like that silently comes back empty (not an error --
-            # the API call succeeds, there's just nothing under "USD"),
-            # which used to make the whole company look unscoreable even
-            # though 15+ years of clean XBRL history is sitting right there.
-            observations, currency = _pick_unit_observations(units, field)
-            if currency and currency not in ("USD", "shares"):
-                foreign_currencies_used.add(currency)
-
-            # Filter to annual (10-K) filings only
-            # EDGAR uses "form" field: "10-K", "10-K/A", "20-F" (foreign filers)
-            # Also validate period duration — annual periods span ~340-370 days.
-            # Some concepts include quarterly sub-period values even inside 10-K filings
-            # (segment data, interim comparatives). Filter those out by duration.
-            def is_annual_duration(obs):
-                start = obs.get("start")
-                end   = obs.get("end")
-                if not start or not end:
-                    return True  # no dates to check — allow through
-                try:
-                    from datetime import date
-                    d0 = date.fromisoformat(start)
-                    d1 = date.fromisoformat(end)
-                    days = (d1 - d0).days
-                    return 340 <= days <= 400  # full fiscal year window
-                except Exception:
-                    return True
-
-            annual_obs = [
-                o for o in observations
-                if o.get("form") in ("10-K", "10-K/A", "20-F", "20-F/A")
-                and o.get("end")
-                and is_annual_duration(o)
-            ]
-
-            if not annual_obs:
-                continue
-
-            # Within THIS concept, if multiple entries share the same end
-            # date (e.g. original + amended), prefer the latest filed
-            seen_ends = {}
-            for o in sorted(annual_obs, key=lambda x: x.get("filed", "")):
-                seen_ends[o["end"]] = o
-
-            # Merge into the field's combined history. Since concepts are
-            # processed in priority order, only add an end date if a
-            # higher-priority concept hasn't already claimed it.
-            for end, o in seen_ends.items():
-                val = o.get("val")
-                if val is None:
-                    continue
-                # FX-convert non-USD, non-share-count values using the
-                # HISTORICAL rate as of that specific period's end date --
-                # not today's spot rate -- so a 2015 EUR figure and a 2024
-                # EUR figure both land in roughly the right USD ballpark
-                # instead of all being skewed by whatever EUR/USD is today.
-                if currency and currency not in ("USD", "shares"):
-                    fx_rate, _ = fetch_fx_rate(currency, end)
-                    if fx_rate is None:
-                        continue  # can't convert reliably -- skip rather than guess
-                    val = val * fx_rate
-                if end not in merged_by_end:
-                    merged_by_end[end] = {
-                        "period": o["end"][:4],          # fiscal year as string e.g. "2024"
-                        "end":    o["end"],               # exact period end date
-                        "value":  val,                    # USD (or shares) after any FX conversion
-                        "filed":  o.get("filed", ""),     # filing date
-                        "form":   o.get("form", ""),
-                    }
-
-        field_history = sorted(merged_by_end.values(), key=lambda x: x["end"])
-
+        field_history = _merge_field_history(
+            field, concepts,
+            lambda c: us_gaap.get(c, {}).get("units"),
+            foreign_currencies_used,
+        )
         if field_history:
             all_annual_ends.extend([h["end"] for h in field_history])
             history[field] = field_history
             latest[field]  = field_history[-1]["value"]  # most recent annual
+
+    # Fallback (#11 continued): the bulk Company Facts endpoint has been
+    # confirmed in production to come back with its us-gaap dict missing
+    # core financial-statement concepts for at least one foreign filer
+    # with a very long 20-F history (ASML) even though the exact same
+    # concepts return full data via the lighter companyconcept endpoint
+    # (verified directly against live EDGAR). Scoped tightly -- only
+    # fires when the bulk pass found almost nothing at all for this
+    # company -- so it doesn't add dozens of extra per-concept requests
+    # to the common case, where bulk Company Facts works fine and a
+    # genuinely small "missing" list just reflects fields this filer
+    # doesn't report (e.g. an industrial company with no insurance
+    # concepts).
+    if len(latest) <= 2:
+        for field, concepts in CONCEPT_MAP.items():
+            if field in latest:
+                continue
+            field_history = _merge_field_history(
+                field, concepts,
+                lambda c: _fetch_concept_units_via_companyconcept(cik, c),
+                foreign_currencies_used,
+            )
+            if field_history:
+                all_annual_ends.extend([h["end"] for h in field_history])
+                history[field] = field_history
+                latest[field]  = field_history[-1]["value"]
 
     # Surface the foreign-currency fallback in meta so the UI can flag it
     # rather than silently presenting FX-converted figures as if they were
