@@ -769,6 +769,8 @@ if _cache_key and _cache_key in st.session_state:
                 st.caption(f"⚠️ Only {roic_yrs_used} reliable year(s) of history — need 5+ for a scored average.")
 
             roic_series = [{"year": h["period"], "roic": h["value"]} for h in roic_hist]
+            roic_yr_start = roic_series[0]["year"] if roic_series else None
+            roic_yr_end   = roic_series[-1]["year"] if roic_series else None
 
             if roic_series:
                 fig2 = go.Figure()
@@ -785,7 +787,7 @@ if _cache_key and _cache_key in st.session_state:
                 fig2.add_hline(y=20, line_dash="dash", line_color="#2ecc71",
                                annotation_text="20% exceptional", annotation_position="right")
                 fig2.update_layout(
-                    title=f"{ticker_input} — Historical ROIC ({years[0]}–{years[-1]})",
+                    title=f"{ticker_input} — Historical ROIC ({roic_yr_start}–{roic_yr_end})",
                     yaxis_title="ROIC %",
                     height=300,
                     margin=dict(t=40, b=20, l=20, r=80),
