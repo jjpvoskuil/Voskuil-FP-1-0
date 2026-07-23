@@ -1226,6 +1226,26 @@ def safe_float(val):
         return None
 
 
+def _normalize_dividend_yield(val):
+    """(2026-07-23) yfinance's dividendYield field has inconsistently
+    returned either a decimal fraction (0.0197 for 1.97%) or an already-
+    scaled percentage number (1.97 for 1.97%) depending on API/library
+    version -- observed live as "197.00%" on ALL and "172.00%" on
+    another insurer after the existing `:.2%` display format treated an
+    already-percentage value as if it were still a fraction and
+    multiplied by 100 a second time. A real dividend yield is never
+    remotely close to 100% as a genuine decimal fraction (that would
+    mean paying out the entire share price in dividends every single
+    year) -- so treat anything >= 1.0 as already being in percentage-
+    point form and rescale it down, regardless of which format yfinance
+    happens to be returning at any given moment. Self-corrects either
+    way rather than betting on one specific format staying fixed."""
+    v = safe_float(val)
+    if v is None:
+        return None
+    return v / 100.0 if v >= 1.0 else v
+
+
 def fmt_val(val, fmt="money"):
     """Format a numeric value for display: money ($B/$M), pct, or ratio (x)."""
     if val is None:
@@ -1260,7 +1280,7 @@ def fetch_price_and_market_cap(ticker):
             "price":         safe_float(price),
             "market_cap":    safe_float(market_cap),
             "shares":        safe_float(shares),
-            "dividend_yield": safe_float(div_yield),
+            "dividend_yield": _normalize_dividend_yield(div_yield),
             "name":          name,
             "sector":        sector,
             "description":   description,
@@ -1762,15 +1782,27 @@ def compute_residual_income_value(data: dict, assumptions: dict = None) -> dict:
     # there's enough history, else the fixed fallback -- same "own
     # trend, not a generic assumption, when we have enough data"
     # philosophy as compute_dcf_value()'s growth-rate estimate.
+    #
+    # (2026-07-23) Market Screener's Stage 1/2 pipeline doesn't carry
+    # per-ticker _history through (same market-wide-scan memory-
+    # footprint tradeoff as the FCF-DCF's growth rate), but it DOES
+    # already compute a real 10-yr average ROE for its own funnel
+    # checklist (roe_avg) -- reusing that when _history isn't available
+    # is strictly more accurate than falling straight to the generic
+    # fixed default, with no extra plumbing needed.
     roe_hist = (data.get("_history") or {}).get("roe", [])
     roe_hist_clean = [h for h in roe_hist
                        if h.get("value") is not None and math.isfinite(h["value"])]
     roe_avg_result = _historical_average(roe_hist_clean, lookback_years=10, min_years=5)
     if roe_avg_result["sufficient"]:
-        normalized_roe = roe_avg_result["avg"]
+        normalized_roe             = roe_avg_result["avg"]
+        normalized_roe_years_used  = roe_avg_result["years_used"]
+    elif data.get("roe_avg") is not None and math.isfinite(data["roe_avg"]):
+        normalized_roe             = data["roe_avg"]
+        normalized_roe_years_used  = data.get("roe_avg_years") or 0
     else:
-        normalized_roe = a["default_normalized_roe"]
-    normalized_roe_years_used = roe_avg_result["years_used"]
+        normalized_roe             = a["default_normalized_roe"]
+        normalized_roe_years_used  = roe_avg_result["years_used"]
 
     # Guard against a nonsensical negative-denominator terminal value,
     # same pattern as compute_dcf_value().

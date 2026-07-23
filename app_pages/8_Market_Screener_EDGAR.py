@@ -615,6 +615,18 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
             "market_cap":         market_cap,
             "sector":             sector,
             "financial_subtype":  financial_subtype,
+            # (2026-07-23) Latest-single-year ROE -- distinct from
+            # roe_avg (10-yr average) below. compute_residual_income_value()'s
+            # single-stage model needs THIS specifically (today's actual
+            # ROE, to contrast against the 10-yr average), and it was
+            # missing entirely from this dict -- every Market Screener
+            # bank/insurer row hit that function's very first guard
+            # ("ROE unavailable") and showed "N/A" regardless of how good
+            # the underlying data actually was. Confirmed on ALL: roe_avg
+            # (12.6%) was already here and displaying correctly in the
+            # checklist caption, but plain "roe" (33.6% latest year) was
+            # never included.
+            "roe":                latest.get("roe"),
             # Standard-framework fields don't apply to a bank/insurer —
             # left None/False rather than omitted, so downstream code
             # (results table columns, CSV export) doesn't KeyError
@@ -1159,7 +1171,7 @@ def fetch_price_data(ticker: str) -> dict:
             "price":          safe_float(info.get("currentPrice") or info.get("regularMarketPrice")),
             "market_cap":     safe_float(info.get("marketCap")),
             "shares":         safe_float(info.get("sharesOutstanding")),
-            "dividend_yield": safe_float(info.get("dividendYield")),
+            "dividend_yield": _normalize_dividend_yield(info.get("dividendYield")),
             "sector":         info.get("sector", "N/A"),
         }
     except Exception:
