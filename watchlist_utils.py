@@ -89,6 +89,24 @@ def is_watchlisted(ticker: str) -> bool:
     return ticker in load_watchlist().get("items", {})
 
 
+def _coerce_positive_float(v):
+    """Best-effort coercion to a positive float, else None. Defensive
+    guard at the ledger-write boundary: upstream callers (Dashboard's
+    CSV-derived aggregates) shouldn't ever hand this a non-numeric value
+    now that Quantity is cleaned upstream, but a raw CSV-quirk regression
+    there previously turned this into a live TypeError (string
+    concatenation instead of numeric sum, e.g. "23"+"158" -> "23158"
+    compared against 0). Coercing here means that entire class of bug
+    can't reach this function again, regardless of what changes upstream."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f <= 0:  # NaN check (f != f is only true for NaN) or non-positive
+        return None
+    return f
+
+
 def add_to_watchlist(ticker: str, name: str = "", source: str = "",
                       starting_shares: float = None, starting_value: float = None):
     """
@@ -107,6 +125,8 @@ def add_to_watchlist(ticker: str, name: str = "", source: str = "",
     into the watch portfolio, same as any other buy.
     """
     ticker = ticker.upper().strip()
+    starting_shares = _coerce_positive_float(starting_shares)
+    starting_value  = _coerce_positive_float(starting_value)
     data = load_watchlist()
     if ticker in data["items"]:
         return True, "Already on watchlist"
@@ -120,7 +140,7 @@ def add_to_watchlist(ticker: str, name: str = "", source: str = "",
         "transactions": [],
     }
     commit_message = f"Watchlist: add {ticker} (via {source or 'manual'})"
-    if starting_shares and starting_value and starting_shares > 0 and starting_value > 0:
+    if starting_shares and starting_value:
         price = starting_value / starting_shares
         item["in_watch_portfolio"] = True
         item["transactions"].append({
