@@ -133,40 +133,87 @@ def _get_facts_maybe_cached(ticker: str, cik: str, facts_cache: dict, force_refr
     return facts
 
 
-def _save_facts_cache_updates(updates: dict):
+def _save_facts_cache_updates(updates: dict) -> list:
     """
     updates: {TICKER: {"fetched_at": iso_str, "facts": {...}}} -- newly
     fetched or refreshed entries from the scan that just finished, only
     (tickers served from a still-fresh cache hit are NOT included here,
     since nothing about them needs to be re-persisted). Groups by shard
-    and does exactly one GitHub read+write per shard actually touched,
-    not per ticker -- mirrors the scan-results cache's "one commit per
-    scan" pattern, just per-shard instead of a single file.
+    and does one GitHub read+write per shard actually touched, not per
+    ticker -- mirrors the scan-results cache's "one commit per scan"
+    pattern, just per-shard instead of a single file.
+
+    Returns a list of shard paths that failed to save even after
+    retries, so the caller can surface that to the user rather than
+    silently losing data -- see the retry loop below for why this
+    matters in practice, not just in theory.
+
+    CONFIRMED LIVE (first real scan after this feature shipped, S&P
+    500 universe): a single scan can touch up to
+    EDGAR_FACTS_CACHE_NUM_SHARDS (40) different shard files, and firing
+    that many Contents-API writes back to back with no pacing tripped
+    GitHub's secondary rate limiting -- 13 of 40 shard PUTs failed
+    outright that run. The original version of this function wrapped
+    each PUT in a bare try/except and never even looked at
+    github_put_json()'s own (ok, msg) return value, so those 13
+    failures were silently swallowed: no error, no log, just ~150
+    successfully-fetched tickers quietly never making it into the
+    cache. Fixed with a real retry loop (github_put_json doesn't raise
+    on an HTTP-level failure -- it returns ok=False -- so "except
+    Exception" alone was never going to catch this) plus a short pacing
+    delay between shards so most scans stay under the limit in the
+    first place instead of relying on retries to clean up after it.
     """
     if not updates:
-        return
+        return []
     by_shard = {}
     for ticker, entry in updates.items():
         by_shard.setdefault(_facts_cache_shard_path(ticker), {})[ticker] = entry
-    for path, shard_updates in by_shard.items():
-        try:
-            existing, _sha, _err = github_get_json(path)
-        except Exception:
-            existing = None
-        merged = dict(existing) if existing else {}
-        merged.update(shard_updates)
-        try:
-            github_put_json(
-                path, merged,
-                commit_message=f"EDGAR facts cache update — {path} — {len(shard_updates)} ticker(s)",
-            )
-        except Exception:
-            # Best-effort persistence -- a shard that fails to save just
-            # means those tickers get re-fetched from EDGAR next time
-            # instead of served from cache. Never worth failing the
-            # whole scan (whose real output -- stage1_results -- already
-            # saved successfully by this point) over a cache write.
-            pass
+
+    failed_shards = []
+    shard_paths = list(by_shard.items())
+    for i, (path, shard_updates) in enumerate(shard_paths):
+        if i > 0:
+            # Pacing, not just retry-after-the-fact: GitHub's own
+            # guidance for the Contents API is roughly one
+            # content-creating request per second sustained. Spreading
+            # writes out up front means most scans never need the
+            # retry loop below at all, instead of firing everything as
+            # fast as possible and cleaning up the fallout after.
+            time.sleep(1.0)
+
+        ok = False
+        last_msg = ""
+        for attempt in range(3):
+            if attempt > 0:
+                time.sleep(2 ** attempt)  # 2s, then 4s
+            try:
+                existing, _sha, _err = github_get_json(path)
+            except Exception as e:
+                existing, last_msg = None, str(e)
+                continue
+            merged = dict(existing) if existing else {}
+            merged.update(shard_updates)
+            try:
+                ok, last_msg = github_put_json(
+                    path, merged,
+                    commit_message=f"EDGAR facts cache update — {path} — {len(shard_updates)} ticker(s)",
+                )
+            except Exception as e:
+                ok, last_msg = False, str(e)
+            if ok:
+                break
+        if not ok:
+            # Best-effort persistence -- a shard that still fails after
+            # 3 attempts just means those tickers get re-fetched from
+            # EDGAR next time instead of served from cache. Never worth
+            # failing the whole scan (whose real output --
+            # stage1_results -- already saved successfully by this
+            # point) over a cache write, but IS worth surfacing rather
+            # than hiding, unlike before.
+            failed_shards.append(path)
+    return failed_shards
+
 
 # ── Helper: build context string from results dataframe ──────────────
 def build_ms_context(df):
@@ -749,6 +796,7 @@ def _get_scan_state() -> dict:
         "github_save_msg":   "",
         "facts_cache_hits":   0,
         "facts_cache_misses": 0,
+        "facts_cache_save_failures": [],
     }
 
 
@@ -794,6 +842,7 @@ def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresh
             "finished_at": None, "error": None,
             "github_save_ok": None, "github_save_msg": "",
             "facts_cache_hits": 0, "facts_cache_misses": 0,
+            "facts_cache_save_failures": [],
         })
     threading.Thread(
         target=_run_stage1_scan_background,
@@ -928,7 +977,10 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
     # worth caching for 7 days, and shouldn't be thrown away just
     # because the SCAN itself didn't finish or pass anything.
     if facts_cache_updates:
-        _save_facts_cache_updates(facts_cache_updates)
+        _failed_shards = _save_facts_cache_updates(facts_cache_updates)
+        if _failed_shards:
+            with _get_scan_lock():
+                _get_scan_state()["facts_cache_save_failures"] = _failed_shards
 
     # Persist to GitHub from the background thread itself — this way it
     # happens exactly once regardless of how many browser tabs/sessions
@@ -1858,6 +1910,14 @@ elif _snap["finished_at"] and st.session_state.get('ms_edgar_ingested_finish_ts'
                 f"📦 EDGAR facts cache: {_facts_hits:,} served from cache, "
                 f"{_facts_misses:,} fetched fresh from EDGAR "
                 f"({EDGAR_FACTS_CACHE_MAX_AGE_DAYS}-day freshness window)."
+            )
+        _facts_save_failures = _snap.get("facts_cache_save_failures", [])
+        if _facts_save_failures:
+            st.caption(
+                f"⚠️ {len(_facts_save_failures)} cache shard(s) failed to save after retries — "
+                f"those tickers' fresh data wasn't persisted this run and will simply be "
+                f"re-fetched from EDGAR again next scan (nothing lost from the scan results "
+                f"themselves, only from the cache)."
             )
 
         if _snap.get("github_save_ok") is True:
