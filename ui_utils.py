@@ -369,7 +369,20 @@ def install_instant_nav_hide():
                     '[data-testid="stAppScrollToBottomContainer"], '
                     + '[data-testid="stMain"] {{ display: none !important; }}';
                 doc.head.appendChild(style);
-                setTimeout(function() {{
+                // Scheduled against window.parent (the persistent app
+                // window), NOT a bare setTimeout -- a bare setTimeout here
+                // belongs to THIS iframe, which is destroyed by the very
+                // navigation this timer is meant to guard, well before it
+                // could ever fire. window.parent.setTimeout survives that
+                // teardown since it's scheduled on a realm that isn't
+                // going anywhere. Confirmed live: a page that calls
+                // st.stop() partway through its own script (e.g. Compare
+                // Stocks EDGAR with no tickers selected) short-circuits
+                // app.py's own mark_render_complete()/force_scroll_to_top()
+                // cleanup entirely, and this was the only other thing
+                // that could have removed the hide style -- except it
+                // never fired, leaving the page permanently blank.
+                window.parent.setTimeout(function() {{
                     doc.querySelectorAll("." + HIDE_CLASS).forEach(function(el) {{ el.remove(); }});
                 }}, {_MAX_HIDE_MS} + 3000);
             }}

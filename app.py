@@ -87,24 +87,54 @@ install_instant_nav_hide()
 if _navigated:
     hide_main_for_scroll_fix()
 
-pg.run()
+# Wrapped in try/finally, NOT a plain sequential call -- st.stop() (used
+# by several pages, e.g. Compare Stocks EDGAR showing "no tickers
+# selected yet" and stopping right there) raises an exception that's
+# specifically designed to unwind the ENTIRE script, all the way out of
+# this module, so Streamlit's own runner can see it and end the run.
+# That's correct behavior for st.stop() -- but it also meant everything
+# below used to just never run: mark_render_complete() and
+# force_scroll_to_top() never executed, so hide_main_for_scroll_fix()'s
+# display:none rule (inserted above, before pg.run()) never got removed
+# -- confirmed live on Compare Stocks EDGAR, which comes up entirely
+# blank on any direct navigation to it (sidebar click, deep link, etc. --
+# anything that doesn't arrive via the "Compare" button with
+# compare_tickers already set) and stays that way indefinitely. The
+# install_instant_nav_hide() safety-net timeout that's supposed to catch
+# exactly this doesn't save it either: that timeout is scheduled with a
+# bare setTimeout() inside the PREVIOUS page's own components.html()
+# iframe (at click time, before routing), and gets torn down along with
+# that iframe the moment the new page finishes navigating -- it's
+# guarding against the wrong page's failure to clean up.
+#
+# finally guarantees mark_render_complete()/force_scroll_to_top() always
+# run, whether pg.run() finished normally or was cut short by st.stop()
+# -- and st.stop() partway through is exactly the signal that the page
+# considers itself done rendering anyway, so revealing immediately is
+# the correct behavior, not a workaround. The exception (if any) is
+# re-raised unchanged afterward so Streamlit's own runner still sees it
+# and ends the run exactly as before.
+try:
+    pg.run()
+finally:
+    # Mark that every element this run's page script produced has
+    # actually been sent to the browser -- Streamlit delivers deltas in
+    # script order, so this marker can only land in the real DOM after
+    # everything before it already has. force_scroll_to_top()/
+    # scroll_to_element() gate their reveal on seeing this (see
+    # ui_utils.py module docstring): without it, a heavy page whose
+    # content streams in over several seconds as separate deltas could
+    # get revealed mid-stream, which was the actual cause of Dashboard's
+    # visible bounce -- a quiet gap *between* two deltas looked "settled"
+    # even though the page was nowhere near done.
+    mark_render_complete()
 
-# Mark that every element this run's page script produced has actually
-# been sent to the browser -- Streamlit delivers deltas in script order,
-# so this marker can only land in the real DOM after everything before
-# it already has. force_scroll_to_top()/scroll_to_element() gate their
-# reveal on seeing this (see ui_utils.py module docstring): without it, a
-# heavy page whose content streams in over several seconds as separate
-# deltas could get revealed mid-stream, which was the actual cause of
-# Dashboard's visible bounce -- a quiet gap *between* two deltas looked
-# "settled" even though the page was nowhere near done.
-mark_render_complete()
-
-# If the page itself just triggered a results-anchor scroll on this same
-# run (e.g. arriving here via navigation right as a background scan
-# finishes ingesting), let that win instead of also forcing the literal
-# page top -- see scroll_to_element()'s docstring in ui_utils.py for why
-# running both at once would fight forever instead of settling anywhere.
-_page_scrolled_to_results = st.session_state.pop("_scroll_to_element_fired", False)
-if _navigated and not _page_scrolled_to_results:
-    force_scroll_to_top()
+    # If the page itself just triggered a results-anchor scroll on this
+    # same run (e.g. arriving here via navigation right as a background
+    # scan finishes ingesting), let that win instead of also forcing the
+    # literal page top -- see scroll_to_element()'s docstring in
+    # ui_utils.py for why running both at once would fight forever
+    # instead of settling anywhere.
+    _page_scrolled_to_results = st.session_state.pop("_scroll_to_element_fired", False)
+    if _navigated and not _page_scrolled_to_results:
+        force_scroll_to_top()
