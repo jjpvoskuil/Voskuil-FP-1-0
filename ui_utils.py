@@ -297,27 +297,67 @@ def hide_main_for_scroll_fix():
     scroll_to_element) is responsible for removing this rule once the
     position has actually settled -- see both docstrings below.
 
-    ALSO installs its own independent client-side cleanup timer, entirely
-    separate from the one built into force_scroll_to_top()/
-    scroll_to_element() -- confirmed live that those two are NOT a
-    reliable enough safety net on their own. Root cause: st.stop() (used
-    by several pages -- e.g. Compare Stocks EDGAR, which calls it when
-    navigated to directly without tickers already selected) raises an
-    exception that Streamlit's own ScriptRunner re-raises again on the
-    very next `st.foo()` call, for the rest of that run, no matter where
-    that call is made from -- including a try/finally in app.py wrapped
-    around pg.run(). That was tried first and confirmed NOT to work: the
-    finally block's own mark_render_complete()/force_scroll_to_top()
-    calls are themselves `st.foo()` calls, so they re-trigger the exact
-    same stop-check and get cut off before rendering anything, every
-    time. There is no way to run additional Streamlit code after
-    pg.run() on a run that called st.stop() -- confirmed against
-    Streamlit's own source (streamlit/runtime/scriptrunner/script_runner.py,
+    ALSO installs its own independent client-side cleanup, entirely
+    separate from force_scroll_to_top()/scroll_to_element() -- confirmed
+    live that those two are NOT a reliable enough safety net on their
+    own. Root cause: st.stop() (used by several pages -- e.g. Compare
+    Stocks EDGAR, which calls it when navigated to directly without
+    tickers already selected) raises an exception that Streamlit's own
+    ScriptRunner re-raises again on the very next `st.foo()` call, for
+    the rest of that run, no matter where that call is made from --
+    including a try/finally in app.py wrapped around pg.run(). That was
+    tried first and confirmed NOT to work: the finally block's own
+    mark_render_complete()/force_scroll_to_top() calls are themselves
+    `st.foo()` calls, so they re-trigger the exact same stop-check and
+    get cut off before rendering anything, every time. There is no way
+    to run additional Streamlit code after pg.run() on a run that called
+    st.stop() -- confirmed against Streamlit's own source
+    (streamlit/runtime/scriptrunner/script_runner.py,
     _maybe_handle_execution_control_request(): every enqueued ForwardMsg
     re-checks the pending stop request and raises again while it's set).
     So the cleanup for THIS hide has to be self-contained, scheduled here
     and only here, before pg.run() -- and specifically before anything
     downstream has a chance to abort the rest of the script.
+
+    First version of this used a single flat timer at {_MAX_HIDE_MS} +
+    3000ms (matching force_scroll_to_top()'s own hard cap) -- functionally
+    correct (Compare Stocks stopped being permanently blank) but the
+    owner immediately flagged the UX cost: a plain st.stop() page (e.g.
+    the "no tickers selected" message, three small elements) still took
+    a flat 15 real seconds to appear every single time, long enough that
+    on first encountering it they assumed the page hadn't loaded at all
+    and navigated away. Replaced with the same quiet-then-reveal polling
+    force_scroll_to_top() uses (track the container's own scrollHeight,
+    reset a quiet-clock on any change, reveal once nothing has changed
+    for {_QUIET_MS_BEFORE_REVEAL}ms) -- just without that function's gate
+    on the render-complete marker, since a page that calls st.stop() can
+    never produce that marker at all (mark_render_complete() is itself
+    an `st.foo()` call, blocked the same way). Safe to drop that gate
+    specifically here because this fallback only ever ends up being the
+    one that actually reveals anything on a page that stopped very early
+    with a handful of static elements and nothing left to stream in --
+    any page that completes pg.run() normally (e.g. Compare Stocks with
+    valid tickers actually loaded) still gets revealed by
+    force_scroll_to_top()'s own marker-gated path first, well before this
+    fallback's quiet timer would fire, making this a no-op cleanup for
+    that case (querySelectorAll simply finds nothing left to remove).
+
+    One risk specific to dropping the marker gate: this polling starts
+    immediately, before pg.run() has sent a single delta for the page
+    being navigated TO -- at that instant the container still holds the
+    PREVIOUS page's content/height, so if the server takes a moment to
+    even start streaming the new page, scrollHeight could look
+    artificially "unchanged" during that gap and reveal on stale content
+    before the real page has arrived. Guarded with a minimum floor
+    ({_QUIET_MS_BEFORE_REVEAL * 2}ms since this script started) before
+    the quiet-based reveal is allowed to fire at all, giving the
+    server round-trip a chance to start before any "quiet" reading counts
+    -- doesn't fully eliminate the race in theory, but combined with the
+    fact that this path only matters in practice for st.stop() pages
+    (whose entire output arrives in one small, synchronous burst, not a
+    slow stream), it's a solid safety margin. The {_MAX_HIDE_MS} + 3000ms
+    timer remains as the absolute last-resort cap if scrollHeight polling
+    somehow never settles.
     """
     st.markdown(
         f'<style id="{_HIDE_STYLE_ID}" class="{_HIDE_STYLE_CLASS}">'
@@ -327,15 +367,39 @@ def hide_main_for_scroll_fix():
     )
     components.html(
         f"""<script>
-        // Scheduled on window.parent (the persistent app window), not a
-        // bare setTimeout -- this iframe itself gets torn down almost
-        // immediately (the very next rerun, e.g. pg.run() executing the
-        // navigated-to page), well before {_MAX_HIDE_MS} + 3000ms could
-        // ever elapse if the timer were scoped to it instead.
-        window.parent.setTimeout(function() {{
+        {_GET_SCROLL_CONTAINER_JS}
+        var _lastHeight = null;
+        var _lastChangeAt = Date.now();
+        var _start = Date.now();
+        var _done = false;
+
+        function _revealIfPresent() {{
             window.parent.document.querySelectorAll(".{_HIDE_STYLE_CLASS}")
                 .forEach(function(el) {{ el.remove(); }});
-        }}, {_MAX_HIDE_MS} + 3000);
+        }}
+
+        // Scheduled via window.parent (the persistent app window), not a
+        // bare setInterval/setTimeout -- this iframe itself gets torn
+        // down almost immediately (the very next rerun, e.g. pg.run()
+        // executing the navigated-to page), well before a timer scoped
+        // to it could ever fire.
+        var _iv = window.parent.setInterval(function() {{
+            if (_done) {{ window.parent.clearInterval(_iv); return; }}
+            var c = _getScrollContainer();
+            var h = c ? c.scrollHeight : null;
+            if (h !== _lastHeight) {{
+                _lastHeight = h;
+                _lastChangeAt = Date.now();
+            }}
+            var pastFloor = Date.now() - _start > {_QUIET_MS_BEFORE_REVEAL * 2};
+            var quiet = pastFloor && (Date.now() - _lastChangeAt > {_QUIET_MS_BEFORE_REVEAL});
+            var capped = Date.now() - _start > {_MAX_HIDE_MS} + 3000;
+            if (quiet || capped) {{
+                _revealIfPresent();
+                _done = true;
+                window.parent.clearInterval(_iv);
+            }}
+        }}, {_REVEAL_CHECK_INTERVAL_MS});
         </script>""",
         height=0,
     )
