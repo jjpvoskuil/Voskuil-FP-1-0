@@ -1379,10 +1379,19 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                     # call every other page uses, with a live price fetch
                     # (this tool doesn't otherwise touch price at all).
                     dbg_price_data = fetch_price_data(dbg_ticker)
+                    # (2026-07-23) yfinance's "sharesOutstanding" has a
+                    # documented history of intermittently returning None
+                    # for a given ticker even on retried requests --
+                    # confirmed live for ALL specifically (a data gap in
+                    # Yahoo's response, not a network blip). EDGAR already
+                    # gives a reliable diluted share count regardless of
+                    # what yfinance does -- same fallback
+                    # fetch_fundamentals_edgar() already uses elsewhere.
+                    dbg_shares = dbg_price_data.get("shares") or dbg_latest.get("diluted_shares")
                     dbg_dcf = compute_dcf_value({
                         **dbg_latest,
                         "price":      dbg_price_data.get("price"),
-                        "shares":     dbg_price_data.get("shares"),
+                        "shares":     dbg_shares,
                         "market_cap": dbg_price_data.get("market_cap"),
                         "_history":   {"fcf": dbg_history.get("fcf", [])},
                     })
@@ -1396,7 +1405,7 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                     dbg_ri = compute_residual_income_value({
                         **dbg_latest,
                         "price":      dbg_price_data.get("price"),
-                        "shares":     dbg_price_data.get("shares"),
+                        "shares":     dbg_shares,
                         "market_cap": dbg_price_data.get("market_cap"),
                         "_latest":    dbg_latest,
                         "_history":   {"roe": dbg_history.get("roe", [])},
@@ -1889,6 +1898,19 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
             if min_div and not div_yield:
                 dropped_tickers.append((_fut_ticker, "no dividend (Dividend payers only filter active)"))
                 continue
+
+            # (2026-07-23) yfinance's "sharesOutstanding" field has a
+            # documented history of intermittently returning None for a
+            # given ticker even on repeated/retried requests -- confirmed
+            # live for ALL specifically (a data gap in Yahoo's response,
+            # not a network blip a retry can fix). EDGAR filings already
+            # give us a reliable diluted share count for every ticker
+            # regardless of what yfinance does -- same fallback
+            # fetch_fundamentals_edgar() already uses for Dashboard/
+            # Equity Scout/Compare Stocks, just missing here until now.
+            # Applied BEFORE the P/OE calc below so that benefits too,
+            # not just the residual-income/DCF fields further down.
+            shares = shares or (qdata.get("_latest") or {}).get("diluted_shares")
 
             fcf        = qdata.get("fcf")
             owner_earn = qdata.get("owner_earnings")
