@@ -233,6 +233,41 @@ el.disabled = true: same instant visual effect (the stylesheet stops
 applying immediately) without ever detaching the node from the DOM, so
 React's own bookkeeping stays consistent and its eventual real removal
 of the node -- whenever it decides to -- always succeeds normally.
+
+COLD LOAD (2026-07-23, the actual final chapter): everything above closes
+the mid-session navigation bounce for good, but a separate symptom
+persisted specifically on a genuinely cold/fresh session -- Dashboard
+scrolled to the bottom on first open, with no click event for
+install_instant_nav_hide() to hook and no prior page's script already
+running to hide things early. Confirmed live via Claude in Chrome: the
+actual mechanism is Dashboard's own st.chat_input(...) call, which is
+what makes Streamlit wrap the page in stAppScrollToBottomContainer in
+the first place (see the "Real scroll container" note near the top of
+this docstring) -- and mounting that widget is what triggers Streamlit's
+native auto-scroll-to-bottom-on-mount behavior. Every fix above is
+delivered as a Python-script delta via components.html(), which requires
+a full browser round trip (connect, run script, send delta, apply it) --
+on a cold session, Streamlit's own core bundle can mount the chat
+container and fire its native scroll before any of that has even
+happened. This is a hard architectural race that no amount of downstream
+correction (hide CSS, scroll-behavior overrides, scrollTop guards -- all
+of it Python-delivered, all of it necessarily later) can reliably win,
+because it's not fighting Streamlit's *output*, it's trying to out-race
+Streamlit's own *boot sequence*.
+
+Fixed at the actual root instead of adding a ninth corrective layer:
+app_pages/0_Dashboard.py now defers the st.chat_input(...) call itself
+behind an explicit st.session_state["dash_chat_enabled"] gate. On a cold
+load nothing calls st.chat_input at all, so Streamlit never creates the
+auto-scroll container -- there is nothing left to race against, full
+stop. The gate opens (and stays open for the rest of the session,
+including navigating away and back) the moment the user clicks the
+"Ask Claude about your portfolio" button or a starter question, both
+click-driven the same way sidebar navigation is -- not a cold, unhooked
+mount. If this pattern (st.chat_input on a page that isn't primarily a
+chat interface) is ever added to another page, this is the fix to reach
+for FIRST, not the eight corrective layers above it -- removing the
+race beats winning it.
 """
 
 import streamlit as st
