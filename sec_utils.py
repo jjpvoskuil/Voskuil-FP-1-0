@@ -1645,6 +1645,214 @@ def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
     }
 
 
+# ── Residual Income (Excess Return) valuation — banks/insurers ───────────────
+# compute_dcf_value() above deliberately doesn't apply to a bank/insurer:
+# "FCF" as op_cf+inv_cf is dominated by loan/investment-portfolio volume
+# for a leveraged balance-sheet business, not a meaningful cash-flow
+# figure (see fetch_stage1_data_edgar()'s docstring on Market Screener
+# and investment_verdict()'s bank/insurer quality-leg swap for the same
+# point made elsewhere in this file). The standard textbook/Damodaran
+# alternative for financial firms sidesteps FCF entirely: value = book
+# value + the present value of the EXCESS return earned above the cost
+# of equity, applied to book value each year -- book value and ROE ARE
+# meaningful for these businesses even when FCF isn't.
+#
+# Two flavors, per owner request (2026-07-23) to show BOTH side by side
+# rather than pick one, since a big gap between them IS the useful
+# signal:
+#
+#   single_stage -- today's ROE held constant forever. Reduces to a
+#     justified Price/Book multiple: (ROE - g) / (cost_of_equity - g),
+#     applied to book value/share. Fast, no fade assumption, but bakes
+#     in whatever ROE the company posted most recently as if it were
+#     permanent.
+#
+#   multi_stage -- ROE fades linearly from today's figure toward this
+#     company's own 10-yr average ROE (a fixed fallback if there's not
+#     enough history) over the explicit projection window, THEN a
+#     Gordon Growth terminal value beyond that -- same two-stage shape
+#     as compute_dcf_value() above, just built on ROE/book-value excess
+#     returns instead of cash flow. Book value compounds each year at a
+#     growth rate implied by that year's (faded) ROE and a retention
+#     ratio solved from the sustainable-growth relationship (g = ROE x
+#     retention), anchored so growth lands exactly on terminal_growth by
+#     the end of the window -- connects smoothly into the terminal
+#     value with no discontinuity.
+#
+# Motivating case: ALL's own FCF swung from $679M to $2.86B in
+# consecutive years -- a strong signal its underwriting results are
+# cyclical, not steady. Single-stage extrapolating whatever year you
+# happen to be looking at forever can be badly misleading for a name
+# like that; multi-stage fading back toward its own normal range is the
+# more defensible number, but showing both lets a big gap between them
+# flag exactly this situation rather than silently picking one and
+# hiding the disagreement. A stable, non-cyclical insurer should show
+# the two numbers landing close together -- itself a useful (lack of a)
+# signal.
+RESIDUAL_INCOME_DEFAULTS = {
+    "cost_of_equity":         0.10,   # equity-specific hurdle, not the FCF DCF's blended 9% -- equity holders in a leveraged financial-firm balance sheet bear more risk than that blended rate reflects
+    "terminal_growth":        0.025,  # same long-run GDP/inflation ceiling as the FCF DCF
+    "projection_years":       10,     # same explicit horizon as the FCF DCF, for comparability
+    "default_normalized_roe": 0.12,   # fallback normalized/terminal ROE when there's not enough history for this company's own 10-yr average
+}
+
+
+def compute_residual_income_value(data: dict, assumptions: dict = None) -> dict:
+    """
+    Residual-income intrinsic value for a bank/insurer, single-stage AND
+    multi-stage -- see the module comment directly above for the full
+    methodology and why both are computed.
+
+    `data` needs "roe", "shares", and either "price" or "market_cap" (per-
+    share MoS if price+shares available, else a market-cap-basis MoS, same
+    fallback pattern as compute_dcf_value()), plus "_latest" containing
+    "total_equity" and (optionally) "_history" containing "roe" for the
+    normalized-ROE estimate -- all already present in the standard
+    fetch_fundamentals_edgar()-shaped dict for a bank/insurer, and in
+    Market Screener's Stage 2 results after the "shares" fix.
+
+    Returns:
+    {
+        "book_value_per_share":      float | None,
+        "current_roe":                float | None,
+        "normalized_roe":             float | None,
+        "normalized_roe_years_used":  int,
+        "cost_of_equity":             float,
+        "terminal_growth":            float,
+        "projection_years":           int,
+        "single_stage": {"intrinsic_value_per_share": .., "margin_of_safety": .., "error": ..},
+        "multi_stage":  {"intrinsic_value_per_share": .., "margin_of_safety": .., "error": ..},
+        "divergence":                 float | None,  # |single - multi| / avg(single, multi)
+        "error":                      str | None,     # set only if NEITHER model could run at all
+    }
+    """
+    a  = {**RESIDUAL_INCOME_DEFAULTS, **(assumptions or {})}
+    r  = a["cost_of_equity"]
+    tg = a["terminal_growth"]
+    n  = a["projection_years"]
+
+    roe          = data.get("roe")
+    price        = data.get("price")
+    shares       = data.get("shares")
+    market_cap   = data.get("market_cap")
+    total_equity = (data.get("_latest") or {}).get("total_equity")
+
+    def _empty(err):
+        return {
+            "book_value_per_share": None, "current_roe": roe,
+            "normalized_roe": None, "normalized_roe_years_used": 0,
+            "cost_of_equity": r, "terminal_growth": tg, "projection_years": n,
+            "single_stage": {"intrinsic_value_per_share": None, "margin_of_safety": None, "error": err},
+            "multi_stage":  {"intrinsic_value_per_share": None, "margin_of_safety": None, "error": err},
+            "divergence": None, "error": err,
+        }
+
+    if roe is None or not math.isfinite(roe):
+        return _empty("ROE unavailable — residual income model needs it.")
+    if total_equity is None or not math.isfinite(total_equity) or total_equity <= 0:
+        return _empty("Book value (total equity) unavailable or non-positive.")
+    if not (shares and shares > 0):
+        return _empty("Shares outstanding unavailable — can't compute a per-share book value.")
+
+    bvps = total_equity / shares
+    if not math.isfinite(bvps) or bvps <= 0:
+        return _empty("Book value per share computation produced a non-finite or non-positive result.")
+
+    # Normalized/terminal ROE: this company's own 10-yr average where
+    # there's enough history, else the fixed fallback -- same "own
+    # trend, not a generic assumption, when we have enough data"
+    # philosophy as compute_dcf_value()'s growth-rate estimate.
+    roe_hist = (data.get("_history") or {}).get("roe", [])
+    roe_hist_clean = [h for h in roe_hist
+                       if h.get("value") is not None and math.isfinite(h["value"])]
+    roe_avg_result = _historical_average(roe_hist_clean, lookback_years=10, min_years=5)
+    if roe_avg_result["sufficient"]:
+        normalized_roe = roe_avg_result["avg"]
+    else:
+        normalized_roe = a["default_normalized_roe"]
+    normalized_roe_years_used = roe_avg_result["years_used"]
+
+    # Guard against a nonsensical negative-denominator terminal value,
+    # same pattern as compute_dcf_value().
+    _tg = tg if tg < r else r - 0.01
+
+    def _mos(iv):
+        if iv is None or not math.isfinite(iv) or iv <= 0:
+            return None
+        if price and price > 0:
+            return (iv - price) / iv
+        if market_cap and market_cap > 0 and shares:
+            total_iv = iv * shares
+            return (total_iv - market_cap) / total_iv if total_iv else None
+        return None
+
+    # ── Single-stage: today's ROE held constant forever ───────────────
+    single_error = None
+    justified_pb = max(0.0, (roe - _tg) / (r - _tg))
+    single_iv = justified_pb * bvps
+    if not math.isfinite(single_iv):
+        single_iv, single_error = None, "Single-stage produced a non-finite result."
+
+    # ── Multi-stage: linear ROE fade to normalized, book value compounds
+    # at a retention-implied growth rate each year, then a terminal
+    # value beyond the explicit window ────────────────────────────────
+    multi_error = None
+    multi_iv    = None
+    if normalized_roe <= 0:
+        multi_error = "Normalized ROE is not positive — multi-stage model isn't meaningful."
+    else:
+        retention_ratio = max(0.0, min(1.0, _tg / normalized_roe))
+        bv     = bvps
+        pv_sum = 0.0
+        for t in range(1, n + 1):
+            frac  = t / n
+            roe_t = roe + (normalized_roe - roe) * frac
+            excess_return_t = (roe_t - r) * bv
+            pv_sum += excess_return_t / ((1 + r) ** t)
+            bv = bv * (1 + roe_t * retention_ratio)
+
+        # bv here is BV_n (book value at end of the explicit window =
+        # start of the terminal perpetuity's first year), and ROE has
+        # already fully faded to normalized_roe -- so the perpetuity's
+        # first term is directly (normalized_roe - r) * bv, no further
+        # growth adjustment needed (bv is a balance, not a flow that
+        # itself needs bumping forward a year the way compute_dcf_value's
+        # FCF figure does).
+        terminal_excess = (normalized_roe - r) * bv
+        if (r - _tg) > 0:
+            terminal_value = terminal_excess / (r - _tg)
+            pv_terminal    = terminal_value / ((1 + r) ** n)
+        else:
+            pv_terminal = 0.0
+
+        multi_iv = bvps + pv_sum + pv_terminal
+        if not math.isfinite(multi_iv):
+            multi_iv, multi_error = None, "Multi-stage produced a non-finite result."
+
+    single_mos = _mos(single_iv) if not single_error else None
+    multi_mos  = _mos(multi_iv) if not multi_error else None
+
+    divergence = None
+    if single_iv is not None and multi_iv is not None and math.isfinite(single_iv) and math.isfinite(multi_iv):
+        avg_iv = (single_iv + multi_iv) / 2
+        if avg_iv > 0:
+            divergence = abs(single_iv - multi_iv) / avg_iv
+
+    return {
+        "book_value_per_share":     bvps,
+        "current_roe":              roe,
+        "normalized_roe":           normalized_roe,
+        "normalized_roe_years_used": normalized_roe_years_used,
+        "cost_of_equity":           r,
+        "terminal_growth":          tg,
+        "projection_years":         n,
+        "single_stage": {"intrinsic_value_per_share": single_iv, "margin_of_safety": single_mos, "error": single_error},
+        "multi_stage":  {"intrinsic_value_per_share": multi_iv, "margin_of_safety": multi_mos, "error": multi_error},
+        "divergence": divergence,
+        "error": None,
+    }
+
+
 def score_to_label(score):
     """Pure quality-score label -- score thresholds only, no price/value
     check. Superseded as the app-wide recommendation verdict by

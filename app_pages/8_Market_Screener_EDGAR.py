@@ -14,7 +14,7 @@ from sec_utils import (
     get_cik, get_ticker_cik_map, fetch_company_facts_with_cik, DEFAULT_WEIGHTS,
     evaluate_buffett_funnel, FUNNEL_THRESHOLDS,
     evaluate_financial_firm_funnel, score_financial_firm_breakdown,
-    compute_dcf_value,
+    compute_dcf_value, compute_residual_income_value,
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
@@ -1348,15 +1348,96 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                         "market_cap": dbg_price_data.get("market_cap"),
                         "_history":   {"fcf": dbg_history.get("fcf", [])},
                     })
+                    # (2026-07-23, owner: "is there another way to
+                    # calculate the IV for insurers that is accurate?")
+                    # FCF-DCF above always errors for a bank/insurer by
+                    # design (see compute_residual_income_value()'s
+                    # module docstring for why). Residual income model
+                    # computed here too so the financial-firm branch can
+                    # show real numbers instead of "N/A".
+                    dbg_ri = compute_residual_income_value({
+                        **dbg_latest,
+                        "price":      dbg_price_data.get("price"),
+                        "shares":     dbg_price_data.get("shares"),
+                        "market_cap": dbg_price_data.get("market_cap"),
+                        "_latest":    dbg_latest,
+                        "_history":   {"roe": dbg_history.get("roe", [])},
+                    })
 
                     def _show_dcf_block():
+                        _is_fin = dbg_subtype in ("bank", "insurance")
+
+                        if _is_fin:
+                            # ── Residual income (single + multi stage),
+                            # shown side by side rather than picking one --
+                            # a big gap between them is itself the useful
+                            # signal (today's ROE running well off this
+                            # company's own normal range), not just a
+                            # number to reconcile away. See
+                            # compute_residual_income_value()'s module
+                            # docstring in sec_utils.py for the full
+                            # methodology.
+                            st.markdown("#### Valuation (Residual Income Model — bank/insurer)")
+                            st.caption(
+                                "FCF-based DCF doesn't apply to a leveraged balance-sheet business "
+                                "(loan/investment-portfolio volume dominates it, not real cash generation). "
+                                "This values book value + the present value of returns earned above the "
+                                "cost of equity instead."
+                            )
+                            _dv1, _dv2 = st.columns(2)
+                            with _dv1:
+                                _cp = dbg_price_data.get("price")
+                                st.metric("Current Price", f"${_cp:.2f}" if _cp else "N/A")
+                            with _dv2:
+                                _bv = dbg_ri.get("book_value_per_share")
+                                st.metric("Book Value/Share", f"${_bv:.2f}" if _bv is not None else "N/A")
+
+                            if dbg_ri.get("error"):
+                                st.caption(f"💰 **Residual Income Model:** — _{dbg_ri['error']}_")
+                                return
+
+                            st.caption(
+                                f"Current ROE: {dbg_ri['current_roe']:.1%} · "
+                                f"Normalized ROE (10-yr avg, {dbg_ri['normalized_roe_years_used']}y used): "
+                                f"{dbg_ri['normalized_roe']:.1%}"
+                            )
+                            _rs1, _rs2 = st.columns(2)
+                            with _rs1:
+                                st.markdown("**Single-Stage** _(today's ROE held forever)_")
+                                _s = dbg_ri["single_stage"]
+                                if _s["error"]:
+                                    st.caption(f"— _{_s['error']}_")
+                                else:
+                                    st.metric("Intrinsic Value", f"${_s['intrinsic_value_per_share']:.2f}/sh")
+                                    _smos = _s["margin_of_safety"]
+                                    st.caption(f"MoS: {_smos:+.0%}" if _smos is not None else "MoS: —")
+                            with _rs2:
+                                st.markdown("**Multi-Stage** _(ROE fades to normal)_")
+                                _m = dbg_ri["multi_stage"]
+                                if _m["error"]:
+                                    st.caption(f"— _{_m['error']}_")
+                                else:
+                                    st.metric("Intrinsic Value", f"${_m['intrinsic_value_per_share']:.2f}/sh")
+                                    _mmos = _m["margin_of_safety"]
+                                    st.caption(f"MoS: {_mmos:+.0%}" if _mmos is not None else "MoS: —")
+
+                            _div = dbg_ri.get("divergence")
+                            if _div is not None:
+                                if _div >= 0.30:
+                                    st.warning(f"⚠️ {_div:.0%} gap between single- and multi-stage — current ROE looks well off this company's own normal range. Worth digging into why before trusting either number.")
+                                elif _div >= 0.15:
+                                    st.info(f"ℹ️ {_div:.0%} gap between single- and multi-stage — some divergence, worth a closer look.")
+                                else:
+                                    st.caption(f"✅ Only {_div:.0%} gap between single- and multi-stage — ROE looks fairly stable.")
+                            return
+
+                        # ── Standard FCF-based DCF (non-financial) ──────
                         # (2026-07-23) Current price used to only be shown
                         # if the DCF succeeded -- an early "return" on any
-                        # DCF error (bank/insurer FCF being unavailable by
-                        # design, most commonly) meant price never showed
-                        # either, even though the price fetch itself had
-                        # nothing to do with the DCF failing. Price is now
-                        # always shown; only IV/MoS fall back to N/A.
+                        # DCF error meant price never showed either, even
+                        # though the price fetch itself had nothing to do
+                        # with the DCF failing. Price is now always shown;
+                        # only IV/MoS fall back to N/A.
                         st.markdown("#### Valuation (DCF, default assumptions)")
                         _dv1, _dv2, _dv3 = st.columns(3)
                         with _dv1:
@@ -1366,9 +1447,7 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                             with _dv2:
                                 st.metric("Intrinsic Value", "N/A")
                             with _dv3:
-                                _is_fin = dbg_subtype in ("bank", "insurance")
-                                st.metric("Margin of Safety", "N/A" if _is_fin else "—",
-                                          help=dbg_dcf["error"])
+                                st.metric("Margin of Safety", "—", help=dbg_dcf["error"])
                             return
                         with _dv2:
                             _iv = dbg_dcf.get("intrinsic_value_per_share")
@@ -2120,6 +2199,22 @@ if 'ms_edgar_results_df' in st.session_state:
     results_df['margin_of_safety']       = _dcf_results.apply(lambda d: d.get('margin_of_safety'))
     results_df['intrinsic_value_per_share'] = _dcf_results.apply(lambda d: d.get('intrinsic_value_per_share'))
 
+    # ── Residual Income valuation — banks/insurers only ────────────────
+    # FCF-DCF above always errors for these rows by design (see
+    # compute_residual_income_value()'s module docstring in sec_utils.py
+    # for why). No per-ticker _history carried through Stage 1/2 for
+    # financial firms either (same market-wide-scan memory-footprint
+    # tradeoff as the FCF-DCF's growth-rate estimate above), so the
+    # normalized-ROE fade target uses the fixed default rather than each
+    # company's own 10-yr average here -- the single-ticker debug tool
+    # above fetches full history and gets the real figure instead.
+    _ri_results = results_df.apply(lambda r: compute_residual_income_value(r.to_dict()), axis=1)
+    results_df['ri_single_mos'] = _ri_results.apply(lambda d: d.get('single_stage', {}).get('margin_of_safety'))
+    results_df['ri_single_iv']  = _ri_results.apply(lambda d: d.get('single_stage', {}).get('intrinsic_value_per_share'))
+    results_df['ri_multi_mos']  = _ri_results.apply(lambda d: d.get('multi_stage', {}).get('margin_of_safety'))
+    results_df['ri_multi_iv']   = _ri_results.apply(lambda d: d.get('multi_stage', {}).get('intrinsic_value_per_share'))
+    results_df['ri_divergence'] = _ri_results.apply(lambda d: d.get('divergence'))
+
     _sort_map = {
         "Ticker (A-Z)":                          ("ticker", True),
         "10yr Avg ROIC (High-Low)":              ("roic_avg", False),
@@ -2252,21 +2347,50 @@ if 'ms_edgar_results_df' in st.session_state:
                 _price  = row.get('price')
                 _is_fin = row.get('financial_subtype') in ("bank", "insurance")
 
-                if pd.notna(_mos):
+                if _is_fin:
+                    # (2026-07-23, owner: "is there another way to
+                    # calculate the IV for insurers that is accurate?")
+                    # Residual income model (materialized above) instead
+                    # of the FCF-DCF, which always errors for these rows
+                    # by design. Multi-stage (ROE fades toward normalized)
+                    # shown as the headline number since it's the more
+                    # defensible one for a cyclical name -- single-stage
+                    # and the gap between them in the caption, same "show
+                    # both, flag a big gap" approach as the debug tool.
+                    _ri_multi_mos  = row.get('ri_multi_mos')
+                    _ri_single_mos = row.get('ri_single_mos')
+                    _ri_multi_iv   = row.get('ri_multi_iv')
+                    _ri_div        = row.get('ri_divergence')
+                    if pd.notna(_ri_multi_mos):
+                        st.metric("MoS (Residual Income)", f"{_ri_multi_mos:+.0%}",
+                                  help="Multi-stage residual income model (ROE fades to normalized) -- see Debug tool above for full detail")
+                    else:
+                        st.metric("MoS (Residual Income)", "N/A", help="ROE, book value, or shares unavailable for this ticker")
+                    _bits = []
+                    if pd.notna(_price):
+                        _bits.append(f"${_price:.0f} now")
+                    if pd.notna(_ri_multi_iv):
+                        _bits.append(f"${_ri_multi_iv:.0f} target")
+                    if pd.notna(_ri_single_mos):
+                        _bits.append(f"single-stage: {_ri_single_mos:+.0%}")
+                    if _bits:
+                        st.caption(" → ".join(_bits))
+                    if pd.notna(_ri_div) and _ri_div >= 0.30:
+                        st.caption("⚠️ ROE well off normal — see Debug tool")
+                elif pd.notna(_mos):
                     st.metric("Margin of Safety", f"{_mos:+.0%}",
                               help="DCF intrinsic value (default assumptions)")
-                elif _is_fin:
-                    st.metric("Margin of Safety", "N/A", help="FCF-based DCF doesn't apply to banks/insurers (see alt score/checklist above instead)")
+                    _price_bits = []
+                    if pd.notna(_price):
+                        _price_bits.append(f"${_price:.0f} now")
+                    if pd.notna(_iv):
+                        _price_bits.append(f"${_iv:.0f} target")
+                    if _price_bits:
+                        st.caption(" → ".join(_price_bits))
                 else:
                     st.metric("Margin of Safety", "—", help="FCF, price, or shares unavailable for this ticker")
-
-                _price_bits = []
-                if pd.notna(_price):
-                    _price_bits.append(f"${_price:.0f} now")
-                if pd.notna(_iv):
-                    _price_bits.append(f"${_iv:.0f} target")
-                if _price_bits:
-                    st.caption(" → ".join(_price_bits))
+                    if pd.notna(_price):
+                        st.caption(f"${_price:.0f} now")
             if _has_si and c9 is not None:
                 with c9:
                     si_n     = int(row.get('si_holders', 0))
