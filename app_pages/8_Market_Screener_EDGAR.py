@@ -807,6 +807,8 @@ def _get_scan_state() -> dict:
         "facts_cache_hits":   0,
         "facts_cache_misses": 0,
         "facts_cache_save_failures": [],
+        "facts_cache_loaded_count": 0,
+        "facts_cache_load_errors":  [],
     }
 
 
@@ -818,7 +820,8 @@ def _scan_snapshot() -> dict:
 
 def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
                                    skip_financials, universe_label, cache_path,
-                                   facts_cache=None, force_refresh_facts=False):
+                                   facts_cache=None, force_refresh_facts=False,
+                                   facts_cache_load_errors=None):
     """
     Initializes the cache_resource-backed scan state and spawns the background thread. Called
     from the MAIN script thread (the button-click handler), NOT from
@@ -853,6 +856,8 @@ def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresh
             "github_save_ok": None, "github_save_msg": "",
             "facts_cache_hits": 0, "facts_cache_misses": 0,
             "facts_cache_save_failures": [],
+            "facts_cache_loaded_count": len(facts_cache or {}),
+            "facts_cache_load_errors": list(facts_cache_load_errors or []),
         })
     threading.Thread(
         target=_run_stage1_scan_background,
@@ -1123,6 +1128,19 @@ def _render_scan_progress_fragment():
         "This keeps running even if you navigate to other pages or close this tab — come back "
         "anytime to check progress. (It does NOT survive an app restart/redeploy.)"
     )
+    _loaded_count = snap.get("facts_cache_loaded_count", 0)
+    st.caption(f"📦 EDGAR facts cache: {_loaded_count:,} cached ticker(s) loaded from GitHub before this scan started.")
+    _load_errs = snap.get("facts_cache_load_errors", [])
+    if _load_errs:
+        with st.expander(f"⚠️ {len(_load_errs)} cache shard(s) failed to load"):
+            st.caption(
+                "These shards errored out on read (scan just fetches those tickers fresh from "
+                "EDGAR instead, same as a cold cache):"
+            )
+            for e in _load_errs[:10]:
+                st.caption(f"- {e}")
+            if len(_load_errs) > 10:
+                st.caption(f"… +{len(_load_errs)-10} more")
     if st.button("🛑 Cancel Scan", key="ms_cancel_scan_btn"):
         with _get_scan_lock():
             _get_scan_state()["cancel_requested"] = True
@@ -1844,24 +1862,25 @@ if run_screen:
         # the user asked to bypass the cache entirely this run, in which
         # case there's no point spending the GitHub reads on a cache
         # every ticker is about to ignore anyway.
+        _load_errors = []
         if force_refresh_facts:
             facts_cache = {}
         else:
             with st.spinner("Loading cached EDGAR history..."):
                 facts_cache, _load_errors = _load_facts_cache_shards(tickers_to_scan)
-            st.caption(f"📦 Loaded {len(facts_cache):,} cached ticker(s) from GitHub before starting.")
-            if _load_errors:
-                st.warning(
-                    f"⚠️ {len(_load_errors)} cache shard(s) failed to load (scan will just fetch "
-                    f"those tickers fresh from EDGAR instead, same as a cold cache):\n\n"
-                    + "\n".join(f"- {e}" for e in _load_errors[:10])
-                    + (f"\n- … +{len(_load_errors)-10} more" if len(_load_errors) > 10 else "")
-                )
+        # NOTE: deliberately not st.caption()'d here -- this whole branch
+        # is on the run that's about to call st.rerun() a few lines down
+        # to hand off to the "scan active" state, so anything printed
+        # here would flash for one frame and then vanish. Stashed into
+        # the persistent scan state instead (see facts_cache_loaded_count/
+        # facts_cache_load_errors below) and shown from
+        # _render_scan_progress_fragment(), which survives the rerun.
 
         _start_stage1_scan_background(
             tickers_to_scan, ticker_cik_map, funnel_thresholds,
             skip_financials, universe_choice, SCAN_CACHE_PATH,
             facts_cache=facts_cache, force_refresh_facts=force_refresh_facts,
+            facts_cache_load_errors=_load_errors,
         )
         st.rerun()
 
