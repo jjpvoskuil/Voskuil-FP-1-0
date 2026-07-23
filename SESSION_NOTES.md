@@ -1015,3 +1015,38 @@ afterward. This is unit-level verification of the mechanism only.
 Punch list #75 set back to `done: false` pending the owner's confirmation
 in their real browser — seven prior "clean" verifications on this exact
 item did not hold up, so no claim of fixed until they see it themselves.
+
+## Compare Stocks blank page — regression from the #75 hide/reveal machinery, found and fixed same session
+
+Owner confirmed the Dashboard scrollTop-guard fix worked, then reported
+Compare Stocks now comes up blank. Reproduced live: navigating there
+directly (not via the "Compare" button) leaves `stMain` stuck at
+`display:none` forever — real content underneath (the "no tickers
+selected" info alert), just never revealed.
+
+Root cause: Compare Stocks calls `st.stop()` when `compare_tickers` is
+empty. First fix wrapped `pg.run()` in `try/finally` in app.py so
+`mark_render_complete()`/`force_scroll_to_top()` would still run — looked
+right, verified live NOT to work. Checked Streamlit 1.59.2's own source
+directly: once `st.stop()` records a STOP request,
+`_maybe_handle_execution_control_request()` re-raises `StopException` on
+literally the next `st.foo()` call for the rest of that run, including
+calls from inside a `finally` block. There is no way to run more
+Streamlit output after `pg.run()` once a page has called `st.stop()` —
+the `finally` block's own cleanup calls were dying silently on their own
+first line, same as the original code.
+
+Fixed by making the hide self-cleaning at the point of insertion:
+`hide_main_for_scroll_fix()` (runs before `pg.run()`, on the
+guaranteed-uninterrupted part of the script) now schedules its own
+`window.parent.setTimeout` cleanup right alongside the CSS it inserts,
+independent of whether `force_scroll_to_top()` ever gets to run
+afterward. Pushed as `8bfdb77`.
+
+Verified live via Claude-in-Chrome browser automation this time, not just
+unit-level checks: direct navigation to Compare Stocks now renders
+correctly (`mainDisplay: flex`, hide styles cleared); re-checked Dashboard
+right after and it still settles cleanly with no bounce. Punch list #75
+left at `done: false` pending the owner's own confirmation — this is a
+newly-found regression from the very fix they just approved, so it gets
+the same scrutiny before being called done.
