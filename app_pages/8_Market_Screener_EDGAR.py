@@ -1163,20 +1163,46 @@ def _render_scan_progress_fragment():
 
 # ── Stage 2: Price + final full scoring for survivors only ─────────────
 def fetch_price_data(ticker: str) -> dict:
-    """Lightweight yfinance price/market cap/dividend fetch — Stage 2 only."""
-    try:
-        import yfinance as yf
-        info = yf.Ticker(ticker).info
-        return {
-            "price":          safe_float(info.get("currentPrice") or info.get("regularMarketPrice")),
-            "market_cap":     safe_float(info.get("marketCap")),
-            "shares":         safe_float(info.get("sharesOutstanding")),
-            "dividend_yield": _normalize_dividend_yield(info.get("dividendYield")),
-            "sector":         info.get("sector", "N/A"),
-        }
-    except Exception:
-        return {"price": None, "market_cap": None, "shares": None,
-                "dividend_yield": None, "sector": "N/A"}
+    """Lightweight yfinance price/market cap/dividend fetch — Stage 2 only.
+
+    (2026-07-23) One retry after a brief backoff on failure -- confirmed
+    live that a ticker whose price fetch fails silently returns all-None
+    here (by design, so one bad ticker doesn't crash the whole Stage 2
+    thread pool), which then shows as blank price/MoS/dividend fields
+    for that row with no obvious explanation (ALL: had target/MoS
+    working in one scan, blank in the next, no code changed in between
+    -- consistent with a transient yfinance rate limit/timeout on that
+    specific request rather than a real bug). A single retry costs at
+    most ~1.5s for the one ticker that needs it and costs nothing for
+    the rest, while meaningfully reducing how often a genuinely-fine
+    ticker shows up blank purely from bad luck on the first attempt.
+    """
+    import time as _time
+    for _attempt in range(2):
+        try:
+            import yfinance as yf
+            info = yf.Ticker(ticker).info
+            price = safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
+            if price is None and _attempt == 0:
+                # Empty-looking response without a hard exception --
+                # still worth one retry before giving up.
+                _time.sleep(1.5)
+                continue
+            return {
+                "price":          price,
+                "market_cap":     safe_float(info.get("marketCap")),
+                "shares":         safe_float(info.get("sharesOutstanding")),
+                "dividend_yield": _normalize_dividend_yield(info.get("dividendYield")),
+                "sector":         info.get("sector", "N/A"),
+            }
+        except Exception:
+            if _attempt == 0:
+                _time.sleep(1.5)
+                continue
+            return {"price": None, "market_cap": None, "shares": None,
+                     "dividend_yield": None, "sector": "N/A"}
+    return {"price": None, "market_cap": None, "shares": None,
+             "dividend_yield": None, "sector": "N/A"}
 
 
 
@@ -1845,6 +1871,21 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
             div_yield  = price_data.get("dividend_yield")
             sector     = price_data.get("sector", "N/A")
 
+            # (2026-07-23) fetch_price_data() catches its OWN exceptions
+            # internally and returns an all-None dict rather than raising
+            # -- so a transient yfinance failure (rate limit, timeout,
+            # ticker-specific hiccup) for one ticker never hit the
+            # try/except above at all, and the row still got added to
+            # results with every price-dependent field blank (no price,
+            # no MoS, no dividend yield), completely silently. Tracked
+            # here too (kept in results rather than dropped, since Stage
+            # 1 quality data is still valid and worth showing) so a row
+            # that's blank because of THIS shows up in the same
+            # visibility expander as an outright-dropped ticker, instead
+            # of looking identical to "doesn't qualify."
+            if price is None and market_cap is None and shares is None:
+                dropped_tickers.append((_fut_ticker, "price fetch returned nothing (yfinance failure/rate limit) — row kept with blank price/MoS/dividend fields"))
+
             if min_div and not div_yield:
                 dropped_tickers.append((_fut_ticker, "no dividend (Dividend payers only filter active)"))
                 continue
@@ -1880,8 +1921,8 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
     progress_bar2.progress(1.0)
     status_text2.markdown(f"✅ Stage 2 complete — {len(results)} priced companies.")
     if dropped_tickers:
-        with st.expander(f"⚠️ {len(dropped_tickers)} Stage 1 survivor(s) dropped in Stage 2 — click for why", expanded=False):
-            st.caption("These passed the quality checklist but didn't make it into the priced results below.")
+        with st.expander(f"⚠️ {len(dropped_tickers)} Stage 1 survivor(s) had Stage 2 issues — click for why", expanded=False):
+            st.caption("These passed the quality checklist but either didn't make it into the priced results below, or made it in with blank price/MoS/dividend fields.")
             st.dataframe(pd.DataFrame(dropped_tickers, columns=["Ticker", "Reason"]),
                          hide_index=True, use_container_width=True)
 
