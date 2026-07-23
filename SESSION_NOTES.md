@@ -924,3 +924,45 @@ descendant re-declares the property itself. When something visual is on
 the line, verify the actual rendered pixels/paint at the point that
 matters (elementFromPoint, a screenshot, a recording) -- not just the
 CSSOM property you personally set.
+
+## 2026-07-22 — #75 Dashboard scroll bounce: real root cause found (CSS smooth-scroll animation)
+
+After the display:none fix, user still saw the Dashboard bounce (scroll to
+bottom, then snap back to top) — both on in-app navigation AND on a cold
+app open/reload. Confirmed not caching (tested in Incognito, same result).
+
+A 90-second, no-time-pressure console capture from the user's own browser
+(logging container scrollTop on every change) finally showed the real
+mechanism: after a genuinely clean reveal (container visible, display:flex),
+scrollTop climbs in a smooth ~750ms ramp from 0 to ~6200 (the bottom), then
+snaps back to 0. A smooth CSS-animated scroll, not an instant jump — the
+container inherits `scroll-behavior: smooth` from Streamlit's own
+stylesheet, which governs ALL scroll operations (including plain
+`scrollTop = X` assignment, not just `scrollTo()`). Every prior
+event-driven correction was losing a multi-frame animation fight against
+Streamlit's own auto-scroll-to-bottom animation, not failing to detect the
+scroll at all.
+
+Fixed via `disable_smooth_scroll()` in ui_utils.py: forces
+`scroll-behavior: auto !important` on the real scroll container,
+unconditionally, every run (not tied to hide/reveal at all — there's no
+legitimate reason this container should ever animate). Wired into app.py
+ahead of `install_instant_nav_hide()`, so it's active from the very first
+paint including cold loads. Pushed as commit 95bab82.
+
+Verified against the live deployed app: `_ui_scroll_fix_no_smooth` style
+present, `getComputedStyle` reports `scroll-behavior: auto` on a fresh
+load. Automated 5-round-trip navigation test (real DOM `.click()`
+dispatch, Dashboard <-> Market Screener) sampled scrollTop via
+`requestAnimationFrame` — 871 samples across ~14s (~60fps), 10 genuine
+hide/reveal transitions confirmed, scrollTop read exactly 0 for all 871
+samples with `scroll-behavior: auto` throughout. Cold-load path verified
+by code inspection only (the automation tooling couldn't attach a trace
+early enough to catch a true fresh-load window) — `disable_smooth_scroll()`
+runs unconditionally on every script execution including the first, so it
+should close the cold-load case identically, but this specifically still
+needs the user's own confirmation.
+
+Marked punch list #75 done again, with the full addendum, but flagged
+that cold-load needs explicit user confirmation given this item's long
+track record of automated "clean" verifications not holding up.
