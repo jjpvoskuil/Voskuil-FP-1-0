@@ -295,16 +295,49 @@ def hide_main_for_scroll_fix():
 
     Whichever correction function ends up running (force_scroll_to_top or
     scroll_to_element) is responsible for removing this rule once the
-    position has actually settled -- see both docstrings below. Because
-    app.py only calls this when it already knows one of those two will
-    run before the script finishes, the content never stays hidden for
-    longer than each function's own hard cap.
+    position has actually settled -- see both docstrings below.
+
+    ALSO installs its own independent client-side cleanup timer, entirely
+    separate from the one built into force_scroll_to_top()/
+    scroll_to_element() -- confirmed live that those two are NOT a
+    reliable enough safety net on their own. Root cause: st.stop() (used
+    by several pages -- e.g. Compare Stocks EDGAR, which calls it when
+    navigated to directly without tickers already selected) raises an
+    exception that Streamlit's own ScriptRunner re-raises again on the
+    very next `st.foo()` call, for the rest of that run, no matter where
+    that call is made from -- including a try/finally in app.py wrapped
+    around pg.run(). That was tried first and confirmed NOT to work: the
+    finally block's own mark_render_complete()/force_scroll_to_top()
+    calls are themselves `st.foo()` calls, so they re-trigger the exact
+    same stop-check and get cut off before rendering anything, every
+    time. There is no way to run additional Streamlit code after
+    pg.run() on a run that called st.stop() -- confirmed against
+    Streamlit's own source (streamlit/runtime/scriptrunner/script_runner.py,
+    _maybe_handle_execution_control_request(): every enqueued ForwardMsg
+    re-checks the pending stop request and raises again while it's set).
+    So the cleanup for THIS hide has to be self-contained, scheduled here
+    and only here, before pg.run() -- and specifically before anything
+    downstream has a chance to abort the rest of the script.
     """
     st.markdown(
         f'<style id="{_HIDE_STYLE_ID}" class="{_HIDE_STYLE_CLASS}">'
         '[data-testid="stAppScrollToBottomContainer"], [data-testid="stMain"]'
         " { display: none !important; } </style>",
         unsafe_allow_html=True,
+    )
+    components.html(
+        f"""<script>
+        // Scheduled on window.parent (the persistent app window), not a
+        // bare setTimeout -- this iframe itself gets torn down almost
+        // immediately (the very next rerun, e.g. pg.run() executing the
+        // navigated-to page), well before {_MAX_HIDE_MS} + 3000ms could
+        // ever elapse if the timer were scoped to it instead.
+        window.parent.setTimeout(function() {{
+            window.parent.document.querySelectorAll(".{_HIDE_STYLE_CLASS}")
+                .forEach(function(el) {{ el.remove(); }});
+        }}, {_MAX_HIDE_MS} + 3000);
+        </script>""",
+        height=0,
     )
 
 
