@@ -206,6 +206,33 @@ there's no reason this container should ever animate a scroll). With no
 CSS-level smooth scrolling available, Streamlit's own scrollTo() calls
 resolve instantly instead of animating, so there is no multi-frame
 animation left for anything to fight in the first place.
+
+CRASH (2026-07-22): reported as a page-wide "NotFoundError: Failed to
+execute 'removeChild' on 'Node': The node to be removed is not a child
+of this node" thrown from inside react-dom itself, surfacing after
+editing a Punch List item (several in-page reruns, no navigation) and
+then navigating away. Root cause: the hide <style> tag inserted by
+hide_main_for_scroll_fix() goes through
+st.markdown(unsafe_allow_html=True), which makes it a React-owned DOM
+node -- React's own fiber tree tracks it like any other element it
+rendered. Every cleanup path that reveals the page again
+(_revealIfPresent() here, install_instant_nav_hide()'s safety-net
+timeout, and the shared _revealMain() used by force_scroll_to_top()/
+scroll_to_element()) used to call el.remove() on every element matching
+the shared hide class -- including that React-owned one. Detaching it
+directly desyncs React's fiber tree from the real DOM: React still
+believes the node is attached, and the next time it tries to reconcile
+that same position (a later same-page rerun that doesn't call
+hide_main_for_scroll_fix() again since it's not a navigation, or a
+subsequent page's cleanup pass), its own removeChild() call fails
+because we already pulled the node out from under it -- exactly the
+observed crash, and why it took multiple in-page reruns (Punch List's
+edit form) before a navigation actually triggered the failure. Fixed by
+switching every one of those cleanup paths from el.remove() to
+el.disabled = true: same instant visual effect (the stylesheet stops
+applying immediately) without ever detaching the node from the DOM, so
+React's own bookkeeping stays consistent and its eventual real removal
+of the node -- whenever it decides to -- always succeeds normally.
 """
 
 import streamlit as st
@@ -374,8 +401,23 @@ def hide_main_for_scroll_fix():
         var _done = false;
 
         function _revealIfPresent() {{
+            // Disable rather than remove: this style tag may have been
+            // inserted server-side via st.markdown(unsafe_allow_html=True),
+            // which makes it a React-owned DOM node. Detaching it directly
+            // (el.remove()) desyncs React's fiber tree from the real DOM --
+            // React still believes the node is attached, and the next time
+            // it tries to reconcile that position (e.g. a later rerun that
+            // doesn't re-emit this markdown call, or a subsequent page
+            // navigation), its own removeChild() call fails with
+            // "NotFoundError: the node to be removed is not a child of this
+            // node" because we already pulled it out from under it.
+            // Setting .disabled = true turns off the CSS rule instantly
+            // (same visible effect as removal) without ever detaching the
+            // node, so React's own bookkeeping stays consistent and its
+            // eventual real removal of the node (when it decides to) always
+            // succeeds normally.
             window.parent.document.querySelectorAll(".{_HIDE_STYLE_CLASS}")
-                .forEach(function(el) {{ el.remove(); }});
+                .forEach(function(el) {{ el.disabled = true; }});
         }}
 
         // Scheduled via window.parent (the persistent app window), not a
@@ -480,7 +522,13 @@ def install_instant_nav_hide():
                 // that could have removed the hide style -- except it
                 // never fired, leaving the page permanently blank.
                 window.parent.setTimeout(function() {{
-                    doc.querySelectorAll("." + HIDE_CLASS).forEach(function(el) {{ el.remove(); }});
+                    // Disable, don't remove -- see _revealIfPresent()'s
+                    // comment in hide_main_for_scroll_fix() above. This
+                    // style tag may be the OTHER hide path's (React-owned,
+                    // via st.markdown), not just this function's own
+                    // client-created one, since both share this class and
+                    // this cleanup runs indiscriminately over all matches.
+                    doc.querySelectorAll("." + HIDE_CLASS).forEach(function(el) {{ el.disabled = true; }});
                 }}, {_MAX_HIDE_MS} + 3000);
             }}
 
@@ -590,7 +638,22 @@ def mark_render_complete():
 _REVEAL_JS = """
 function _revealMain() {
     var doc = window.parent.document;
-    doc.querySelectorAll(".%s").forEach(function(el) { el.remove(); });
+    // Disable, don't remove -- one of the matched elements may be the
+    // hide <style> tag inserted server-side via
+    // st.markdown(unsafe_allow_html=True) in hide_main_for_scroll_fix(),
+    // which makes it a React-owned DOM node. Directly detaching a
+    // React-owned node from outside React (el.remove()) leaves React's
+    // fiber tree pointing at a node that's no longer actually attached --
+    // the next time React itself tries to reconcile/remove that same
+    // position (e.g. the very next rerun that doesn't re-issue this
+    // markdown call, or a later page navigation's cleanup pass), its
+    // internal removeChild() call throws "NotFoundError: the node to be
+    // removed is not a child of this node", crashing the whole page.
+    // Setting .disabled = true switches off the CSS rule immediately
+    // (identical visible effect to removal) while leaving the node
+    // exactly where React put it, so React's own eventual cleanup of it
+    // always succeeds normally.
+    doc.querySelectorAll(".%s").forEach(function(el) { el.disabled = true; });
 }
 """ % _HIDE_STYLE_CLASS
 
