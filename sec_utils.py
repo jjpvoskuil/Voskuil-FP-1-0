@@ -535,13 +535,33 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     # Net debt
     latest["net_debt"] = ltd + std - cash
 
-    # ROIC — guarded against near-zero/negative invested capital; see
+    # Owner earnings (Buffett: net income + D&A - maintenance capex) —
+    # computed here, ahead of ROIC, because cash-basis ROIC (#34) needs
+    # it as its numerator.
+    capex_val = capex if capex is not None else (inv_cf if inv_cf is not None else None)
+    oe_val = None
+    if net_inc is not None and dna is not None and capex_val is not None:
+        oe_val = net_inc + dna - abs(capex_val)
+    elif net_inc is not None and op_cf is not None and capex_val is not None:
+        # Proxy: use op_cf - net_income as D&A proxy when D&A not available
+        dna_proxy = op_cf - net_inc
+        oe_val = net_inc + dna_proxy - abs(capex_val)
+    if oe_val is not None:
+        latest["owner_earnings"] = oe_val
+
+    # ROIC (#34) — cash-accounting basis: owner earnings / invested capital
+    # is now the metric that feeds scoring, replacing the single-period
+    # accrual figure. The old accrual figure (net income / invested
+    # capital) is kept as "roic_accrual" for reference/comparison. Both
+    # guarded against near-zero/negative invested capital; see
     # _roic_denominator_reliable(). Shows N/A rather than a technically-
     # computed but economically meaningless ratio for negative-equity
     # buyback compounders.
     inv_cap = latest.get("invested_cap")
+    if oe_val is not None and _roic_denominator_reliable(oe_val, inv_cap):
+        latest["roic"] = oe_val / inv_cap
     if net_inc is not None and _roic_denominator_reliable(net_inc, inv_cap):
-        latest["roic"] = net_inc / inv_cap
+        latest["roic_accrual"] = net_inc / inv_cap
 
     # Negative equity flag — surfaced independently of whether it happens
     # to distort ROIC in the CURRENT window, because it's meaningful
@@ -586,16 +606,6 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     # Interest coverage
     if op_inc is not None and int_pd and int_pd > 0:
         latest["int_coverage"] = op_inc / int_pd
-
-    # Owner earnings (Buffett: net income + D&A - maintenance capex)
-    capex_val = capex if capex is not None else (inv_cf if inv_cf is not None else None)
-    if net_inc is not None and dna is not None and capex_val is not None:
-        latest["owner_earnings"] = net_inc + dna - abs(capex_val)
-    elif net_inc is not None and op_cf is not None:
-        # Proxy: use op_cf - net_income as D&A proxy when D&A not available
-        dna_proxy = op_cf - net_inc
-        if capex_val is not None:
-            latest["owner_earnings"] = net_inc + dna_proxy - abs(capex_val)
 
     # FCF Margin — funnel gate metric (#63): quality-of-revenue check,
     # independent of Gross Margin (#31 removed GM as a universal moat proxy).
@@ -748,7 +758,7 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
 
     all_ends = sorted(set(op_cf_h) | set(net_inc_h) | set(rev_h) | set(int_inc_h) | set(premiums_h))
 
-    fcf_hist, gm_hist, roic_hist, dtf_hist, ic_hist, oe_hist = [], [], [], [], [], []
+    fcf_hist, gm_hist, roic_hist, roic_accrual_hist, dtf_hist, ic_hist, oe_hist = [], [], [], [], [], [], []
     fcfm_hist, cads_hist, dni_hist, dcads_hist = [], [], [], []
     roe_hist, eq_assets_hist, nim_hist, eff_ratio_hist = [], [], [], []
     prov_ni_hist, combined_ratio_hist = [], []
@@ -783,20 +793,40 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
             if 0.0 <= gm <= 1.0:
                 gm_hist.append({"period": period, "end": end, "value": gm})
 
-        # ROIC — guarded against near-zero/negative invested capital; see
-        # _roic_denominator_reliable(). This is THE critical guard: an
-        # unguarded historical average is what let VeriSign's 10-yr avg
-        # ROIC come out to +273% (vs. a latest-year figure of -87% for
-        # the same business) — one bad-denominator year distorts the
-        # whole average, not just that year's figure.
+        # Owner earnings — computed before ROIC (#34), since cash-basis
+        # ROIC uses it as the numerator.
         ni  = net_inc_h.get(end)
         eq  = eq_h.get(end)
         ltd = ltd_h.get(end, 0) or 0
         std = std_h.get(end, 0) or 0
+        capex_val_y = cpx if cpx is not None else icf
+        oe_val_y = None
+        if ni is not None and dna_h.get(end) is not None and capex_val_y is not None:
+            oe_val_y = ni + dna_h.get(end) - abs(capex_val_y)
+        elif ni is not None and ocf is not None and capex_val_y is not None:
+            dna_proxy_y = ocf - ni
+            oe_val_y = ni + dna_proxy_y - abs(capex_val_y)
+        if oe_val_y is not None:
+            oe_hist.append({"period": period, "end": end, "value": oe_val_y})
+
+        # ROIC (#34) — cash-accounting basis: owner earnings / invested
+        # capital replaces single-period accrual as the metric that feeds
+        # scoring and the Buffett funnel's 10-yr average. Old accrual
+        # figure (net income / invested capital) is kept separately as
+        # roic_accrual_hist for reference/comparison.
+        #
+        # Guarded against near-zero/negative invested capital either way;
+        # see _roic_denominator_reliable(). This is THE critical guard: an
+        # unguarded historical average is what let VeriSign's 10-yr avg
+        # ROIC come out to +273% (vs. a latest-year figure of -87% for
+        # the same business) — one bad-denominator year distorts the
+        # whole average, not just that year's figure.
         if eq is not None:
             inv_cap = eq + ltd + std
+            if oe_val_y is not None and _roic_denominator_reliable(oe_val_y, inv_cap):
+                roic_hist.append({"period": period, "end": end, "value": oe_val_y / inv_cap})
             if ni is not None and _roic_denominator_reliable(ni, inv_cap):
-                roic_hist.append({"period": period, "end": end, "value": ni / inv_cap})
+                roic_accrual_hist.append({"period": period, "end": end, "value": ni / inv_cap})
 
         # Debt / FCF
         if fcf_val and fcf_val > 0 and (ltd + std) > 0:
@@ -807,16 +837,6 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
         int_pd = int_pd_h.get(end) or int_exp_h.get(end)
         if op_inc is not None and int_pd and int_pd > 0:
             ic_hist.append({"period": period, "end": end, "value": op_inc / int_pd})
-
-        # Owner earnings
-        capex_val_y = cpx if cpx is not None else icf
-        if ni is not None and dna_h.get(end) is not None and capex_val_y is not None:
-            oe_hist.append({"period": period, "end": end,
-                             "value": ni + dna_h.get(end) - abs(capex_val_y)})
-        elif ni is not None and ocf is not None and capex_val_y is not None:
-            dna_proxy_y = ocf - ni
-            oe_hist.append({"period": period, "end": end,
-                             "value": ni + dna_proxy_y - abs(capex_val_y)})
 
         # FCF Margin — funnel gate metric (#63)
         if fcf_val is not None and rev and rev > 0:
@@ -874,6 +894,7 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     if fcf_hist:   history["fcf"]                        = fcf_hist
     if gm_hist:    history["gross_margin"]                = gm_hist
     if roic_hist:  history["roic"]                        = roic_hist
+    if roic_accrual_hist: history["roic_accrual"]          = roic_accrual_hist
     if dtf_hist:   history["debt_to_fcf"]                 = dtf_hist
     if ic_hist:    history["interest_coverage"]           = ic_hist
     if oe_hist:    history["owner_earnings"]               = oe_hist
@@ -887,6 +908,19 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     if eff_ratio_hist:    history["efficiency_ratio"]      = eff_ratio_hist
     if prov_ni_hist:      history["provision_to_ni"]       = prov_ni_hist
     if combined_ratio_hist: history["combined_ratio"]      = combined_ratio_hist
+
+    # ROIC (#34) — 10-yr average, cash-accounting basis. This is what
+    # actually drives the weighted score (see score_stock_breakdown())
+    # and the Buffett funnel gate, not the single latest year alone.
+    # Reuses the same lookback/sufficiency convention the funnel already
+    # used (10-yr window, needs >=5 reliable years to count) so a
+    # short-history name gets excluded from ROIC scoring via the SAME
+    # "missing data" path every other metric already uses, rather than
+    # scoring off an unreliable 2-3 year average.
+    roic_avg = _historical_average(history.get("roic", []), lookback_years=10, min_years=5)
+    latest["roic_years_used"] = roic_avg["years_used"]
+    if roic_avg["sufficient"]:
+        latest["roic_10yr_avg"] = roic_avg["avg"]
 
     return {
         "latest":  latest,
@@ -1258,6 +1292,9 @@ def fetch_fundamentals_edgar(ticker):
     gross_profit = latest.get("gross_profit")
     gross_margin = latest.get("gross_margin")
     roic         = latest.get("roic")
+    roic_10yr_avg  = latest.get("roic_10yr_avg")   # (#34) drives scoring now
+    roic_accrual   = latest.get("roic_accrual")    # old single-period basis, reference only
+    roic_years_used = latest.get("roic_years_used")
     long_term_debt = latest.get("long_term_debt", 0) or 0
     short_term_debt = latest.get("short_term_debt", 0) or 0
     total_debt   = long_term_debt + short_term_debt
@@ -1346,7 +1383,10 @@ def fetch_fundamentals_edgar(ticker):
         "net_income":       net_income,
 
         # Quality metrics
-        "roic":             roic,
+        "roic":             roic,               # latest year, cash basis (#34)
+        "roic_10yr_avg":    roic_10yr_avg,       # (#34) THIS drives the ROIC score, not "roic" above
+        "roic_accrual":     roic_accrual,        # latest year, old net-income basis, reference only
+        "roic_years_used":  roic_years_used,
         "long_term_debt":   long_term_debt,
         "short_term_debt":  short_term_debt,
         "total_debt":       total_debt,
@@ -1549,11 +1589,14 @@ def score_to_label(score):
 # display it) — this was a deliberate punch-list decision, not an oversight.
 
 DEFAULT_WEIGHTS = {
-    "FCF Yield":              30,
-    "ROIC":                   20,
-    "Debt / FCF":             25,
-    "Gross Margin":           15,
-    "Interest Coverage":      10,
+    # (#34) ROIC upweighted 20 -> 40 (10-yr avg, cash basis); the other
+    # four rescaled proportionally (x0.75) so the total still sums to
+    # 100, which the weight-editor UI on Dashboard/Equity Scout enforces.
+    "FCF Yield":              22,
+    "ROIC":                   40,
+    "Debt / FCF":             19,
+    "Gross Margin":           11,
+    "Interest Coverage":       8,
 }
 
 THRESHOLDS = {
@@ -2124,7 +2167,12 @@ def score_stock_breakdown(data: dict, weights: dict):
     criteria.append({"name": "FCF Yield", "points_earned": pts, "points_max": max_pts, "missing": fcf_yield is None})
 
     max_pts = weights["ROIC"]
-    roic    = data.get('roic')
+    # (#34) 10-yr average, cash-accounting basis — not the single latest
+    # year. When a name has fewer than 5 reliable years of history,
+    # roic_10yr_avg is None (see _fetch_company_facts_for_cik), which
+    # falls into the same "missing" / rebalance-away path as any other
+    # unavailable metric, rather than scoring off a thin average.
+    roic    = data.get('roic_10yr_avg')
     if roic is not None:
         if roic >= THRESHOLDS['roic_great']:   pts = max_pts
         elif roic >= THRESHOLDS['roic_good']:  pts = round(max_pts * 0.60)

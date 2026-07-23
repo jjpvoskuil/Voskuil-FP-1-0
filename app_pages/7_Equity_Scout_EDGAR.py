@@ -105,12 +105,15 @@ st.set_page_config(page_title="Equity Scout — EDGAR", layout="wide")
 
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 
+# (#34) kept in sync with sec_utils.DEFAULT_WEIGHTS — ROIC upweighted
+# 20 -> 40 (10-yr avg, cash basis); other four rescaled x0.75 so the
+# total still sums to 100 (enforced by the weight editor below).
 DEFAULT_WEIGHTS = {
-    "FCF Yield":         30,
-    "ROIC":              20,
-    "Debt / FCF":        25,
-    "Gross Margin":      15,
-    "Interest Coverage": 10,
+    "FCF Yield":         22,
+    "ROIC":              40,
+    "Debt / FCF":        19,
+    "Gross Margin":      11,
+    "Interest Coverage":  8,
 }
 
 # ── Migrate stale session state from old 6-criteria weights ──────────
@@ -166,7 +169,11 @@ def score_stock(data, weights):
                      "missing": fcf_yield is None})
 
     max_pts = weights["ROIC"]
-    roic    = data.get("roic")
+    # (#34) 10-yr average, cash-accounting basis — not the single latest
+    # year. Fewer than 5 reliable years of history -> roic_10yr_avg is
+    # None (see sec_utils._fetch_company_facts_for_cik), same "missing"
+    # path as any other unavailable metric.
+    roic    = data.get("roic_10yr_avg")
     if roic is not None:
         if roic >= THRESHOLDS["roic_great"]:   pts, verdict = max_pts, "Exceptional"
         elif roic >= THRESHOLDS["roic_good"]:  pts, verdict = round(max_pts * 0.60), "Strong"
@@ -175,9 +182,9 @@ def score_stock(data, weights):
     else:
         pts, verdict = 0, "No Data"
     criteria.append({"name": "Return on Invested Capital (ROIC)",
-                     "value": f"{roic:.1%}" if roic is not None else "N/A",
+                     "value": f"{roic:.1%} (10yr avg, cash basis)" if roic is not None else "N/A",
                      "points_earned": pts, "points_max": max_pts, "verdict": verdict,
-                     "note": "Munger's capital allocation test: management that consistently earns 20%+ ROIC is compounding your wealth. Below 12% means they're destroying value with every reinvestment dollar.",
+                     "note": "Munger's capital allocation test: management that consistently earns 20%+ ROIC (10-yr average, cash accounting basis) is compounding your wealth. Below 12% means they're destroying value with every reinvestment dollar. 12%+ sustained for 10+ years is a strong signal of durable competitive advantage.",
                      "missing": roic is None})
 
     # Debt gate (#32): dual-hurdle, mirroring sec_utils.score_stock_breakdown()
@@ -715,11 +722,12 @@ if _cache_key and _cache_key in st.session_state:
 
         st.markdown("#### 🎯 Derived Scoring Metrics")
         dm_rows = [
-            ("FCF Yield",           fmt_pct(data.get("fcf_yield"))),
-            ("ROIC",                fmt_pct(el.get("roic"))),
-            ("Debt / FCF",          fmt_x(el.get("debt_to_fcf"))),
-            ("Interest Coverage",   fmt_x(el.get("int_coverage"))),
-            ("Price / Owner Earn.", fmt_x(data.get("price_owner_earn"))),
+            ("FCF Yield",                    fmt_pct(data.get("fcf_yield"))),
+            ("ROIC (10yr avg, cash basis)",  fmt_pct(el.get("roic_10yr_avg"))),  # (#34) what actually feeds the score
+            ("ROIC (latest yr, cash basis)", fmt_pct(el.get("roic"))),
+            ("Debt / FCF",                    fmt_x(el.get("debt_to_fcf"))),
+            ("Interest Coverage",             fmt_x(el.get("int_coverage"))),
+            ("Price / Owner Earn.",           fmt_x(data.get("price_owner_earn"))),
         ]
         hc1, hc2 = st.columns([2, 2])
         hc1.markdown("**Metric**")
@@ -738,32 +746,31 @@ if _cache_key and _cache_key in st.session_state:
                 else:
                     st.caption(f"`{field}` → ❌ not found  (tried: {', '.join(concepts[:2])}{'...' if len(concepts)>2 else ''})")
 
-    # ── Historical ROIC Chart (new — foundation for punch list #34/#40) ───────
+    # ── Historical ROIC Chart (#34 — cash-accounting basis, 10-yr avg) ────────
+    # Plots sec_utils' canonical history["roic"] series directly rather than
+    # recomputing inline. That canonical series (a) uses owner earnings, not
+    # net income, as the numerator (#34's cash-accounting-basis ask), (b)
+    # includes short-term debt in invested capital (this chart's old inline
+    # formula omitted it), and (c) applies _roic_denominator_reliable() to
+    # guard against near-zero-invested-capital years distorting the trend
+    # (see sec_utils.py for the VeriSign case that guard was built for).
     history = data.get("_history", {})
     op_cf_hist  = history.get("op_cf", [])
     inv_cf_hist = history.get("inv_cf", [])
-    ni_hist     = history.get("net_income", [])
-    eq_hist     = history.get("total_equity", [])
-    ltd_hist    = history.get("long_term_debt", [])
+    roic_hist   = history.get("roic", [])
 
-    if len(ni_hist) >= 3 and len(eq_hist) >= 3:
+    if len(roic_hist) >= 3:
         with st.expander("📈 Historical ROIC Trend (from EDGAR)", expanded=False):
-            st.caption("10+ years of ROIC derived directly from SEC filings. Consistency = durable competitive advantage.")
+            st.caption("10 years of ROIC, cash-accounting basis (owner earnings / invested capital) — 12%+ sustained for 10+ years signals a durable competitive advantage (#34).")
 
-            # Build aligned year → ROIC series
-            ni_by_year  = {h["period"]: h["value"] for h in ni_hist if h.get("value") is not None}
-            eq_by_year  = {h["period"]: h["value"] for h in eq_hist if h.get("value") is not None}
-            ltd_by_year = {h["period"]: h["value"] for h in ltd_hist if h.get("value") is not None}
+            roic_10yr_avg = el.get("roic_10yr_avg")
+            roic_yrs_used = el.get("roic_years_used")
+            if roic_10yr_avg is not None:
+                st.metric("10-yr Average ROIC", f"{roic_10yr_avg:.1%}", help=f"{roic_yrs_used} reliable year(s) used")
+            elif roic_yrs_used:
+                st.caption(f"⚠️ Only {roic_yrs_used} reliable year(s) of history — need 5+ for a scored average.")
 
-            years = sorted(set(ni_by_year) & set(eq_by_year))
-            roic_series = []
-            for yr in years:
-                ni  = ni_by_year.get(yr, 0)
-                eq  = eq_by_year.get(yr, 0)
-                ltd = ltd_by_year.get(yr, 0)
-                inv_cap = eq + ltd
-                if inv_cap and inv_cap > 0:
-                    roic_series.append({"year": yr, "roic": ni / inv_cap})
+            roic_series = [{"year": h["period"], "roic": h["value"]} for h in roic_hist]
 
             if roic_series:
                 fig2 = go.Figure()
@@ -893,7 +900,8 @@ if _cache_key and _cache_key in st.session_state:
         st.metric("FCF Yield",        fmt_val(data.get("fcf_yield"), "pct"))
         st.metric("FCF Growth (1yr)", fmt_val(data.get("fcf_growth"), "pct"))
     with m3:
-        st.metric("ROIC",             fmt_val(data.get("roic"), "pct"))
+        st.metric("ROIC (10yr avg)",  fmt_val(data.get("roic_10yr_avg"), "pct"),
+                   help="Cash-accounting basis (owner earnings / invested capital), 10-yr average (#34). This is what feeds the score, not a single year's figure.")
         st.metric("Gross Margin",     fmt_val(data.get("gross_margin"), "pct"))
     with m4:
         st.metric("Total Debt/FCF",       fmt_val(data.get("debt_to_fcf"), "ratio"))
@@ -909,7 +917,7 @@ if _cache_key and _cache_key in st.session_state:
         ("Conviction Score",   f"{rebalanced_score}/100  ({verdict_label})", None),
         ("Free Cash Flow",      fmt_val(data.get("fcf")),          None),
         ("FCF Yield",           fmt_val(data.get("fcf_yield"), "pct"),  None),
-        ("ROIC",                fmt_val(data.get("roic"), "pct"),        None),
+        ("ROIC (10yr avg, cash basis)", fmt_val(data.get("roic_10yr_avg"), "pct"), "#34: owner earnings / invested capital, averaged over the trailing 10 years (min. 5 reliable years required)"),
         ("Gross Margin",        fmt_val(data.get("gross_margin"), "pct"), None),
         ("Debt / FCF",          fmt_val(data.get("debt_to_fcf"), "ratio"), None),
         ("Interest Coverage",   fmt_val(data.get("interest_coverage"), "ratio"), None),

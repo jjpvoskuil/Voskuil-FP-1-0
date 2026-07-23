@@ -173,7 +173,7 @@ def hold_verdict(data, thresholds):
         )
         quality_inputs = (roe, eqa)
     else:
-        roic      = data.get("roic")
+        roic      = data.get("roic_10yr_avg")  # (#34) 10-yr avg, cash basis
         debt_fcf  = data.get("debt_to_fcf")
         debt_cads = data.get("debt_to_cads")
         debt_candidates = [d for d in (debt_fcf, debt_cads) if d is not None]
@@ -493,7 +493,7 @@ if df_holdings_raw is not None:
                 if st.button(f"↺ {DEFAULT_WEIGHTS['FCF Yield']}", key="reset_w_fcf", use_container_width=True):
                     st.session_state["pending_reset_w_fcf"] = True; st.rerun()
             _sc, _sb = st.columns([4, 1])
-            with _sc: w_roic = st.slider("ROIC", 0, 40, sw["ROIC"], step=5, key="w_roic")
+            with _sc: w_roic = st.slider("ROIC", 0, 60, sw["ROIC"], step=5, key="w_roic")  # (#34) raised from 40 -- new default (40) needs headroom
             with _sb:
                 st.write("")
                 if st.button(f"↺ {DEFAULT_WEIGHTS['ROIC']}", key="reset_w_roic", use_container_width=True):
@@ -891,7 +891,7 @@ if df_holdings_raw is not None:
                         return f"{v:.1%}" if t=='pct' else f"{v:.1f}x" if t=='ratio' else str(v)
                     lines.append(
                         f"  FCF Yield: {fv(cached.get('fcf_yield'))} | "
-                        f"ROIC: {fv(cached.get('roic'))} | "
+                        f"ROIC (10yr avg, cash basis): {fv(cached.get('roic_10yr_avg'))} | "
                         f"Debt/FCF: {fv(cached.get('debt_to_fcf'),'ratio')} | "
                         f"Gross Margin: {fv(cached.get('gross_margin'))} | "
                         f"P/OE: {fv(cached.get('price_owner_earn'),'ratio')} | "

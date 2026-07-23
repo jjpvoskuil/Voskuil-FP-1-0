@@ -75,7 +75,8 @@ STATEMENT_SECTIONS = {
     "🎯 Derived Scoring Metrics": [
         ("fcf",              "Free Cash Flow",       "money"),
         ("fcf_yield",        "FCF Yield",             "pct"),
-        ("roic",             "ROIC",                  "pct"),
+        ("roic_10yr_avg",    "ROIC (10yr avg, cash basis)", "pct"),  # (#34) what feeds the score
+        ("roic",             "ROIC (latest yr, cash basis)", "pct"),
         ("gross_margin",     "Gross Margin",          "pct"),
         ("debt_to_fcf",      "Debt / FCF",            "ratio"),
         ("interest_coverage","Interest Coverage",     "ratio"),
@@ -136,7 +137,7 @@ def build_compare_context(tickers, fundamentals, scores, dcf_results=None):
         lines.append(
             f"\n{t} ({d.get('name','')}) — Score: {score}/100\n"
             f"  {crit_str}\n"
-            f"  FCF Yield: {fmt_cell(d.get('fcf_yield'), 'pct')} | ROIC: {fmt_cell(d.get('roic'), 'pct')} | "
+            f"  FCF Yield: {fmt_cell(d.get('fcf_yield'), 'pct')} | ROIC (10yr avg, cash basis): {fmt_cell(d.get('roic_10yr_avg'), 'pct')} | "
             f"Debt/FCF: {fmt_cell(d.get('debt_to_fcf'), 'ratio')} | Gross Margin: {fmt_cell(d.get('gross_margin'), 'pct')} | "
             f"Interest Coverage: {fmt_cell(d.get('interest_coverage'), 'ratio')} | "
             f"P/OE: {fmt_cell(d.get('price_owner_earn'), 'ratio')}\n"
