@@ -1050,3 +1050,26 @@ right after and it still settles cleanly with no bounce. Punch list #75
 left at `done: false` pending the owner's own confirmation — this is a
 newly-found regression from the very fix they just approved, so it gets
 the same scrutiny before being called done.
+
+## Compare Stocks 15s reveal delay — speed fix, same session
+
+Owner confirmed the blank-page fix worked but flagged the 15s flat delay
+before content appeared — the actual root cause of their original "it
+doesn't load" impression. That 15s was `hide_main_for_scroll_fix()`'s
+safety-net `setTimeout` (`MAX_HIDE_MS + 3000`ms), which had become the
+*only* reveal path for any page hitting `st.stop()` early, but was a
+worst-case flat timer rather than an as-soon-as-ready one.
+
+Replaced with the same quiet-then-reveal `scrollHeight` polling
+`force_scroll_to_top()` already uses (reveal once nothing has changed for
+500ms), just without the render-complete marker gate — a `st.stop()` page
+can never produce that marker. Added a 1000ms floor before the quiet
+check can fire, since polling starts before `pg.run()` has sent anything
+for the new page (avoids reading the *previous* page's stale, unchanging
+height as false "quiet"). 15s cap kept as last resort. Pushed as
+`adab067`.
+
+Verified live with a 100ms-resolution reveal-timing poller: Compare
+Stocks now goes from click to visible in ~3.5s, down from a flat 15s.
+Dashboard re-checked immediately after — still settles with no bounce.
+Punch list #75 still `done: false` pending the owner's own check.
