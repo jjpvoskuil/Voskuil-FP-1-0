@@ -16,6 +16,7 @@ analysis (#37), and the historical normalization layer (#52).
 
 import re
 import time
+import math
 import threading
 import requests
 import concurrent.futures
@@ -1498,7 +1499,13 @@ def _estimate_fcf_growth_rate(fcf_history: list, cap: float, floor: float, defau
     clipped to [floor, cap]. Falls back to `default` if there's insufficient
     or unusable history (e.g., negative FCF in an early year breaks a clean
     growth-rate calculation)."""
-    vals = [h["value"] for h in fcf_history if h.get("value") is not None]
+    # (2026-07-23, "+nan%" case) Filter for finite values, not just
+    # non-None -- an EDGAR data-quality hiccup for a single historical
+    # year can leave a literal float('nan') in this list rather than a
+    # clean None, and the old "is not None" filter let it straight
+    # through into the growth-rate math below.
+    vals = [h["value"] for h in fcf_history
+            if h.get("value") is not None and math.isfinite(h["value"])]
     if len(vals) < 3:
         return default
     # Use at most the last 6 years of data — recent trend, not ancient history
@@ -1602,6 +1609,27 @@ def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
     elif have_mktcap:
         margin_of_safety       = (total_intrinsic_value - market_cap) / total_intrinsic_value
         margin_of_safety_basis = "market_cap"
+
+    # (2026-07-23, "+nan%" case) Belt-and-suspenders guard: any bad input
+    # upstream (a NaN slipping into a historical FCF observation from an
+    # EDGAR data-quality hiccup, a price of exactly 0.0 that dodges the
+    # earlier > 0 checks in some numeric edge case, etc.) could otherwise
+    # produce a literal float('nan') here instead of a clean error --
+    # which every "is not None" check downstream (Dashboard, Market
+    # Screener, Watchlist, Equity Scout, Compare Stocks) would silently
+    # let through, since `float('nan') is not None` is True. Rather than
+    # trust every call site to guard against that, refuse to hand back
+    # anything non-finite at the source: a stock whose DCF genuinely
+    # can't be computed should read as "unavailable" everywhere, never
+    # as a garbage number.
+    _outputs = (intrinsic_per_share, total_intrinsic_value, margin_of_safety)
+    if any(v is not None and not math.isfinite(v) for v in _outputs):
+        return {"intrinsic_value_per_share": None, "total_intrinsic_value": None,
+                "margin_of_safety": None, "margin_of_safety_basis": None,
+                "base_fcf": base_fcf, "growth_rate": g,
+                "discount_rate": r, "terminal_growth": tg,
+                "projection_years": n,
+                "error": "DCF produced a non-finite result (bad upstream data) — treating as unavailable."}
 
     return {
         "intrinsic_value_per_share": intrinsic_per_share,

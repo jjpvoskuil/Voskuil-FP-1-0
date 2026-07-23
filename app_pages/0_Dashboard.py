@@ -668,8 +668,16 @@ if df_holdings_raw is not None:
     def _dcf_for(symbol):
         return compute_dcf_value(st.session_state.holding_raw_data.get(symbol) or {})
     _dcfs = display_df['Symbol'].apply(_dcf_for)
-    display_df['MoS']      = _dcfs.apply(lambda d: d.get('margin_of_safety'))
+    display_df['MoS']       = _dcfs.apply(lambda d: d.get('margin_of_safety'))
     display_df['Intrinsic'] = _dcfs.apply(lambda d: d.get('intrinsic_value_per_share'))
+    # Current per-share price alongside the DCF target -- the table had
+    # no per-share price anywhere (Value is total $ position, not price
+    # per share), so MoS/target showed with nothing to compare it
+    # against (owner feedback: show actual price next to target price
+    # everywhere MoS/intrinsic is shown).
+    display_df['CurPrice'] = display_df['Symbol'].apply(
+        lambda s: (st.session_state.holding_raw_data.get(s) or {}).get('price')
+    )
 
     st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
 
@@ -788,13 +796,26 @@ if df_holdings_raw is not None:
             # MoS/Intrinsic materialized on display_df above -- current
             # price vs. DCF target price, right next to Score/Signal
             # (owner feedback -- previously only visible on Equity Scout).
+            #
+            # (2026-07-23, "+nan%" case) pd.notna() here, not "is not
+            # None" -- display_df['MoS'] went through a pandas .apply(),
+            # which silently upcasts a legitimate None (DCF simply
+            # couldn't be computed for this holding) into float('nan')
+            # once the column is float64. "nan is not None" is True, so
+            # the old check let it straight through to formatting, which
+            # is exactly how ALL showed "+nan%" instead of "—".
             _mos = row['MoS']
-            if _mos is not None:
+            if pd.notna(_mos):
                 _mos_color = "#2ecc71" if _mos > 0 else "#e74c3c"
                 st.markdown(f"<span style='font-weight:bold; color:{_mos_color}'>{_mos:+.0%}</span>",
                             unsafe_allow_html=True)
-                if row['Intrinsic'] is not None:
-                    st.caption(f"${row['Intrinsic']:.0f} target")
+                _price_bits = []
+                if pd.notna(row['CurPrice']):
+                    _price_bits.append(f"${row['CurPrice']:.0f} now")
+                if pd.notna(row['Intrinsic']):
+                    _price_bits.append(f"${row['Intrinsic']:.0f} target")
+                if _price_bits:
+                    st.caption(" → ".join(_price_bits))
             else:
                 st.caption("—")
         with c9:

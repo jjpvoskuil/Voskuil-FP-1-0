@@ -2143,11 +2143,31 @@ if 'ms_edgar_results_df' in st.session_state:
                 # a market-wide scan's memory footprint down), so the
                 # growth-rate estimate uses compute_dcf_value's default
                 # rather than this company's own historical FCF trend.
+                # (2026-07-23, "+nan%" case) pd.notna(), not "is not
+                # None" -- results_df's margin_of_safety/intrinsic_value_
+                # per_share columns went through the same pandas .apply()
+                # pattern as Dashboard's MoS column, which silently
+                # upcasts a legitimate "couldn't compute" None into
+                # float('nan') once the column is float64 -- see
+                # sec_utils.compute_dcf_value()'s docstring for the fix
+                # at the source too.
                 _mos = row.get('margin_of_safety')
-                if _mos is not None:
-                    _iv = row.get('intrinsic_value_per_share')
+                if pd.notna(_mos):
+                    _iv    = row.get('intrinsic_value_per_share')
+                    _price = row.get('price')
+                    # Target price used to be hover-only (in the help
+                    # tooltip); actual price wasn't shown anywhere in
+                    # this row at all -- owner feedback: show both
+                    # wherever MoS/intrinsic is shown, not just on hover.
                     st.metric("Margin of Safety", f"{_mos:+.0%}",
-                              help=f"DCF intrinsic value: ${_iv:.2f}/share (default assumptions)" if _iv is not None else "DCF intrinsic value unavailable")
+                              help="DCF intrinsic value (default assumptions)")
+                    _price_bits = []
+                    if pd.notna(_price):
+                        _price_bits.append(f"${_price:.0f} now")
+                    if pd.notna(_iv):
+                        _price_bits.append(f"${_iv:.0f} target")
+                    if _price_bits:
+                        st.caption(" → ".join(_price_bits))
                 else:
                     st.metric("Margin of Safety", "—", help="FCF, price, or shares unavailable for this ticker")
             if _has_si and c9 is not None:
