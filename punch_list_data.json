@@ -167,7 +167,7 @@
       "title": "Add a transaction page with BoA transaction information",
       "note": "Create a new page to show BoA transaction information",
       "phase": "Data Quality",
-      "priority": "High",
+      "priority": "Low",
       "done": false,
       "created": "2026-05-29"
     },
