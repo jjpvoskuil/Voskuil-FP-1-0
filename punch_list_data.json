@@ -158,7 +158,7 @@
       "title": "Add Band of America information to dashboard",
       "note": "Add financial summary from BOA to the dashboard",
       "phase": "Data Quality",
-      "priority": "High",
+      "priority": "Low",
       "done": false,
       "created": "2026-05-29"
     },
