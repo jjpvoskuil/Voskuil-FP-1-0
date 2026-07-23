@@ -176,7 +176,7 @@
       "title": "Use the Connect page to API into Bank od America",
       "note": "API into BOA so that I can auto popluate the dashboard and transactions pages",
       "phase": "Data Quality",
-      "priority": "High",
+      "priority": "Low",
       "done": false,
       "created": "2026-05-29"
     },
