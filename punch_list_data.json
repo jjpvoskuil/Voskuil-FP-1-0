@@ -104,7 +104,7 @@
       "title": "Replace yfinance foreign ADR scoring with Morningstar via Rapid API",
       "note": "ASML, ARGX etc. have no SEC filings. Current yfinance fallback works but unreliable. Morningstar ~$10/mo. Deferred until tool proves out on personal portfolio.",
       "phase": "API / Infrastructure",
-      "priority": "Medium",
+      "priority": "Low",
       "done": false,
       "created": "2026-05-01"
     },
