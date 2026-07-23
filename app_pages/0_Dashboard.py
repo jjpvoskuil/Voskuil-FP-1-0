@@ -225,7 +225,7 @@ df_holdings_raw = get_clean_df(HOLDINGS_FILE, "Account Number")
 if df_holdings_raw is not None:
     df_holdings_raw.columns = [c.strip() for c in df_holdings_raw.columns]
     df_holdings_raw = df_holdings_raw[~df_holdings_raw.iloc[:, 0].astype(str).str.contains('Total', case=False, na=False)]
-    for col in ['Market Value ($)', 'Est. Annual Income ($)']:
+    for col in ['Market Value ($)', 'Est. Annual Income ($)', 'Quantity']:
         if col in df_holdings_raw.columns:
             df_holdings_raw[col] = pd.to_numeric(
                 df_holdings_raw[col].astype(str).str.replace(',', '').str.replace('"', ''),
