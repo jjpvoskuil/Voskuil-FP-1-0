@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
 from ui_utils import scroll_to_element
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS, investment_verdict, VERDICT_THRESHOLDS
+from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS, investment_verdict, VERDICT_THRESHOLDS, compute_dcf_value
 from github_store import github_get_json, github_put_json
 from watchlist_utils import add_to_watchlist, is_watchlisted
 
@@ -647,6 +647,21 @@ if df_holdings_raw is not None:
     display_df['Signal_Color'] = _signals.apply(lambda t: t[1])
     display_df['Signal_Icon']  = _signals.apply(lambda t: t[2])
 
+    # ── DCF Margin of Safety — materialized the same way as Signal, so a
+    # holding's target price vs. current price is visible right next to
+    # its Score/Signal without a separate page visit (owner feedback:
+    # "would be good to have this on all pages ... to see the current
+    # price vs the target price"). Pure math on data already fetched for
+    # scoring (fcf, shares, price, historical fcf trend) -- no extra
+    # network calls, default DCF assumptions (no per-holding override
+    # here, unlike Equity Scout's adjustable sliders -- keeps this table
+    # fast and consistent across all ~65 holdings).
+    def _dcf_for(symbol):
+        return compute_dcf_value(st.session_state.holding_raw_data.get(symbol) or {})
+    _dcfs = display_df['Symbol'].apply(_dcf_for)
+    display_df['MoS']      = _dcfs.apply(lambda d: d.get('margin_of_safety'))
+    display_df['Intrinsic'] = _dcfs.apply(lambda d: d.get('intrinsic_value_per_share'))
+
     st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
 
     # ── Superinvestor data load button (only if not already cached) ────
@@ -682,6 +697,7 @@ if df_holdings_raw is not None:
         "Accts":  {"field": "Account_Count", "label": "Accts",   "default_asc": False},
         "Score":  {"field": "Score_Num",     "label": "Score",   "default_asc": False},
         "Signal": {"field": "Signal",        "label": "Signal",  "default_asc": True},
+        "MoS":    {"field": "MoS",           "label": "MoS",     "default_asc": False},
         "SI":     {"field": "SI_Count",      "label": "🦁 SI",   "default_asc": False},
     }
     if "holdings_sort_col" not in st.session_state:
@@ -704,7 +720,7 @@ if df_holdings_raw is not None:
                     st.session_state.holdings_sort_asc = cfg["default_asc"]
 
     # ── Column Headers ─────────────────────────────────────────────────
-    h1, h2, h3, h4, h5, h6, h7, h8, h9, h10 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8, 0.9])
+    h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11 = st.columns([1.2, 2.4, 1.6, 1.3, 1.0, 1.2, 1.2, 1.1, 1.2, 1.7, 0.9])
     _sort_header(h1, "Symbol")
     _sort_header(h2, "Name")
     _sort_header(h3, "Type")
@@ -712,9 +728,10 @@ if df_holdings_raw is not None:
     _sort_header(h5, "Accts")
     _sort_header(h6, "Score")
     _sort_header(h7, "Signal")
-    _sort_header(h8, "SI")
-    with h9: st.markdown("**Analysis**")
-    with h10: st.markdown("**Watch**")
+    _sort_header(h8, "MoS")
+    _sort_header(h9, "SI")
+    with h10: st.markdown("**Analysis**")
+    with h11: st.markdown("**Watch**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     # ── Apply sort (after header buttons, so a click this run is reflected
@@ -726,7 +743,7 @@ if df_holdings_raw is not None:
 
     # ── Rows ───────────────────────────────────────────────────────────
     for _, row in display_df.iterrows():
-        c1, c2, c3, c4, c5, c6, c7, c8, c9, c10 = st.columns([1.2, 2.6, 1.8, 1.4, 1.1, 1.3, 1.3, 1.3, 1.8, 0.9])
+        c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11 = st.columns([1.2, 2.4, 1.6, 1.3, 1.0, 1.2, 1.2, 1.1, 1.2, 1.7, 0.9])
         with c1:
             st.markdown(f"**{row['Symbol']}**")
         with c2:
@@ -759,6 +776,19 @@ if df_holdings_raw is not None:
             else:
                 st.caption("—")
         with c8:
+            # MoS/Intrinsic materialized on display_df above -- current
+            # price vs. DCF target price, right next to Score/Signal
+            # (owner feedback -- previously only visible on Equity Scout).
+            _mos = row['MoS']
+            if _mos is not None:
+                _mos_color = "#2ecc71" if _mos > 0 else "#e74c3c"
+                st.markdown(f"<span style='font-weight:bold; color:{_mos_color}'>{_mos:+.0%}</span>",
+                            unsafe_allow_html=True)
+                if row['Intrinsic'] is not None:
+                    st.caption(f"${row['Intrinsic']:.0f} target")
+            else:
+                st.caption("—")
+        with c9:
             si_data = st.session_state.get("_si_full_map", {})
             if si_data and si_data.get("ticker_map"):
                 si_result   = get_superinvestor_conviction(row['Symbol'])
@@ -775,11 +805,11 @@ if df_holdings_raw is not None:
                     st.caption("🦁 0")
             else:
                 st.caption("—")
-        with c9:
+        with c10:
             if st.button("🔍 Deep Dive", key=f"dive_{row['Symbol']}", use_container_width=True, type="primary"):
                 st.session_state["dive_ticker"] = row['Symbol']
                 st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")
-        with c10:
+        with c11:
             # Add-only control (#68) -- removal only happens on the
             # Watchlist page itself, deliberately, so an accidental
             # uncheck here can't silently wipe a tracked position's

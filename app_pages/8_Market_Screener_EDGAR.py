@@ -14,6 +14,7 @@ from sec_utils import (
     get_cik, get_ticker_cik_map, fetch_company_facts_with_cik, DEFAULT_WEIGHTS,
     evaluate_buffett_funnel, FUNNEL_THRESHOLDS,
     evaluate_financial_firm_funnel, score_financial_firm_breakdown,
+    compute_dcf_value,
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
@@ -2006,7 +2007,7 @@ if 'ms_edgar_results_df' in st.session_state:
     sort_col1, sort_col2 = st.columns([2, 4])
     with sort_col1:
         _sort_options = ["Ticker (A-Z)", "10yr Avg ROIC (High-Low)", "10yr Avg FCF Margin (High-Low)",
-                          "Years of History (High-Low)"]
+                          "Years of History (High-Low)", "Margin of Safety (High-Low)"]
         if _si_loaded:
             _sort_options.append("Superinvestor Conviction (High-Low)")
         sort_choice = st.selectbox("Sort results by", _sort_options, index=0)
@@ -2029,11 +2030,21 @@ if 'ms_edgar_results_df' in st.session_state:
         results_df['si_holders'] = [s['si_holders'] for s in si_scores]
         results_df['si_score']   = [s['si_score']   for s in si_scores]
 
+    # ── DCF Margin of Safety — materialized once here (not just computed
+    # inline per row at display time) so it can be sorted and exported
+    # like any other column (owner feedback: DCF/target price should be
+    # visible everywhere, not just Equity Scout/Compare Stocks).
+    results_df = results_df.reset_index(drop=True)
+    _dcf_results = results_df.apply(lambda r: compute_dcf_value(r.to_dict()), axis=1)
+    results_df['margin_of_safety']       = _dcf_results.apply(lambda d: d.get('margin_of_safety'))
+    results_df['intrinsic_value_per_share'] = _dcf_results.apply(lambda d: d.get('intrinsic_value_per_share'))
+
     _sort_map = {
         "Ticker (A-Z)":                          ("ticker", True),
         "10yr Avg ROIC (High-Low)":              ("roic_avg", False),
         "10yr Avg FCF Margin (High-Low)":        ("fcf_margin_avg", False),
         "Years of History (High-Low)":           ("funnel_years_used", False),
+        "Margin of Safety (High-Low)":           ("margin_of_safety", False),
         "Superinvestor Conviction (High-Low)":   ("si_score", False),
     }
     _sort_col, _sort_asc = _sort_map[sort_choice]
@@ -2074,9 +2085,11 @@ if 'ms_edgar_results_df' in st.session_state:
         with st.container():
             _has_si = 'si_holders' in row.index
             if _has_si:
-                c1, c2, c3, c4, c5, c6, c7, c8, c9, c10 = st.columns([1, 2.6, 1.7, 1.7, 1.7, 1.7, 1.7, 1.7, 1.2, 1.6])
+                c1, c2, c3, c4, c5, c6, c7, c8, c_mos, c9, c10 = st.columns(
+                    [1, 2.2, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.3, 1.1, 1.6])
             else:
-                c1, c2, c3, c4, c5, c6, c7, c8, c10 = st.columns([1, 3, 2, 2, 2, 2, 2, 2, 1.5])
+                c1, c2, c3, c4, c5, c6, c7, c8, c_mos, c10 = st.columns(
+                    [1, 2.6, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 1.5, 1.4])
                 c9 = None
             with c1:
                 st.markdown(f"### {hurdle_icon}")
@@ -2117,6 +2130,26 @@ if 'ms_edgar_results_df' in st.session_state:
                                 help=f"Shares chg: {fmt(row.get('dilution_pct_change'),'pct')}")
             with c7: st.metric("FCF Yield",             fmt(row.get('fcf_yield'), "pct"), help="Secondary valuation reference")
             with c8: st.metric("P/OE",                  fmt(row.get('price_owner_earn'), "ratio"), help="Secondary valuation reference")
+            with c_mos:
+                # margin_of_safety/intrinsic_value_per_share materialized
+                # on results_df above (same DCF calc as Equity Scout/
+                # Compare Stocks/Dashboard -- owner feedback: "would be
+                # good to have this on all pages") so sorting/export and
+                # the number shown here always agree, same pattern as
+                # si_holders/si_score. Stage 2 already fetched real
+                # price+shares for every survivor (see the P/OE calc just
+                # above), so this uses the standard per-share DCF path.
+                # No per-ticker _history carried through Stage 1/2 (keeps
+                # a market-wide scan's memory footprint down), so the
+                # growth-rate estimate uses compute_dcf_value's default
+                # rather than this company's own historical FCF trend.
+                _mos = row.get('margin_of_safety')
+                if _mos is not None:
+                    _iv = row.get('intrinsic_value_per_share')
+                    st.metric("Margin of Safety", f"{_mos:+.0%}",
+                              help=f"DCF intrinsic value: ${_iv:.2f}/share (default assumptions)" if _iv is not None else "DCF intrinsic value unavailable")
+                else:
+                    st.metric("Margin of Safety", "—", help="FCF, price, or shares unavailable for this ticker")
             if _has_si and c9 is not None:
                 with c9:
                     si_n     = int(row.get('si_holders', 0))
@@ -2182,14 +2215,16 @@ if 'ms_edgar_results_df' in st.session_state:
                      'debt_to_ni','debt_to_cads','debt_hurdle_cleared',
                      'dilution_passed','dilution_pct_change','limited_history','funnel_years_used',
                      'is_cyclical','is_negative_equity','roic_stale','roic_stale_years','roic_last_reliable_period',
-                     'fcf_yield','price_owner_earn','dividend_yield','price','market_cap']
+                     'fcf_yield','price_owner_earn','dividend_yield','price','market_cap',
+                     'margin_of_safety','intrinsic_value_per_share']
     _export_names = ['Ticker','Name','Sector','Industry','Sub-Industry',
                       'Financial Subtype','Financial Alt Score','ROE (10yr avg)','Quality Leg','Quality Value','Equity/Assets',
                       'ROIC (10yr avg)','ROIC Years Used','FCF Margin (10yr avg)','FCF Margin Years Used',
                       'Debt/Net Income','Debt/CADS','Debt Hurdle Cleared',
                       'Dilution Passed','Shares Chg (5yr)','Limited History','Funnel Years Used',
                       'Cyclical','Negative Equity','Stale ROIC','Stale ROIC Years','ROIC Last Reliable Year',
-                      'FCF Yield','Price/Owner Earnings','Dividend Yield','Price','Market Cap']
+                      'FCF Yield','Price/Owner Earnings','Dividend Yield','Price','Market Cap',
+                      'Margin of Safety (DCF)','DCF Intrinsic Value/Share']
     if 'si_holders' in results_df.columns:
         _export_cols  += ['si_holders', 'si_score']
         _export_names += ['SI Holders', 'SI Conviction Score']

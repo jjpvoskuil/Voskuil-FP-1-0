@@ -1516,15 +1516,30 @@ def _estimate_fcf_growth_rate(fcf_history: list, cap: float, floor: float, defau
 
 def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
     """
-    Two-stage DCF intrinsic value per share.
+    Two-stage DCF intrinsic value, total company + per-share.
 
-    `data` is a fetch_fundamentals_edgar()-shaped dict (needs "fcf", "shares",
-    "price", and "_history").
+    `data` is a fetch_fundamentals_edgar()-shaped dict, ideally with "fcf",
+    "shares", "price", and "_history" -- but shares/price are optional as
+    of the DCF-everywhere rollout: Market Screener only fetches the
+    cheaper market_cap (via yfinance fast_info) for every scanned ticker,
+    not per-share price/shares outstanding (that would mean an extra,
+    slower API call per ticker across a market-wide scan). When shares/
+    price are missing but market_cap is present, margin_of_safety falls
+    back to a whole-company comparison (total_intrinsic_value vs.
+    market_cap) instead of a per-share one -- same DCF math, just
+    compared at the company level instead of dividing down to a
+    per-share figure first. Equity Scout/Compare Stocks/Dashboard all
+    have real price+shares from fetch_fundamentals_edgar(), so their
+    behavior is unchanged; only a data source without per-share data
+    (Market Screener) uses the fallback.
 
     Returns:
     {
-        "intrinsic_value_per_share": float | None,
-        "margin_of_safety":          float | None,  # (intrinsic - price) / intrinsic
+        "intrinsic_value_per_share": float | None,  # None if shares unavailable
+        "total_intrinsic_value":     float | None,
+        "margin_of_safety":          float | None,  # per-share basis if price+shares
+                                                      # available, else market_cap basis
+        "margin_of_safety_basis":    "per_share" | "market_cap" | None,
         "base_fcf":                  float | None,
         "growth_rate":               float,
         "discount_rate":             float,
@@ -1534,23 +1549,28 @@ def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
     }
     """
     a = {**DCF_DEFAULTS, **(assumptions or {})}
-    base_fcf = data.get("fcf")
-    shares   = data.get("shares")
-    price    = data.get("price")
+    base_fcf   = data.get("fcf")
+    shares     = data.get("shares")
+    price      = data.get("price")
+    market_cap = data.get("market_cap")
 
     if base_fcf is None or base_fcf <= 0:
-        return {"intrinsic_value_per_share": None, "margin_of_safety": None,
+        return {"intrinsic_value_per_share": None, "total_intrinsic_value": None,
+                "margin_of_safety": None, "margin_of_safety_basis": None,
                 "base_fcf": base_fcf, "growth_rate": None,
                 "discount_rate": a["discount_rate"], "terminal_growth": a["terminal_growth"],
                 "projection_years": a["projection_years"],
                 "error": "FCF is negative or unavailable — DCF not meaningful for this company."}
 
-    if not shares or shares <= 0:
-        return {"intrinsic_value_per_share": None, "margin_of_safety": None,
+    have_per_share = bool(shares and shares > 0 and price and price > 0)
+    have_mktcap    = bool(market_cap and market_cap > 0)
+    if not have_per_share and not have_mktcap:
+        return {"intrinsic_value_per_share": None, "total_intrinsic_value": None,
+                "margin_of_safety": None, "margin_of_safety_basis": None,
                 "base_fcf": base_fcf, "growth_rate": None,
                 "discount_rate": a["discount_rate"], "terminal_growth": a["terminal_growth"],
                 "projection_years": a["projection_years"],
-                "error": "Shares outstanding unavailable — cannot compute per-share value."}
+                "error": "Neither shares/price nor market cap available — nothing to compare intrinsic value against."}
 
     r  = a["discount_rate"]
     tg = a["terminal_growth"]
@@ -1571,15 +1591,23 @@ def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
     pv_terminal_value = terminal_value / ((1 + r) ** n)
 
     total_intrinsic_value = pv_sum + pv_terminal_value
-    intrinsic_per_share   = total_intrinsic_value / shares
 
-    margin_of_safety = None
-    if price and price > 0:
-        margin_of_safety = (intrinsic_per_share - price) / intrinsic_per_share
+    intrinsic_per_share = (total_intrinsic_value / shares) if (shares and shares > 0) else None
+
+    margin_of_safety       = None
+    margin_of_safety_basis = None
+    if have_per_share:
+        margin_of_safety       = (intrinsic_per_share - price) / intrinsic_per_share
+        margin_of_safety_basis = "per_share"
+    elif have_mktcap:
+        margin_of_safety       = (total_intrinsic_value - market_cap) / total_intrinsic_value
+        margin_of_safety_basis = "market_cap"
 
     return {
         "intrinsic_value_per_share": intrinsic_per_share,
+        "total_intrinsic_value":     total_intrinsic_value,
         "margin_of_safety":          margin_of_safety,
+        "margin_of_safety_basis":    margin_of_safety_basis,
         "base_fcf":                  base_fcf,
         "growth_rate":               g,
         "discount_rate":             r,

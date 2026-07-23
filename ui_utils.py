@@ -259,6 +259,45 @@ function _renderComplete() {
 }
 """ % _MARKER_ID
 
+# Ownership handoff between force_scroll_to_top() and scroll_to_element()
+# (2026-07-23 follow-up to the BUG note in scroll_to_element() below):
+# each is its own independent components.html() iframe with its own
+# setInterval loop, and _releaseLeftoverGuard() only ever disarmed the
+# OTHER function's scrollTop-interception guard -- it never stopped that
+# other function's interval loop from continuing to run. A loop's own
+# _correct() call (a plain, direct `c.scrollTop = 0` assignment) isn't
+# routed through the guard at all, so releasing the guard did nothing to
+# stop it. When a fresh navigation lands directly on a ticker via a
+# "Dive Deeper"-style link (query param auto-analyze), force_scroll_to_top()
+# (from app.py, page just changed) and scroll_to_element() (from the
+# analysis that auto-ran on that same page load, no button click
+# involved) both start their own interval loop on the SAME run, with no
+# mousedown/wheel/touch ever occurring to cancel either one -- so BOTH
+# loops keep independently forcing scrollTop back to their own target
+# (0 vs. the results anchor) every ~50ms, each undoing the other, for up
+# to the full 5-minute safety cap. That's the "scrolls up and down like
+# crazy" symptom the guard-release fix didn't actually cover.
+#
+# Fixed with a simple ownership token stored on the container itself:
+# whichever function starts most recently claims a fresh generation
+# number, invalidating whatever generation an earlier-still-running loop
+# was operating under. Every tick, a loop checks whether it still owns
+# the current generation and immediately stops itself (clears its own
+# interval, same as the user manually scrolling) the moment it doesn't --
+# a clean handoff instead of two loops fighting indefinitely, regardless
+# of how either one started or whether any mouse/touch/wheel event ever
+# fires.
+_TAKEOVER_JS = """
+function _claimGeneration(c) {
+    var gen = (c.__scrollFixGen || 0) + 1;
+    c.__scrollFixGen = gen;
+    return gen;
+}
+function _stillOwnsGeneration(c, myGen) {
+    return !!c && c.__scrollFixGen === myGen;
+}
+"""
+
 # Safety-net cap on how long the corrective listener can run, in case a
 # user session sits on a freshly-navigated page for a very long time
 # without ever touching it. Not meant to be reached in normal use -- the
@@ -728,6 +767,7 @@ def force_scroll_to_top():
         {_GET_SCROLL_CONTAINER_JS}
         {_MARKER_CHECK_JS}
         {_REVEAL_JS}
+        {_TAKEOVER_JS}
         window.parent.scrollTo(0, 0);
         var _stop = false;
         var _revealed = false;
@@ -736,6 +776,11 @@ def force_scroll_to_top():
         var _lastHeight = null;
         var _attachedTo = null;
         var _guard = null;
+        var _myGen = null;
+        {{
+            var _c0 = _getScrollContainer();
+            if (_c0) {{ _myGen = _claimGeneration(_c0); }}
+        }}
         var _cancel = function() {{
             _stop = true;
             if (_guard) {{ _guard.restore(); _guard = null; }}
@@ -815,6 +860,15 @@ def force_scroll_to_top():
         _checkHeight();
         var _iv = setInterval(function() {{
             if (_stop) {{ clearInterval(_iv); return; }}
+            var _cOwn = _getScrollContainer();
+            if (_myGen !== null && !_stillOwnsGeneration(_cOwn, _myGen)) {{
+                // A newer force_scroll_to_top()/scroll_to_element() call has
+                // taken over the container since this loop started -- yield
+                // instead of continuing to fight it (see _TAKEOVER_JS above).
+                clearInterval(_iv);
+                _stop = true;
+                return;
+            }}
             _correct();
             _ensureAttached();
             _checkHeight();
@@ -875,24 +929,36 @@ def scroll_to_element(anchor_id: str):
 
     BUG (2026-07-23): owner reported Equity Scout "scrolls around" the
     first time they analyze a ticker right after navigating to the page,
-    but never on a second analysis in the same visit. Root cause: the
-    navigation's own force_scroll_to_top() call installs a scrollTop
-    guard directly on the real container (see its _installGuard()) that
-    silently discards any non-zero scrollTop write until the user
-    manually scrolls/touches/drags it -- and that release is wired to
-    'wheel'/'touchstart'/'mousedown' only. Submitting a ticker with Enter
-    right after landing on the page (the natural first move) never fires
-    any of those, so the guard is still armed when this function's own
-    scrollIntoView() calls run -- each one gets silently reset to 0,
-    which fires a 'scroll' event, which re-triggers this function's own
-    correction, which gets reset again, and so on: an invisible tug-of-
-    war between two corrective mechanisms with different targets (0 vs.
-    the results anchor) that reads to the user as the page scrolling
-    around on its own. Never happens on a second analysis because
-    nothing re-installs a guard between analyses on the same page visit.
-    Fixed by releasing any leftover guard (c.__scrollFixGuard) up front
-    and on every poll tick, before this function's own corrections run --
-    see _releaseLeftoverGuard() below.
+    but never on a second analysis in the same visit. First-pass root
+    cause found: the navigation's own force_scroll_to_top() call installs
+    a scrollTop guard directly on the real container (see its
+    _installGuard()) that silently discards any non-zero scrollTop write
+    until the user manually scrolls/touches/drags it -- and that release
+    is wired to 'wheel'/'touchstart'/'mousedown' only, so a keyboard-only
+    interaction never releases it. Fixed by releasing any leftover guard
+    up front (_releaseLeftoverGuard() below) -- but the owner reported
+    the SAME symptom again afterward, because that fix only covered the
+    guard, not the other half of the problem:
+
+    BUG (2026-07-23, follow-up): force_scroll_to_top()'s own setInterval
+    loop keeps calling its _correct() (a direct, unguarded
+    `c.scrollTop = 0` assignment) every ~50ms for up to its full 5-minute
+    safety cap, independent of the guard entirely -- releasing the guard
+    does nothing to stop THAT. The real trigger turned out to be
+    "Dive Deeper"-style navigation with a ticker already in the URL
+    (auto_analyze): the analysis runs automatically on the very same
+    page load as the navigation itself, with no button click or any
+    other mouse/touch/wheel event involved at all -- so
+    force_scroll_to_top()'s loop (from app.py, page just changed) and
+    this function's loop (from the auto-triggered analysis) both start
+    on the SAME run, and nothing ever fires to cancel the first one.
+    Two independent loops then fight indefinitely, each undoing the
+    other's correction every tick. Fixed with a generation-ownership
+    token on the container (_claimGeneration()/_stillOwnsGeneration(),
+    see _TAKEOVER_JS above force_scroll_to_top()): this function claims
+    a fresh generation on start, which force_scroll_to_top()'s loop
+    notices on its very next tick and stops itself immediately, a clean
+    handoff regardless of how either loop started.
     """
     st.session_state["_scroll_to_element_fired"] = True
     components.html(
@@ -900,12 +966,18 @@ def scroll_to_element(anchor_id: str):
         {_GET_SCROLL_CONTAINER_JS}
         {_MARKER_CHECK_JS}
         {_REVEAL_JS}
+        {_TAKEOVER_JS}
         var _stop = false;
         var _revealed = false;
         var _hideStart = Date.now();
         var _lastFixAt = Date.now();
         var _lastHeight = null;
         var _attachedTo = null;
+        var _myGen = null;
+        {{
+            var _c0 = _getScrollContainer();
+            if (_c0) {{ _myGen = _claimGeneration(_c0); }}
+        }}
         var _cancel = function() {{ _stop = true; }};
 
         // A PRIOR force_scroll_to_top() call (from the navigation that
@@ -972,6 +1044,15 @@ def scroll_to_element(anchor_id: str):
         _checkHeight();
         var _iv = setInterval(function() {{
             if (_stop) {{ clearInterval(_iv); return; }}
+            var _cOwn = _getScrollContainer();
+            if (_myGen !== null && !_stillOwnsGeneration(_cOwn, _myGen)) {{
+                // A newer scroll_to_element()/force_scroll_to_top() call has
+                // taken over the container since this loop started -- yield
+                // (see _TAKEOVER_JS above force_scroll_to_top()).
+                clearInterval(_iv);
+                _stop = true;
+                return;
+            }}
             _releaseLeftoverGuard();
             _correct();
             _ensureAttached();

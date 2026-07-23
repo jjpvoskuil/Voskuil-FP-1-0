@@ -516,18 +516,10 @@ if _cache_key and _cache_key in st.session_state:
             _yrs = st.number_input("Projection years", min_value=5, max_value=20,
                                     value=DCF_DEFAULTS["projection_years"], step=1,
                                     key=f"dcf_yrs_{ticker_input}")
+    # (result moved next to the Score gauge below, per owner feedback --
+    # was previously shown here, disconnected from the score) -- just
+    # compute it here, where the assumption inputs are.
     dcf = compute_dcf_value(data, {"discount_rate": _dr, "terminal_growth": _tg, "projection_years": _yrs})
-    if dcf["error"]:
-        st.caption(f"**💰 DCF Intrinsic Value:** — _{dcf['error']}_")
-    else:
-        _mos = dcf["margin_of_safety"]
-        _mos_color = "green" if (_mos or 0) > 0 else "red"
-        _mos_str = f" · :{_mos_color}[{_mos:+.0%} Margin of Safety]" if _mos is not None else ""
-        st.caption(
-            f"**💰 DCF Intrinsic Value:** ${dcf['intrinsic_value_per_share']:.2f}/share{_mos_str}  "
-            f"_(assumes {dcf['growth_rate']:.1%} FCF growth, {dcf['discount_rate']:.1%} discount, "
-            f"{dcf['terminal_growth']:.1%} terminal growth, {dcf['projection_years']}yr)_"
-        )
 
     if data.get("description"):
         st.markdown(f"*{data['description']}*")
@@ -593,6 +585,32 @@ if _cache_key and _cache_key in st.session_state:
             f"<div style='text-align:center; font-size:1.4em; font-weight:bold; color:{verdict_color}'>"
             f"{verdict_label}</div>", unsafe_allow_html=True
         )
+
+        # DCF Intrinsic Value, right next to the score (#owner feedback --
+        # previously shown up near the header, disconnected from the score;
+        # this is the "does the price support the recommendation" check,
+        # so it belongs right where the recommendation itself is).
+        if dcf["error"]:
+            st.caption(f"💰 **Intrinsic Value:** — _{dcf['error']}_")
+        else:
+            _mos = dcf["margin_of_safety"]
+            _current_price = data.get("price")
+            _mos_color = "#2ecc71" if (_mos or 0) > 0 else "#e74c3c"
+            iv1, iv2 = st.columns(2)
+            with iv1:
+                st.metric("Intrinsic Value", f"${dcf['intrinsic_value_per_share']:.2f}/sh")
+            with iv2:
+                st.metric("Current Price", f"${_current_price:.2f}" if _current_price else "N/A")
+            if _mos is not None:
+                st.markdown(
+                    f"<div style='text-align:center; font-size:1.1em; font-weight:bold; color:{_mos_color}'>"
+                    f"{_mos:+.0%} Margin of Safety</div>", unsafe_allow_html=True
+                )
+            st.caption(
+                f"_10-yr DCF: {dcf['growth_rate']:.1%} FCF growth, {dcf['discount_rate']:.1%} discount, "
+                f"{dcf['terminal_growth']:.1%} terminal growth — see ⚙️ DCF Assumptions above to adjust_"
+            )
+
         if missing_names:
             st.markdown(f"**Rebalanced Score:** {rebalanced_score}/100")
             st.markdown(f"**Raw Score:** {raw_score}/100")
