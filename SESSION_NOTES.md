@@ -1322,3 +1322,39 @@ regression/slowdown for the common case. Re-ran the three test scripts
 from the earlier FX-conversion fix (`test_fx_conversion.py`,
 `test_asml_e2e.py`, `test_hold_verdict.py`) against the refactored code —
 all still pass unchanged.
+
+## Equity Scout: page "scrolls around" on the first analysis after navigating
+
+Owner reported entering a ticker and analyzing right after navigating to
+Equity Scout makes the page scroll around; a second analysis in the same
+visit is fine.
+
+Root cause, in `ui_utils.py`: navigating to any page calls
+`force_scroll_to_top()`, which installs a scrollTop guard directly on the
+real scroll container (`_installGuard()`) -- an instance-level property
+override that silently discards any attempt to set scrollTop to a
+non-zero value, until the user manually scrolls/touches/drags the
+container (the only events wired to release it: 'wheel', 'touchstart',
+'mousedown'). Typing a ticker and hitting Enter -- the natural first
+action right after landing on the page -- is a keyboard interaction, so
+it never releases that guard. When the resulting analysis then calls
+`scroll_to_element()` to bring the results into view, every one of its
+`scrollIntoView()` calls gets silently reset to 0 by the still-armed
+guard, which fires a 'scroll' event, which re-triggers
+`scroll_to_element()`'s own correction, which gets reset again -- two
+corrective mechanisms with different targets (0 vs. the results anchor)
+fighting each other, visible to the user as the page scrolling around on
+its own. Never happens on a second analysis in the same visit because
+nothing re-installs a guard between analyses on the same page.
+
+Fixed by having `scroll_to_element()` release any leftover guard
+(`c.__scrollFixGuard.restore()`) up front and on every poll tick, before
+running its own corrections -- so a stale navigation-time guard can never
+fight a same-page results scroll again.
+
+Verified the generated JS (both `scroll_to_element()`'s and, unchanged,
+`force_scroll_to_top()`'s) is syntactically valid via `node --check`
+against the actual rendered f-string output, since this logic lives
+inside an embedded `components.html()` script that a plain Python
+compile check can't validate. Full repo-wide `py_compile` pass also
+clean.

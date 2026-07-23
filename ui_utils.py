@@ -872,6 +872,27 @@ def scroll_to_element(anchor_id: str):
     wins in that case (matching what the user actually asked for: see the
     top of the results, not the literal top of the page), so app.py skips
     its own top-scroll whenever this fired first.
+
+    BUG (2026-07-23): owner reported Equity Scout "scrolls around" the
+    first time they analyze a ticker right after navigating to the page,
+    but never on a second analysis in the same visit. Root cause: the
+    navigation's own force_scroll_to_top() call installs a scrollTop
+    guard directly on the real container (see its _installGuard()) that
+    silently discards any non-zero scrollTop write until the user
+    manually scrolls/touches/drags it -- and that release is wired to
+    'wheel'/'touchstart'/'mousedown' only. Submitting a ticker with Enter
+    right after landing on the page (the natural first move) never fires
+    any of those, so the guard is still armed when this function's own
+    scrollIntoView() calls run -- each one gets silently reset to 0,
+    which fires a 'scroll' event, which re-triggers this function's own
+    correction, which gets reset again, and so on: an invisible tug-of-
+    war between two corrective mechanisms with different targets (0 vs.
+    the results anchor) that reads to the user as the page scrolling
+    around on its own. Never happens on a second analysis because
+    nothing re-installs a guard between analyses on the same page visit.
+    Fixed by releasing any leftover guard (c.__scrollFixGuard) up front
+    and on every poll tick, before this function's own corrections run --
+    see _releaseLeftoverGuard() below.
     """
     st.session_state["_scroll_to_element_fired"] = True
     components.html(
@@ -886,6 +907,34 @@ def scroll_to_element(anchor_id: str):
         var _lastHeight = null;
         var _attachedTo = null;
         var _cancel = function() {{ _stop = true; }};
+
+        // A PRIOR force_scroll_to_top() call (from the navigation that
+        // landed on this page) may still have its scrollTop guard
+        // actively installed on the real container -- see
+        // force_scroll_to_top()'s _installGuard(): it discards any
+        // attempt to set scrollTop to a non-zero value until the user
+        // manually scrolls/touches/drags, and that release only fires on
+        // a 'wheel'/'touchstart'/'mousedown' event reaching the
+        // container. Submitting a text_input with Enter (the natural way
+        // to run an analysis right after navigating -- type a ticker,
+        // hit Enter) is a keyboard interaction, not a mouse/touch one, so
+        // it never releases that guard. Without this, THIS function's
+        // own scrollIntoView() calls below get silently discarded back to
+        // 0 by the leftover guard, which keeps generating 'scroll'
+        // events that re-trigger _correct() here, which tries to scroll
+        // again, which the guard discards again -- an invisible-looking
+        // fight that reads to the user as the page "scrolling around"
+        // right after their first analysis on a freshly-navigated page.
+        // Confirmed as the mechanism: it only ever happens on the first
+        // analysis after navigating (the only time a force_scroll_to_top()
+        // guard could still be un-released), never the second (nothing
+        // installs a new guard between analyses on the same page visit).
+        function _releaseLeftoverGuard() {{
+            var c = _getScrollContainer();
+            if (c && c.__scrollFixGuard && c.__scrollFixGuard.active) {{
+                c.__scrollFixGuard.restore();
+            }}
+        }}
 
         function _correct() {{
             var el = window.parent.document.getElementById("{anchor_id}");
@@ -917,11 +966,13 @@ def scroll_to_element(anchor_id: str):
                 c.addEventListener(evt, _cancel, {{once: true, passive: true}});
             }});
         }}
+        _releaseLeftoverGuard();
         _correct();
         _ensureAttached();
         _checkHeight();
         var _iv = setInterval(function() {{
             if (_stop) {{ clearInterval(_iv); return; }}
+            _releaseLeftoverGuard();
             _correct();
             _ensureAttached();
             _checkHeight();
