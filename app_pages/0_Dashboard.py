@@ -501,6 +501,14 @@ if df_holdings_raw is not None:
             max_debt = st.slider("Max Debt/FCF to Hold (x)", 0.0, 15.0,
                                   float(ht["max_debt_fcf"]), step=0.5,
                                   help="Above this leverage → Trim")
+            # (2026-07-23, PG/TGT case) DCF margin of safety now gates
+            # Add/Hold same as P/OE and FCF yield below -- see
+            # investment_verdict()'s docstring in sec_utils.py. 0% =
+            # breakeven vs. the DCF model's own fair-value estimate;
+            # raise for a real margin-of-safety cushion.
+            min_mos  = st.slider("Min DCF Margin of Safety to Add (%)", -50, 50,
+                                  int(ht.get("min_margin_of_safety", 0.0) * 100), step=5,
+                                  help="Below this margin vs. intrinsic value → Hold") / 100
         with tc2:
             max_poe  = st.slider("Max P/Owner Earnings to Add (x)", 0.0, 60.0,
                                   float(ht["max_poe"]), step=1.0,
@@ -511,10 +519,11 @@ if df_holdings_raw is not None:
         tb1, tb2, _ = st.columns([1.2, 1.2, 4])
         if tb1.button("✅ Apply Thresholds", type="primary", key="apply_thresholds"):
             st.session_state.hold_thresholds = {
-                "min_roic":      min_roic,
-                "max_debt_fcf":  max_debt,
-                "max_poe":       max_poe,
-                "min_fcf_yield": min_fcfy,
+                "min_roic":             min_roic,
+                "max_debt_fcf":         max_debt,
+                "max_poe":              max_poe,
+                "min_fcf_yield":        min_fcfy,
+                "min_margin_of_safety": min_mos,
             }
             st.success("✅ Thresholds applied.")
             st.rerun()

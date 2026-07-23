@@ -1673,12 +1673,47 @@ def score_to_label(score):
 # passes, which used to fall through to "buy" -- a false positive on a
 # stock the app actually knows nothing about. Guarded: if there's
 # nothing at all to evaluate, returns "unrated".
+#
+# VALUE LEG, PART 2 (2026-07-23): P/OE + FCF yield alone turned out to be
+# only HALF the value question. Owner spotted PG showing "Add" with a
+# DCF-model margin of safety of -39% (i.e. the DCF thinks PG is trading
+# ~39% above its own intrinsic-value estimate), and TGT showing "Add" at
+# -138% -- both clear the P/OE-and-FCF-yield bar on their own, but the
+# separately-displayed MoS column (compute_dcf_value(), rolled out to
+# Dashboard/Market Screener/Watchlist/Equity Scout/Compare Stocks after
+# this gate was originally built) was never wired into the gate itself.
+# Same category of bug as the original NVDA case this function was built
+# to fix -- two different "is this cheap enough" formulas living side by
+# side, capable of disagreeing -- just hiding in a spot that hadn't been
+# exercised yet. Owner's call: require BOTH legs to agree, not either
+# one alone -- value_ok now also requires the DCF margin of safety to be
+# at or above min_margin_of_safety (0% by default: price no richer than
+# the model's own fair-value estimate), on top of the existing P/OE and
+# FCF-yield checks, not instead of them.
+#
+# Deliberately always computed with DCF_DEFAULTS here, not whatever
+# custom discount-rate/terminal-growth sliders a page like Equity Scout
+# or Compare Stocks might currently have dragged away from default for
+# exploration -- the Signal has to mean the same thing for every ticker
+# on every page (including Market Screener, scanning hundreds of tickers
+# at once with no per-ticker custom assumptions), which a slider-driven
+# gate could never guarantee. Those pages' own displayed Intrinsic
+# Value/MoS metrics still fully reflect the user's custom assumptions;
+# only the canonical buy/hold/avoid gate itself stays pinned to the
+# standard baseline.
 
 VERDICT_THRESHOLDS = {
-    "min_roic":      0.12,
-    "max_debt_fcf":  5.0,
-    "max_poe":       25.0,
-    "min_fcf_yield": 0.03,
+    "min_roic":            0.12,
+    "max_debt_fcf":        5.0,
+    "max_poe":             25.0,
+    "min_fcf_yield":       0.03,
+    # (2026-07-23, PG/TGT case) DCF margin of safety must clear this bar
+    # too -- see investment_verdict()'s docstring below for why P/OE +
+    # FCF yield alone let names the DCF model considers badly overpriced
+    # (PG -39%, TGT -138%) still show "Add". 0.0 = breakeven (price no
+    # higher than the model's own intrinsic value estimate); raise for a
+    # real Graham/Buffett-style cushion.
+    "min_margin_of_safety": 0.0,
 }
 
 
@@ -1716,9 +1751,13 @@ def investment_verdict(data, thresholds=None):
         )
         quality_inputs = (roic, debt_multiple)
 
+    dcf_check = compute_dcf_value(data)
+    mos       = dcf_check.get("margin_of_safety")
+
     value_ok = (
         (poe       is None or poe       <= t["max_poe"]) and
-        (fcf_yield is None or fcf_yield >= t["min_fcf_yield"])
+        (fcf_yield is None or fcf_yield >= t["min_fcf_yield"]) and
+        (mos       is None or mos       >= t["min_margin_of_safety"])
     )
 
     if all(v is None for v in (*quality_inputs, poe, fcf_yield)):
@@ -1726,13 +1765,16 @@ def investment_verdict(data, thresholds=None):
                 "quality_ok": None, "value_ok": None, "quality_inputs": quality_inputs}
     if not quality_ok:
         return {"tier": "avoid", "color": "#e74c3c", "icon": "🔴",
-                "quality_ok": False, "value_ok": value_ok, "quality_inputs": quality_inputs}
+                "quality_ok": False, "value_ok": value_ok, "quality_inputs": quality_inputs,
+                "margin_of_safety": mos}
     elif value_ok:
         return {"tier": "buy", "color": "#2ecc71", "icon": "🟢",
-                "quality_ok": True, "value_ok": True, "quality_inputs": quality_inputs}
+                "quality_ok": True, "value_ok": True, "quality_inputs": quality_inputs,
+                "margin_of_safety": mos}
     else:
         return {"tier": "hold", "color": "#f39c12", "icon": "🟡",
-                "quality_ok": True, "value_ok": False, "quality_inputs": quality_inputs}
+                "quality_ok": True, "value_ok": False, "quality_inputs": quality_inputs,
+                "margin_of_safety": mos}
 
 
 # ── Canonical 5-criteria scoring engine ──────────────────────────────────────
