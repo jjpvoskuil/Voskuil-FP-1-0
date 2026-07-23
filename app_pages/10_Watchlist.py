@@ -204,6 +204,8 @@ else:
                 if trc6.button("🗑️", key=f"wl_deltx_{ticker}_{t['id']}"):
                     wl.delete_transaction(ticker, t["id"])
                     st.rerun()
+                if t.get("note"):
+                    st.caption(f"🌱 {t['note']} — delete + record a new Buy above to change the amount")
         if not any_tx:
             st.caption("No transactions recorded yet.")
 

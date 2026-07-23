@@ -89,14 +89,28 @@ def is_watchlisted(ticker: str) -> bool:
     return ticker in load_watchlist().get("items", {})
 
 
-def add_to_watchlist(ticker: str, name: str = "", source: str = ""):
-    """Idempotent — safe to call on every rerun of a source-page checkbox.
-    Only actually writes to GitHub the first time a ticker is added."""
+def add_to_watchlist(ticker: str, name: str = "", source: str = "",
+                      starting_shares: float = None, starting_value: float = None):
+    """
+    Idempotent — safe to call on every rerun of a source-page checkbox.
+    Only actually writes to GitHub the first time a ticker is added.
+
+    starting_shares / starting_value: if both are positive, seeds the watch
+    portfolio with a same-day "buy" sized to an actual real holding (used
+    by Dashboard, per owner request July 2026) -- represents "I already
+    hold this much in real life," so the paper portfolio starts from where
+    the real one already is rather than from $0. Dated today, since MS's
+    transaction export doesn't reliably go back to the real original
+    purchase date -- this is a starting point, not a backdated re-creation
+    of history. Fully editable afterward on the Watchlist page (delete the
+    seed transaction, record a different Buy). Implicitly tags the ticker
+    into the watch portfolio, same as any other buy.
+    """
     ticker = ticker.upper().strip()
     data = load_watchlist()
     if ticker in data["items"]:
         return True, "Already on watchlist"
-    data["items"][ticker] = {
+    item = {
         "ticker": ticker,
         "name": name or ticker,
         "source": source,
@@ -105,7 +119,23 @@ def add_to_watchlist(ticker: str, name: str = "", source: str = ""):
         "notes": "",
         "transactions": [],
     }
-    return save_watchlist(data, f"Watchlist: add {ticker} (via {source or 'manual'})")
+    commit_message = f"Watchlist: add {ticker} (via {source or 'manual'})"
+    if starting_shares and starting_value and starting_shares > 0 and starting_value > 0:
+        price = starting_value / starting_shares
+        item["in_watch_portfolio"] = True
+        item["transactions"].append({
+            "id": uuid.uuid4().hex[:8],
+            "date": date.today().isoformat(),
+            "action": "buy",
+            "shares": round(float(starting_shares), 6),
+            "price": round(float(price), 4),
+            "amount": round(float(starting_value), 2),
+            "note": "Starting position — seeded from real holding",
+        })
+        commit_message = (f"Watchlist: add {ticker} with starting position "
+                           f"${starting_value:,.2f} (via {source or 'manual'})")
+    data["items"][ticker] = item
+    return save_watchlist(data, commit_message)
 
 
 def remove_from_watchlist(ticker: str):

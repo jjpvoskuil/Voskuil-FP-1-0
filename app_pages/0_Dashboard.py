@@ -379,6 +379,7 @@ if df_holdings_raw is not None:
             Name=('Name', 'first'),
             Product_Type=('Product Type', 'first'),
             Total_Value=('Market Value ($)', 'sum'),
+            Total_Shares=('Quantity', 'sum'),
             Accounts=('Account Number', lambda x: ', '.join(x.astype(str).unique())),
             Account_Count=('Account Number', 'nunique'),
         )
@@ -813,13 +814,20 @@ if df_holdings_raw is not None:
             # buy/sell history. Checking it writes once (idempotent);
             # unchecking here does nothing.
             _already_watched = is_watchlisted(row['Symbol'])
+            _seed_value  = row.get('Total_Value')
+            _seed_shares = row.get('Total_Shares')
             _watch_checked = st.checkbox(
                 "⭐", value=_already_watched, key=f"dash_watch_{row['Symbol']}",
                 disabled=_already_watched,
-                help="On Watchlist" if _already_watched else "Add to Watchlist",
+                help=("On Watchlist" if _already_watched else
+                      f"Add to Watchlist — seeds the Watch Portfolio with your current "
+                      f"${_seed_value:,.0f} position as its editable starting point"),
             )
             if _watch_checked and not _already_watched:
-                add_to_watchlist(row['Symbol'], name=row.get('Name', row['Symbol']), source="Dashboard")
+                add_to_watchlist(
+                    row['Symbol'], name=row.get('Name', row['Symbol']), source="Dashboard",
+                    starting_shares=_seed_shares, starting_value=_seed_value,
+                )
                 st.rerun()
 
     st.caption("Foreign ADRs and companies without SEC EDGAR filings will show as unscored — see the summary message above for a count.")
