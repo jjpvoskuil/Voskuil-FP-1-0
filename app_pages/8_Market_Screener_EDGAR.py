@@ -1350,14 +1350,26 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                     })
 
                     def _show_dcf_block():
+                        # (2026-07-23) Current price used to only be shown
+                        # if the DCF succeeded -- an early "return" on any
+                        # DCF error (bank/insurer FCF being unavailable by
+                        # design, most commonly) meant price never showed
+                        # either, even though the price fetch itself had
+                        # nothing to do with the DCF failing. Price is now
+                        # always shown; only IV/MoS fall back to N/A.
                         st.markdown("#### Valuation (DCF, default assumptions)")
-                        if dbg_dcf.get("error"):
-                            st.caption(f"💰 **DCF:** — _{dbg_dcf['error']}_")
-                            return
                         _dv1, _dv2, _dv3 = st.columns(3)
                         with _dv1:
                             _cp = dbg_price_data.get("price")
                             st.metric("Current Price", f"${_cp:.2f}" if _cp else "N/A")
+                        if dbg_dcf.get("error"):
+                            with _dv2:
+                                st.metric("Intrinsic Value", "N/A")
+                            with _dv3:
+                                _is_fin = dbg_subtype in ("bank", "insurance")
+                                st.metric("Margin of Safety", "N/A" if _is_fin else "—",
+                                          help=dbg_dcf["error"])
+                            return
                         with _dv2:
                             _iv = dbg_dcf.get("intrinsic_value_per_share")
                             st.metric("Intrinsic Value", f"${_iv:.2f}/sh" if _iv is not None else "N/A")
@@ -1754,6 +1766,14 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
             full_data = {
                 **qdata,
                 "price":            price,
+                "shares":           shares,
+                # (2026-07-23) "shares" was fetched into a local variable
+                # for the P/OE calc right above but never actually landed
+                # in this dict -- meaning compute_dcf_value() downstream
+                # NEVER had shares available for a single Market Screener
+                # ticker, forcing every one of them into the market-cap-
+                # basis MoS fallback and leaving intrinsic_value_per_share
+                # None for literally every row, not just financial firms.
                 "market_cap":       market_cap or qdata.get("market_cap"),
                 "sector":           sector if sector and sector != "N/A" else qdata.get("sector", "Unknown"),
                 "fcf_yield":        fcf_yield,
@@ -2212,25 +2232,41 @@ if 'ms_edgar_results_df' in st.session_state:
                 # float('nan') once the column is float64 -- see
                 # sec_utils.compute_dcf_value()'s docstring for the fix
                 # at the source too.
-                _mos = row.get('margin_of_safety')
+                # (2026-07-23) Two bugs owner caught testing this: (1)
+                # current price was only ever shown INSIDE the "MoS
+                # available" branch, so a ticker with no MoS showed
+                # nothing at all, even when its price fetch had actually
+                # succeeded -- price now shown unconditionally below,
+                # decoupled from whether MoS/IV could be computed. (2)
+                # bank/insurer rows always show "—" here, every time, by
+                # design (see fetch_stage1_data_edgar()'s docstring: FCF
+                # is deliberately left None for financial firms since
+                # op_cf+inv_cf is dominated by loan/investment portfolio
+                # volume, not a meaningful cash-flow figure for a
+                # leveraged balance-sheet business) -- but a bare "—"
+                # with no explanation reads identically to a bug. Labeled
+                # explicitly instead so it's clearly "doesn't apply here"
+                # rather than "broke."
+                _mos    = row.get('margin_of_safety')
+                _iv     = row.get('intrinsic_value_per_share')
+                _price  = row.get('price')
+                _is_fin = row.get('financial_subtype') in ("bank", "insurance")
+
                 if pd.notna(_mos):
-                    _iv    = row.get('intrinsic_value_per_share')
-                    _price = row.get('price')
-                    # Target price used to be hover-only (in the help
-                    # tooltip); actual price wasn't shown anywhere in
-                    # this row at all -- owner feedback: show both
-                    # wherever MoS/intrinsic is shown, not just on hover.
                     st.metric("Margin of Safety", f"{_mos:+.0%}",
                               help="DCF intrinsic value (default assumptions)")
-                    _price_bits = []
-                    if pd.notna(_price):
-                        _price_bits.append(f"${_price:.0f} now")
-                    if pd.notna(_iv):
-                        _price_bits.append(f"${_iv:.0f} target")
-                    if _price_bits:
-                        st.caption(" → ".join(_price_bits))
+                elif _is_fin:
+                    st.metric("Margin of Safety", "N/A", help="FCF-based DCF doesn't apply to banks/insurers (see alt score/checklist above instead)")
                 else:
                     st.metric("Margin of Safety", "—", help="FCF, price, or shares unavailable for this ticker")
+
+                _price_bits = []
+                if pd.notna(_price):
+                    _price_bits.append(f"${_price:.0f} now")
+                if pd.notna(_iv):
+                    _price_bits.append(f"${_iv:.0f} target")
+                if _price_bits:
+                    st.caption(" → ".join(_price_bits))
             if _has_si and c9 is not None:
                 with c9:
                     si_n     = int(row.get('si_holders', 0))
