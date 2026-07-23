@@ -23,7 +23,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display, investment_verdict
+from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, get_intrinsic_value, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display, investment_verdict
 from claude_utils import ask_claude_about_equity, get_user_profile
 from watchlist_utils import add_to_watchlist, is_watchlisted
 
@@ -121,7 +121,27 @@ def build_compare_context(tickers, fundamentals, scores, dcf_results=None):
         score, criteria = scores.get(t, (None, []))
         crit_str = " | ".join(f"{c['name']}: {c['points_earned']}/{c['points_max']}" for c in criteria)
         dcf = dcf_results.get(t, {})
-        if dcf.get("error"):
+        # (2026-07-23) dcf_results now holds get_intrinsic_value() output,
+        # which is either a DCF result (equities) or a Residual Income
+        # result (banks/insurers, stamped methodology="residual_income")
+        # -- shapes differ, so branch on it here rather than assuming DCF
+        # keys exist for every ticker.
+        if dcf.get("methodology") == "residual_income":
+            if dcf.get("error"):
+                dcf_str = f"Residual Income: unavailable ({dcf['error']})"
+            else:
+                _ss, _ms = dcf.get("single_stage", {}), dcf.get("multi_stage", {})
+                _bits = []
+                if _ss.get("intrinsic_value_per_share") is not None:
+                    _bits.append(f"single-stage ${_ss['intrinsic_value_per_share']:.2f}/share"
+                                 + (f" ({_ss['margin_of_safety']:+.0%} MoS)" if _ss.get("margin_of_safety") is not None else ""))
+                if _ms.get("intrinsic_value_per_share") is not None:
+                    _bits.append(f"multi-stage ${_ms['intrinsic_value_per_share']:.2f}/share"
+                                 + (f" ({_ms['margin_of_safety']:+.0%} MoS)" if _ms.get("margin_of_safety") is not None else ""))
+                dcf_str = "Residual Income Intrinsic Value: " + (", ".join(_bits) if _bits else "not computed")
+                if dcf.get("divergence") is not None:
+                    dcf_str += f" | Single/multi divergence: {dcf['divergence']:.0%}"
+        elif dcf.get("error"):
             dcf_str = f"DCF: unavailable ({dcf['error']})"
         elif dcf.get("intrinsic_value_per_share") is not None:
             _mos = dcf.get("margin_of_safety")
@@ -290,7 +310,12 @@ for i, t in enumerate(active_tickers):
     _verdict = investment_verdict(d)
     label = {"buy": "Strong Buy", "hold": "Hold", "avoid": "Avoid", "unrated": "—"}[_verdict["tier"]]
     emoji = _verdict["icon"]
-    dcf = compute_dcf_value(d, dcf_assumptions)
+    # (2026-07-23) get_intrinsic_value() routes banks/insurers to the
+    # Residual Income model instead of FCF-DCF -- see sec_utils.py's
+    # dispatcher; same "one formula, everywhere" rule as the rest of the
+    # app. dcf_assumptions only apply to the DCF path -- Residual Income
+    # uses its own defaults (no per-page assumption inputs here yet).
+    dcf = get_intrinsic_value(d, dcf_assumptions)
     dcf_results[t] = dcf
     with summary_cols[i]:
         st.markdown(f"### {t}")
@@ -299,7 +324,23 @@ for i, t in enumerate(active_tickers):
         _price_str = f"${d['price']:.2f}" if d.get("price") else "N/A"
         st.caption(f"**Price:** {_price_str}")
 
-        if dcf["error"]:
+        if dcf.get("methodology") == "residual_income":
+            if dcf["error"]:
+                st.caption(f"**Residual Income Value:** — _{dcf['error']}_")
+            else:
+                _ms = dcf["multi_stage"]
+                _ss = dcf["single_stage"]
+                if _ms.get("intrinsic_value_per_share") is not None:
+                    _ms_mos = _ms.get("margin_of_safety")
+                    _mos_color = "green" if (_ms_mos or 0) > 0 else "red"
+                    st.caption(f"**Value (multi-stage):** ${_ms['intrinsic_value_per_share']:.2f}")
+                    if _ms_mos is not None:
+                        st.caption(f":{_mos_color}[{_ms_mos:+.0%} MoS]")
+                if _ss.get("margin_of_safety") is not None:
+                    st.caption(f"Single-stage MoS: {_ss['margin_of_safety']:+.0%}")
+                if dcf.get("divergence") is not None and dcf["divergence"] >= 0.30:
+                    st.caption(f"⚠️ {dcf['divergence']:.0%} divergence")
+        elif dcf["error"]:
             st.caption(f"**DCF Value:** — _{dcf['error']}_")
         else:
             _mos = dcf["margin_of_safety"]

@@ -32,7 +32,8 @@ import streamlit as st
 from github_store import github_get_json, github_put_json
 from sec_utils import (fetch_fundamentals_edgar, score_stock_breakdown,
                         score_financial_firm_display, compute_dcf_value,
-                        DCF_DEFAULTS, DEFAULT_WEIGHTS, investment_verdict)
+                        DCF_DEFAULTS, get_intrinsic_value, DEFAULT_WEIGHTS,
+                        investment_verdict)
 
 WATCHLIST_FILE = "watchlist_data.json"
 
@@ -320,13 +321,22 @@ def fetch_price_series(ticker: str, start_date: str, end_date: str):
 def get_ticker_snapshot(ticker: str, weights: dict = None):
     """
     One-shot fetch of everything the Watchlist table shows per ticker:
-    live price, DCF intrinsic value + margin of safety, the Owner's
+    live price, intrinsic value + margin of safety, the Owner's
     Framework score, and the action-rating label. Deliberately the SAME
     pipeline Compare Stocks uses -- fetch_fundamentals_edgar() ->
     score_stock_breakdown() / score_financial_firm_display() (bank/insurer
-    swap) -> compute_dcf_value() -> investment_verdict() -- so a ticker's
+    swap) -> get_intrinsic_value() -> investment_verdict() -- so a ticker's
     numbers here always agree with what it'd show on Compare Stocks or
     Equity Scout, not a second scoring implementation that could drift.
+
+    (2026-07-23) get_intrinsic_value() replaces the direct compute_dcf_value()
+    call so bank/insurer tickers route to the Residual Income model
+    (multi-stage headline, single-stage + divergence in the extra keys
+    below) instead of the FCF-DCF that doesn't apply to them -- same "2-
+    stage process everywhere" rollout as Dashboard/Equity Scout/Compare
+    Stocks. "dcf_value"/"margin_of_safety" stay the headline keys for
+    backward compatibility with the table; "methodology", "single_stage_mos",
+    and "divergence" are new, set only for the residual-income path.
 
     (2026-07-23) action_label used to come from score_to_label(score) --
     quality-only, no price check at all, the same stale approach that
@@ -346,25 +356,37 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
             "error": d["error"], "name": ticker, "price": None,
             "dcf_value": None, "margin_of_safety": None, "dcf_error": None,
             "score": None, "action_label": "—", "action_emoji": "",
-            "foreign_currency": None,
+            "foreign_currency": None, "methodology": None,
+            "single_stage_mos": None, "divergence": None,
         }
     subtype = d.get("financial_subtype")
     if subtype in ("bank", "insurance"):
         score, _ = score_financial_firm_display(d, subtype)
     else:
         score, _ = score_stock_breakdown(d, weights)
-    dcf = compute_dcf_value(d, DCF_DEFAULTS)
+    iv = get_intrinsic_value(d, DCF_DEFAULTS)
     verdict = investment_verdict(d)
     label = {"buy": "Strong Buy", "hold": "Hold", "avoid": "Avoid",
              "unrated": "—"}[verdict["tier"]]
     emoji = verdict["icon"]
+    if iv.get("methodology") == "residual_income":
+        _ms = iv.get("multi_stage", {})
+        _ss = iv.get("single_stage", {})
+        dcf_value, mos, dcf_error = _ms.get("intrinsic_value_per_share"), _ms.get("margin_of_safety"), iv.get("error") or _ms.get("error")
+        single_stage_mos, divergence = _ss.get("margin_of_safety"), iv.get("divergence")
+    else:
+        dcf_value, mos, dcf_error = iv.get("intrinsic_value_per_share"), iv.get("margin_of_safety"), iv.get("error")
+        single_stage_mos, divergence = None, None
     return {
         "error": None,
         "name": d.get("name", ticker),
         "price": d.get("price"),
-        "dcf_value": dcf.get("intrinsic_value_per_share"),
-        "margin_of_safety": dcf.get("margin_of_safety"),
-        "dcf_error": dcf.get("error"),
+        "dcf_value": dcf_value,
+        "margin_of_safety": mos,
+        "dcf_error": dcf_error,
+        "methodology": iv.get("methodology"),
+        "single_stage_mos": single_stage_mos,
+        "divergence": divergence,
         "score": score,
         "action_label": label,
         "action_emoji": emoji,

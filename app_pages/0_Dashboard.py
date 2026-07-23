@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
 from ui_utils import scroll_to_element
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS, investment_verdict, VERDICT_THRESHOLDS, compute_dcf_value
+from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS, investment_verdict, VERDICT_THRESHOLDS, compute_dcf_value, get_intrinsic_value
 from github_store import github_get_json, github_put_json
 from watchlist_utils import add_to_watchlist, is_watchlisted
 
@@ -683,11 +683,34 @@ if df_holdings_raw is not None:
     # network calls, default DCF assumptions (no per-holding override
     # here, unlike Equity Scout's adjustable sliders -- keeps this table
     # fast and consistent across all ~65 holdings).
+    # (2026-07-23) get_intrinsic_value() instead of compute_dcf_value()
+    # directly -- routes a bank/insurer to the residual income model
+    # instead of running FCF-DCF on a cash-flow figure that isn't
+    # economically meaningful for that kind of business (see
+    # compute_dcf_value()'s own guard for why -- this call site used to
+    # get a real-looking but methodologically wrong number back instead
+    # of the clean "doesn't apply" every other page now shows).
     def _dcf_for(symbol):
-        return compute_dcf_value(st.session_state.holding_raw_data.get(symbol) or {})
+        return get_intrinsic_value(st.session_state.holding_raw_data.get(symbol) or {})
     _dcfs = display_df['Symbol'].apply(_dcf_for)
-    display_df['MoS']       = _dcfs.apply(lambda d: d.get('margin_of_safety'))
-    display_df['Intrinsic'] = _dcfs.apply(lambda d: d.get('intrinsic_value_per_share'))
+
+    def _mos_for(d):
+        if d.get('methodology') == 'residual_income':
+            return d.get('multi_stage', {}).get('margin_of_safety')
+        return d.get('margin_of_safety')
+
+    def _iv_for(d):
+        if d.get('methodology') == 'residual_income':
+            return d.get('multi_stage', {}).get('intrinsic_value_per_share')
+        return d.get('intrinsic_value_per_share')
+
+    display_df['MoS']            = _dcfs.apply(_mos_for)
+    display_df['Intrinsic']      = _dcfs.apply(_iv_for)
+    display_df['IsFinancialRI']  = _dcfs.apply(lambda d: d.get('methodology') == 'residual_income')
+    display_df['SingleStageMoS'] = _dcfs.apply(
+        lambda d: d.get('single_stage', {}).get('margin_of_safety') if d.get('methodology') == 'residual_income' else None)
+    display_df['RIDivergence']   = _dcfs.apply(
+        lambda d: d.get('divergence') if d.get('methodology') == 'residual_income' else None)
     # Current per-share price alongside the DCF target -- the table had
     # no per-share price anywhere (Value is total $ position, not price
     # per share), so MoS/target showed with nothing to compare it
@@ -822,6 +845,13 @@ if df_holdings_raw is not None:
             # once the column is float64. "nan is not None" is True, so
             # the old check let it straight through to formatting, which
             # is exactly how ALL showed "+nan%" instead of "—".
+            # (2026-07-23) Banks/insurers route through the Residual
+            # Income model (get_intrinsic_value() dispatcher) instead of
+            # FCF-DCF -- headline number here is the multi-stage result,
+            # same convention as Market Screener's main table and debug
+            # tool, with the single-stage figure and a divergence flag
+            # in the caption so a wide gap (current ROE running well off
+            # the company's own normal range) is visible at a glance.
             _mos = row['MoS']
             if pd.notna(_mos):
                 _mos_color = "#2ecc71" if _mos > 0 else "#e74c3c"
@@ -834,6 +864,14 @@ if df_holdings_raw is not None:
                     _price_bits.append(f"${row['Intrinsic']:.0f} target")
                 if _price_bits:
                     st.caption(" → ".join(_price_bits))
+                if row.get('IsFinancialRI'):
+                    st.caption("Residual income (multi-stage)")
+                    _single_mos = row.get('SingleStageMoS')
+                    if pd.notna(_single_mos):
+                        st.caption(f"Single-stage: {_single_mos:+.0%}")
+                    _div = row.get('RIDivergence')
+                    if pd.notna(_div) and _div >= 0.30:
+                        st.caption(f"⚠️ {_div:.0%} single/multi divergence")
             else:
                 st.caption("—")
         with c9:

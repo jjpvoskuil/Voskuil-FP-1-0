@@ -95,6 +95,14 @@ with st.spinner("Fetching price/score/DCF snapshots..."):
         if snap.get("foreign_currency"):
             _foreign_currency_tickers[ticker] = snap["foreign_currency"]
         mos = snap.get("margin_of_safety")
+        # (2026-07-23) "DCF Value"/"MoS %" stay the headline columns for
+        # every ticker -- for a bank/insurer these now hold the Residual
+        # Income model's multi-stage result (get_ticker_snapshot() routes
+        # it there), same 2-stage process as Dashboard/Equity Scout/
+        # Compare Stocks. "Model" + "Single MoS %" surface the rest of
+        # the comparison without adding a column that's blank for most
+        # rows' worth of screen space.
+        _single_mos = snap.get("single_stage_mos")
         row = {
             "Ticker": ticker,
             "Name": item.get("name", ticker),
@@ -102,6 +110,8 @@ with st.spinner("Fetching price/score/DCF snapshots..."):
             "Price": current_prices.get(ticker) or snap.get("price"),
             "DCF Value": snap.get("dcf_value"),
             "MoS %": (mos * 100) if mos is not None else None,
+            "Model": "RI (multi)" if snap.get("methodology") == "residual_income" else "DCF",
+            "Single MoS %": (_single_mos * 100) if _single_mos is not None else None,
             "Score": snap.get("score"),
             "Action": (f"{snap.get('action_emoji', '')} {snap.get('action_label', '—')}").strip(),
         }
@@ -119,9 +129,14 @@ wl_column_config = {
     "Name":            st.column_config.TextColumn(disabled=True),
     "Source":          st.column_config.TextColumn(disabled=True),
     "Price":           st.column_config.NumberColumn(format="$%.2f", disabled=True),
-    "DCF Value":       st.column_config.NumberColumn(format="$%.2f", disabled=True),
+    "DCF Value":       st.column_config.NumberColumn(format="$%.2f", disabled=True,
+                                                       help="Residual Income model (multi-stage) for banks/insurers, DCF otherwise"),
     "MoS %":           st.column_config.NumberColumn(format="%.0f%%", disabled=True,
-                                                       help="Margin of safety: (DCF value - price) / DCF value"),
+                                                       help="Margin of safety: (intrinsic value - price) / intrinsic value"),
+    "Model":           st.column_config.TextColumn(disabled=True,
+                                                     help="DCF, or RI (multi) for the Residual Income model's multi-stage result on banks/insurers"),
+    "Single MoS %":    st.column_config.NumberColumn(format="%.0f%%", disabled=True,
+                                                       help="Residual Income single-stage MoS, for comparison against the multi-stage headline (banks/insurers only)"),
     "Score":           st.column_config.NumberColumn(format="%d", disabled=True),
     "Action":          st.column_config.TextColumn(disabled=True),
     "SI":              st.column_config.NumberColumn(format="%d", disabled=True,

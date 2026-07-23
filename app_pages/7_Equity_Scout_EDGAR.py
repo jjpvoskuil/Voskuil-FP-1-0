@@ -3,7 +3,7 @@ import requests
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS, score_financial_firm_display, investment_verdict
+from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS, compute_residual_income_value, RESIDUAL_INCOME_DEFAULTS, score_financial_firm_display, investment_verdict
 from claude_utils import ask_claude_about_equity
 from ui_utils import scroll_to_element
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
@@ -496,30 +496,64 @@ if _cache_key and _cache_key in st.session_state:
     fy_str     = f"FY{data.get('fiscal_year', '')}" if data.get("fiscal_year") else ""
     st.caption(f"{data.get('sector', '')}  ·  {price_str}  ·  {mktcap_str}  ·  {fy_str}")
 
-    with st.expander("⚙️ DCF Assumptions", expanded=False):
-        st.caption(
-            "Two-stage discounted cash flow: FCF is projected forward using a growth rate derived "
-            "from this company's own historical FCF trend (capped to keep extrapolation sane), then "
-            "a Gordon Growth terminal value. Simplification: FCF here already reflects post-interest "
-            "cash flow, so it's treated as cash flow to equity directly — no separate net-debt adjustment."
-        )
-        _dc1, _dc2, _dc3 = st.columns(3)
-        with _dc1:
-            _dr = st.number_input("Discount rate (%)", min_value=4.0, max_value=20.0,
-                                   value=DCF_DEFAULTS["discount_rate"] * 100, step=0.5,
-                                   key=f"dcf_dr_{ticker_input}") / 100
-        with _dc2:
-            _tg = st.number_input("Terminal growth (%)", min_value=0.0, max_value=5.0,
-                                   value=DCF_DEFAULTS["terminal_growth"] * 100, step=0.25,
-                                   key=f"dcf_tg_{ticker_input}") / 100
-        with _dc3:
-            _yrs = st.number_input("Projection years", min_value=5, max_value=20,
-                                    value=DCF_DEFAULTS["projection_years"], step=1,
-                                    key=f"dcf_yrs_{ticker_input}")
-    # (result moved next to the Score gauge below, per owner feedback --
-    # was previously shown here, disconnected from the score) -- just
-    # compute it here, where the assumption inputs are.
-    dcf = compute_dcf_value(data, {"discount_rate": _dr, "terminal_growth": _tg, "projection_years": _yrs})
+    # (2026-07-23) Banks/insurers don't run through FCF-DCF at all --
+    # compute_dcf_value() itself refuses (see its financial_subtype
+    # guard) since "fcf" isn't economically meaningful for a financial
+    # firm. This is the same split Market Screener's debug tool uses:
+    # Residual Income assumptions (cost of equity / terminal growth /
+    # projection years) for banks & insurers, DCF assumptions otherwise.
+    _is_financial = financial_subtype in ("bank", "insurance")
+    ri = None
+    if _is_financial:
+        with st.expander("⚙️ Residual Income Assumptions", expanded=False):
+            st.caption(
+                "Residual income (excess return) model, shown single-stage AND multi-stage: "
+                "Intrinsic Value = Book Value + PV of (ROE − Cost of Equity) × Book Value each year. "
+                "Multi-stage fades current ROE toward this company's own normalized (10-yr average) "
+                "ROE over the projection window — a wide single-vs-multi gap means current ROE is "
+                "running well outside its own historical normal range, worth a closer look."
+            )
+            _rc1, _rc2, _rc3 = st.columns(3)
+            with _rc1:
+                _coe = st.number_input("Cost of equity (%)", min_value=4.0, max_value=20.0,
+                                        value=RESIDUAL_INCOME_DEFAULTS["cost_of_equity"] * 100, step=0.5,
+                                        key=f"ri_coe_{ticker_input}") / 100
+            with _rc2:
+                _ritg = st.number_input("Terminal growth (%)", min_value=0.0, max_value=5.0,
+                                         value=RESIDUAL_INCOME_DEFAULTS["terminal_growth"] * 100, step=0.25,
+                                         key=f"ri_tg_{ticker_input}") / 100
+            with _rc3:
+                _riyrs = st.number_input("Projection years", min_value=5, max_value=20,
+                                          value=RESIDUAL_INCOME_DEFAULTS["projection_years"], step=1,
+                                          key=f"ri_yrs_{ticker_input}")
+        ri = compute_residual_income_value(
+            data, {"cost_of_equity": _coe, "terminal_growth": _ritg, "projection_years": _riyrs})
+        dcf = None
+    else:
+        with st.expander("⚙️ DCF Assumptions", expanded=False):
+            st.caption(
+                "Two-stage discounted cash flow: FCF is projected forward using a growth rate derived "
+                "from this company's own historical FCF trend (capped to keep extrapolation sane), then "
+                "a Gordon Growth terminal value. Simplification: FCF here already reflects post-interest "
+                "cash flow, so it's treated as cash flow to equity directly — no separate net-debt adjustment."
+            )
+            _dc1, _dc2, _dc3 = st.columns(3)
+            with _dc1:
+                _dr = st.number_input("Discount rate (%)", min_value=4.0, max_value=20.0,
+                                       value=DCF_DEFAULTS["discount_rate"] * 100, step=0.5,
+                                       key=f"dcf_dr_{ticker_input}") / 100
+            with _dc2:
+                _tg = st.number_input("Terminal growth (%)", min_value=0.0, max_value=5.0,
+                                       value=DCF_DEFAULTS["terminal_growth"] * 100, step=0.25,
+                                       key=f"dcf_tg_{ticker_input}") / 100
+            with _dc3:
+                _yrs = st.number_input("Projection years", min_value=5, max_value=20,
+                                        value=DCF_DEFAULTS["projection_years"], step=1,
+                                        key=f"dcf_yrs_{ticker_input}")
+        # (result moved next to the Score gauge below, per owner feedback --
+        # was previously shown here, disconnected from the score) -- just
+        # compute it here, where the assumption inputs are.
+        dcf = compute_dcf_value(data, {"discount_rate": _dr, "terminal_growth": _tg, "projection_years": _yrs})
 
     if data.get("description"):
         st.markdown(f"*{data['description']}*")
@@ -586,15 +620,71 @@ if _cache_key and _cache_key in st.session_state:
             f"{verdict_label}</div>", unsafe_allow_html=True
         )
 
-        # DCF Intrinsic Value, right next to the score (#owner feedback --
+        # Intrinsic Value, right next to the score (#owner feedback --
         # previously shown up near the header, disconnected from the score;
         # this is the "does the price support the recommendation" check,
         # so it belongs right where the recommendation itself is).
-        if dcf["error"]:
+        #
+        # (2026-07-23) Banks/insurers show the Residual Income comparison
+        # (single-stage + multi-stage side by side, with a divergence
+        # flag) instead of the DCF block -- same convention as Market
+        # Screener's debug tool, since compute_dcf_value() now refuses to
+        # run for these tickers at all.
+        _current_price = data.get("price")
+        if _is_financial:
+            if ri["error"]:
+                st.caption(f"💰 **Intrinsic Value:** — _{ri['error']}_")
+            else:
+                st.metric("Current Price", f"${_current_price:.2f}" if _current_price else "N/A")
+                st.caption(
+                    f"Book Value: ${ri['book_value_per_share']:.2f}/sh  ·  "
+                    f"Current ROE: {ri['current_roe']:.1%}  ·  Normalized ROE: {ri['normalized_roe']:.1%}"
+                    if ri["book_value_per_share"] is not None and ri["current_roe"] is not None and ri["normalized_roe"] is not None
+                    else ""
+                )
+                riv1, riv2 = st.columns(2)
+                with riv1:
+                    st.markdown("**Single-Stage**")
+                    _ss = ri["single_stage"]
+                    if _ss["error"]:
+                        st.caption(f"— _{_ss['error']}_")
+                    else:
+                        st.metric("Intrinsic Value", f"${_ss['intrinsic_value_per_share']:.2f}/sh")
+                        _ss_mos = _ss["margin_of_safety"]
+                        if _ss_mos is not None:
+                            _c = "#2ecc71" if _ss_mos > 0 else "#e74c3c"
+                            st.markdown(f"<span style='color:{_c}; font-weight:bold'>{_ss_mos:+.0%} MoS</span>",
+                                        unsafe_allow_html=True)
+                with riv2:
+                    st.markdown("**Multi-Stage**")
+                    _ms = ri["multi_stage"]
+                    if _ms["error"]:
+                        st.caption(f"— _{_ms['error']}_")
+                    else:
+                        st.metric("Intrinsic Value", f"${_ms['intrinsic_value_per_share']:.2f}/sh")
+                        _ms_mos = _ms["margin_of_safety"]
+                        if _ms_mos is not None:
+                            _c = "#2ecc71" if _ms_mos > 0 else "#e74c3c"
+                            st.markdown(f"<span style='color:{_c}; font-weight:bold'>{_ms_mos:+.0%} MoS</span>",
+                                        unsafe_allow_html=True)
+                _div = ri["divergence"]
+                if _div is not None:
+                    if _div >= 0.30:
+                        st.warning(f"⚠️ {_div:.0%} divergence between single- and multi-stage — "
+                                   f"current ROE is running well outside this company's own normal range.")
+                    elif _div >= 0.15:
+                        st.info(f"ℹ️ {_div:.0%} divergence between single- and multi-stage.")
+                    else:
+                        st.caption(f"✓ Single- and multi-stage agree within {_div:.0%}.")
+                st.caption(
+                    f"_Residual income: {ri['cost_of_equity']:.1%} cost of equity, "
+                    f"{ri['terminal_growth']:.1%} terminal growth, {ri['projection_years']}-yr multi-stage window "
+                    f"— see ⚙️ Residual Income Assumptions above to adjust_"
+                )
+        elif dcf["error"]:
             st.caption(f"💰 **Intrinsic Value:** — _{dcf['error']}_")
         else:
             _mos = dcf["margin_of_safety"]
-            _current_price = data.get("price")
             _mos_color = "#2ecc71" if (_mos or 0) > 0 else "#e74c3c"
             iv1, iv2 = st.columns(2)
             with iv1:

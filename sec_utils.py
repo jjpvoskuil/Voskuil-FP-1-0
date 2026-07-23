@@ -1581,6 +1581,36 @@ def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
     price      = data.get("price")
     market_cap = data.get("market_cap")
 
+    # (2026-07-23, the actual master bug behind the "$1556 target doesn't
+    # match anything" report) Market Screener's own Stage 1 pipeline
+    # deliberately sets "fcf": None for bank/insurer rows -- but
+    # fetch_fundamentals_edgar() (used by Dashboard/Equity Scout/Compare
+    # Stocks/Watchlist) computes "fcf" as op_cf - capex UNCONDITIONALLY,
+    # with no subtype check at all, so ALL's "fcf" field was a real,
+    # non-null number there despite being economically meaningless for a
+    # leveraged balance-sheet business (op_cf dominated by premium/
+    # investment-portfolio volume, not real cash generation -- see
+    # compute_residual_income_value()'s module docstring for the full
+    # reasoning). This function had no idea any of that was true and
+    # happily ran a full DCF on it, PRODUCING A NUMBER instead of the
+    # clean error Market Screener's own pipeline correctly returns for
+    # the same company -- explaining why Dashboard/Equity Scout showed a
+    # $1556 "target" for ALL that doesn't match ANY of the residual
+    # income model's numbers (single-stage $488, multi-stage $255): it
+    # was never the same calculation to begin with, just an FCF-shaped
+    # DCF running on a number that was never real free cash flow for
+    # this kind of business. Guarded here, at the single source of
+    # truth every page's DCF call goes through, rather than trying to
+    # keep every individual caller's "fcf" field null for financial
+    # subtypes in sync by hand.
+    if data.get("financial_subtype") in ("bank", "insurance"):
+        return {"intrinsic_value_per_share": None, "total_intrinsic_value": None,
+                "margin_of_safety": None, "margin_of_safety_basis": None,
+                "base_fcf": base_fcf, "growth_rate": None,
+                "discount_rate": a["discount_rate"], "terminal_growth": a["terminal_growth"],
+                "projection_years": a["projection_years"],
+                "error": "FCF-based DCF doesn't apply to a bank/insurer — use compute_residual_income_value() instead."}
+
     if base_fcf is None or base_fcf <= 0:
         return {"intrinsic_value_per_share": None, "total_intrinsic_value": None,
                 "margin_of_safety": None, "margin_of_safety_basis": None,
@@ -1883,6 +1913,36 @@ def compute_residual_income_value(data: dict, assumptions: dict = None) -> dict:
         "divergence": divergence,
         "error": None,
     }
+
+
+# ── Unified intrinsic-value entry point ───────────────────────────────────
+# (2026-07-23, following the "$1556 doesn't match anything" report) Every
+# page that shows an intrinsic value/MoS number was independently calling
+# compute_dcf_value() directly, with no financial_subtype awareness of its
+# own -- which is exactly how Dashboard/Equity Scout/Compare Stocks/
+# Watchlist kept running FCF-based DCF on a bank/insurer's economically-
+# meaningless "fcf" field (see compute_dcf_value()'s own guard/docstring)
+# long after Market Screener's separate pipeline correctly nulled that
+# field out for the same companies. compute_dcf_value() itself is now
+# guarded against financial subtypes regardless of caller, but routing
+# the CHOICE of which model to call through one shared function -- instead
+# of every page re-implementing its own "if bank/insurer: call X else
+# call Y" branch -- means there's only one place to get that routing
+# logic right, not five.
+def get_intrinsic_value(data, dcf_assumptions=None, ri_assumptions=None):
+    """Routes to compute_residual_income_value() for a bank/insurer,
+    compute_dcf_value() otherwise. Returns whichever result dict,
+    stamped with a "methodology" key ("dcf" | "residual_income") so
+    display code can branch on shape: a DCF result has a single
+    intrinsic_value_per_share/margin_of_safety; a residual-income result
+    has book_value_per_share plus separate single_stage/multi_stage
+    sub-dicts and a divergence figure -- see each function's own
+    docstring for the full shape."""
+    if data.get("financial_subtype") in ("bank", "insurance"):
+        return {"methodology": "residual_income",
+                **compute_residual_income_value(data, ri_assumptions)}
+    return {"methodology": "dcf",
+            **compute_dcf_value(data, dcf_assumptions)}
 
 
 def score_to_label(score):
