@@ -32,7 +32,7 @@ import streamlit as st
 from github_store import github_get_json, github_put_json
 from sec_utils import (fetch_fundamentals_edgar, score_stock_breakdown,
                         score_financial_firm_display, compute_dcf_value,
-                        DCF_DEFAULTS, DEFAULT_WEIGHTS, score_to_label)
+                        DCF_DEFAULTS, DEFAULT_WEIGHTS, investment_verdict)
 
 WATCHLIST_FILE = "watchlist_data.json"
 
@@ -324,9 +324,20 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
     Framework score, and the action-rating label. Deliberately the SAME
     pipeline Compare Stocks uses -- fetch_fundamentals_edgar() ->
     score_stock_breakdown() / score_financial_firm_display() (bank/insurer
-    swap) -> compute_dcf_value() -> score_to_label() -- so a ticker's
+    swap) -> compute_dcf_value() -> investment_verdict() -- so a ticker's
     numbers here always agree with what it'd show on Compare Stocks or
     Equity Scout, not a second scoring implementation that could drift.
+
+    (2026-07-23) action_label used to come from score_to_label(score) --
+    quality-only, no price check at all, the same stale approach that
+    let PG/TGT show "Add" on Dashboard despite a deeply negative margin
+    of safety (see investment_verdict()'s docstring in sec_utils.py).
+    Watchlist was never brought onto the shared quality+value gate during
+    that pass since its own DCF/MoS columns already existed and looked
+    reasonable in isolation -- but the label sitting right next to them
+    was still quality-only under the hood. Switched to investment_verdict()
+    so Watchlist's Action column can't silently disagree with its own
+    displayed MoS the same way Dashboard's Signal column used to.
     """
     weights = weights or DEFAULT_WEIGHTS
     d = fetch_fundamentals_edgar(ticker)
@@ -343,7 +354,10 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
     else:
         score, _ = score_stock_breakdown(d, weights)
     dcf = compute_dcf_value(d, DCF_DEFAULTS)
-    label, emoji = score_to_label(score)
+    verdict = investment_verdict(d)
+    label = {"buy": "Strong Buy", "hold": "Hold", "avoid": "Avoid",
+             "unrated": "—"}[verdict["tier"]]
+    emoji = verdict["icon"]
     return {
         "error": None,
         "name": d.get("name", ticker),
