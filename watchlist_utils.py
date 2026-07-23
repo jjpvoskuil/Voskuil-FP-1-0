@@ -30,6 +30,9 @@ import pandas as pd
 import streamlit as st
 
 from github_store import github_get_json, github_put_json
+from sec_utils import (fetch_fundamentals_edgar, score_stock_breakdown,
+                        score_financial_firm_display, compute_dcf_value,
+                        DCF_DEFAULTS, DEFAULT_WEIGHTS, score_to_label)
 
 WATCHLIST_FILE = "watchlist_data.json"
 
@@ -310,6 +313,50 @@ def fetch_price_series(ticker: str, start_date: str, end_date: str):
 
 
 # ─────────────────────────────────────────────
+# SCORING SNAPSHOT (price / DCF / score / action rating)
+# ─────────────────────────────────────────────
+
+@st.cache_data(ttl=3600)
+def get_ticker_snapshot(ticker: str, weights: dict = None):
+    """
+    One-shot fetch of everything the Watchlist table shows per ticker:
+    live price, DCF intrinsic value + margin of safety, the Owner's
+    Framework score, and the action-rating label. Deliberately the SAME
+    pipeline Compare Stocks uses -- fetch_fundamentals_edgar() ->
+    score_stock_breakdown() / score_financial_firm_display() (bank/insurer
+    swap) -> compute_dcf_value() -> score_to_label() -- so a ticker's
+    numbers here always agree with what it'd show on Compare Stocks or
+    Equity Scout, not a second scoring implementation that could drift.
+    """
+    weights = weights or DEFAULT_WEIGHTS
+    d = fetch_fundamentals_edgar(ticker)
+    if d.get("error"):
+        return {
+            "error": d["error"], "name": ticker, "price": None,
+            "dcf_value": None, "margin_of_safety": None, "dcf_error": None,
+            "score": None, "action_label": "—", "action_emoji": "",
+        }
+    subtype = d.get("financial_subtype")
+    if subtype in ("bank", "insurance"):
+        score, _ = score_financial_firm_display(d, subtype)
+    else:
+        score, _ = score_stock_breakdown(d, weights)
+    dcf = compute_dcf_value(d, DCF_DEFAULTS)
+    label, emoji = score_to_label(score)
+    return {
+        "error": None,
+        "name": d.get("name", ticker),
+        "price": d.get("price"),
+        "dcf_value": dcf.get("intrinsic_value_per_share"),
+        "margin_of_safety": dcf.get("margin_of_safety"),
+        "dcf_error": dcf.get("error"),
+        "score": score,
+        "action_label": label,
+        "action_emoji": emoji,
+    }
+
+
+# ─────────────────────────────────────────────
 # MONEY-WEIGHTED RETURN (XIRR)
 # ─────────────────────────────────────────────
 
@@ -549,6 +596,18 @@ def load_ms_holdings_and_transactions():
     return holdings_df, trans_df, None
 
 
+def _shares_before(cur_shares, sym_txs, cutoff):
+    """Shares held as of `cutoff`, undoing everything AFTER it from a known
+    current share count -- the core reconstruction step shared by
+    holdings_basket_period_return() and holdings_basket_value_series() so
+    the two can't drift into slightly different math."""
+    delta_after = sum(
+        (t["shares"] if t["action"] == "buy" else -t["shares"])
+        for t in sym_txs if t["date"] > cutoff
+    )
+    return cur_shares - delta_after
+
+
 def holdings_basket_period_return(holdings_df, trans_df, start_date, end_date):
     """
     Reconstructs the current MS holdings basket's value at start_date and
@@ -578,14 +637,7 @@ def holdings_basket_period_return(holdings_df, trans_df, start_date, end_date):
         sym, cur_shares, mkt_val = r["Symbol"], r["shares"], r["market_value"]
         sym_txs = trans_df[trans_df["Symbol"] == sym].to_dict("records") if trans_df is not None and not trans_df.empty else []
 
-        def shares_before(cutoff, _sym_txs=sym_txs, _cur_shares=cur_shares):
-            delta_after = sum(
-                (t["shares"] if t["action"] == "buy" else -t["shares"])
-                for t in _sym_txs if t["date"] > cutoff
-            )
-            return _cur_shares - delta_after
-
-        shares_start = shares_before(start_date)
+        shares_start = _shares_before(cur_shares, sym_txs, start_date)
         price_start, _ = fetch_historical_price(sym, start_date.isoformat())
         if price_start is None:
             skipped.append(sym)
@@ -595,7 +647,7 @@ def holdings_basket_period_return(holdings_df, trans_df, start_date, end_date):
         if end_date >= today:
             end_total += mkt_val
         else:
-            shares_end = shares_before(end_date)
+            shares_end = _shares_before(cur_shares, sym_txs, end_date)
             price_end, _ = fetch_historical_price(sym, end_date.isoformat())
             if price_end is None:
                 skipped.append(sym)
@@ -617,3 +669,57 @@ def holdings_basket_period_return(holdings_df, trans_df, start_date, end_date):
 
     result = period_return(window_txs, start_date, end_date, begin_total, end_total)
     return result, note
+
+
+def holdings_basket_value_series(holdings_df, trans_df, start_date, end_date):
+    """
+    Daily value curve for the reconstructed current-holdings basket, same
+    share-reconstruction methodology as holdings_basket_period_return() (and
+    sharing its _shares_before() helper) -- for overlaying a real-holdings
+    trend line on the Watchlist page's performance chart next to the watch
+    portfolio's own value curve.
+
+    Returns (DataFrame[date, value], coverage_note). Can be slow on first
+    call for a large holdings list (one yfinance history() pull per symbol,
+    each cached for an hour afterward) -- call from inside a spinner.
+    """
+    if holdings_df is None or holdings_df.empty:
+        return pd.DataFrame(), "No holdings data available."
+
+    by_symbol = holdings_df.groupby("Symbol").agg(
+        shares=("Quantity", "sum"), market_value=("Market Value ($)", "sum")
+    ).reset_index()
+    total_current_value = by_symbol["market_value"].sum()
+
+    covered_value = 0.0
+    skipped = []
+    frames = []
+
+    for _, r in by_symbol.iterrows():
+        sym, cur_shares, mkt_val = r["Symbol"], r["shares"], r["market_value"]
+        sym_txs = trans_df[trans_df["Symbol"] == sym].to_dict("records") if trans_df is not None and not trans_df.empty else []
+
+        series = fetch_price_series(sym, start_date.isoformat(), end_date.isoformat())
+        if series.empty:
+            skipped.append(sym)
+            continue
+
+        series = series.copy()
+        series["shares"] = series["date"].apply(lambda d, _t=sym_txs, _c=cur_shares: _shares_before(_c, _t, d))
+        series["value"] = series["shares"] * series["close"]
+        frames.append(series[["date", "value"]])
+        covered_value += mkt_val
+
+    if not frames:
+        return pd.DataFrame(), "No price history available for any holding in this range."
+
+    combined = pd.concat(frames)
+    totals = combined.groupby("date")["value"].sum().reset_index()
+
+    coverage_pct = (covered_value / total_current_value * 100) if total_current_value else 0.0
+    note = f"{len(by_symbol) - len(skipped)}/{len(by_symbol)} positions charted (~{coverage_pct:.0f}% of portfolio value)."
+    if skipped:
+        shown = ", ".join(skipped[:10]) + ("…" if len(skipped) > 10 else "")
+        note += f" No price history for: {shown}."
+
+    return totals, note

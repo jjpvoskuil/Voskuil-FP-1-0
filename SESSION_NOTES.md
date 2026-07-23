@@ -11,6 +11,61 @@ decisions that still matter. Newest entries at the top.
 
 ---
 
+## 2026-07-23 — Watchlist page rework: tight table, inline trading, dual-line chart (#68)
+
+Follow-up polish pass on the Watchlist page, per owner request:
+
+**Full Watchlist collapsed into one compact `st.data_editor` table** (was a tall per-ticker block
+layout) — Ticker/Name/Source/Price/DCF Value/MoS%/Score/Action/SI in one row per ticker, plus two
+editable checkbox columns (tag into Watch Portfolio, Remove). Price/DCF/Score/Action rating use the
+exact same pipeline as Compare Stocks — `score_to_label()` moved out of Compare Stocks into
+`sec_utils.py` as a shared function, and a new `watchlist_utils.get_ticker_snapshot()` wraps
+`fetch_fundamentals_edgar()` → `score_stock_breakdown()`/`score_financial_firm_display()` →
+`compute_dcf_value()` → `score_to_label()`, so a ticker's numbers here can't drift from what it'd
+show on Compare Stocks or Equity Scout. SI (superinvestor) count is optional/lazy-loaded, same
+button pattern as Dashboard.
+
+**Watch Portfolio + Buy/Sell combined into one table.** The separate ticker-picker/radio/amount form
+is gone — the position table itself now has trailing "Buy $" / "Sell $" editable columns and a single
+Execute Trades button that processes every nonzero row at the live price in one click. Validates
+Buy-and-Sell-both-nonzero-on-one-row as a mistake (rejected with an error, nothing recorded) rather
+than guessing intent.
+
+**Real Holdings line added to the performance chart**, overlaid with the Watch Portfolio line —
+both indexed to 100 at the range start rather than plotted in raw dollars, since a multi-million-
+dollar real portfolio and a few-thousand-dollar paper one would otherwise make one line invisible.
+New `watchlist_utils.holdings_basket_value_series()` builds the real-holdings curve, sharing a
+`_shares_before()` helper with the existing `holdings_basket_period_return()` (refactored out during
+this pass) so the two can't quietly drift into different reconstruction math.
+
+**A real Streamlit `data_editor` gotcha, worth remembering:** `st.session_state.pop(key, None)`
+followed by `st.rerun()` does **not** reliably reset a `data_editor`'s edited cells back to default —
+Streamlit re-applies the widget's last-known value when it re-renders under the same `key`,
+silently undoing the pop. Confirmed with an isolated repro before trusting the fix. The correct
+pattern is a generation-counter suffix on the `key` (`f"widget_{gen}"`, bump `gen` in session_state
+to force a genuinely fresh widget instance) — used for both the Full Watchlist table's Remove?
+checkboxes and the Watch Portfolio table's Buy $/Sell $ columns after Execute Trades.
+
+**Testing note for next time:** `streamlit.testing.v1.AppTest` can drive `data_editor` cell edits by
+setting `at.session_state[widget_key] = {"edited_rows": {...}, "added_rows": [], "deleted_rows": []}`
+— but this only reliably "takes" if set *before* that widget's very first render in the AppTest
+session. Setting it after an earlier default-state render doesn't stick, even across a click +
+rerun — cost real time chasing what looked like an app bug but was a test-harness quirk. Confirmed
+with a minimal isolated repro before concluding the app itself was fine. All interaction paths (buy,
+sell, buy+sell-conflict rejection, watch-portfolio tagging, remove-with-confirm) verified end-to-end
+this way, using a fresh `AppTest` instance with full state seeded up front per scenario.
+
+**Known limitation, not addressed this session:** `watchlist_utils.py`'s mutating functions
+(`add_to_watchlist`, `record_transaction`, `remove_from_watchlist`, etc.) mutate the shared
+session-state dict *before* attempting the GitHub write, so a failed save (network blip, GitHub
+outage) can leave the current browser session showing a change that never actually persisted —
+the user would see it worked until their next fresh page load pulls the real (unsaved) state from
+GitHub. Surfaced via `st.error()` when a save fails, so it's not silent, but the underlying
+mutate-then-save ordering could be hardened (mutate a copy, only commit to session state on
+success) if this ever becomes a real problem.
+
+---
+
 ## 2026-07-22 — Watchlist + paper Watch Portfolio (#68, scope expanded)
 
 Punch list #68 started as "add a tag/star control on Market Screener, dedicated Watchlist page."

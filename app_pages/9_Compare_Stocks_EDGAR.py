@@ -23,20 +23,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display
+from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display, score_to_label
 from claude_utils import ask_claude_about_equity, get_user_profile
 from watchlist_utils import add_to_watchlist, is_watchlisted
 
 st.set_page_config(page_title="Compare Stocks — EDGAR", layout="wide")
 
 MAX_COMPARE = 5
-
-
-def score_to_label(score):
-    if score >= 80:   return "Strong Buy", "🟢"
-    elif score >= 65: return "Watch", "🟡"
-    elif score >= 45: return "Caution", "🟠"
-    else:             return "Avoid", "🔴"
 
 
 # ── Line items grouped by financial statement, in the order they'll render ──

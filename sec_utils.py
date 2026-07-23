@@ -1383,6 +1383,18 @@ def compute_dcf_value(data: dict, assumptions: dict = None) -> dict:
     }
 
 
+def score_to_label(score):
+    """Action rating from a 0-100 score -- shared by Compare Stocks and the
+    Watchlist page so a given score always maps to the same label/emoji
+    everywhere it's shown, rather than each page defining its own cutoffs."""
+    if score is None:
+        return "—", ""
+    if score >= 80:   return "Strong Buy", "🟢"
+    elif score >= 65: return "Watch", "🟡"
+    elif score >= 45: return "Caution", "🟠"
+    else:             return "Avoid", "🔴"
+
+
 # ── Canonical 5-criteria scoring engine ──────────────────────────────────────
 # Single source of truth for the Voskuil Owner's Framework score, used by
 # Equity Scout EDGAR, Market Screener EDGAR, Compare Stocks EDGAR, and
