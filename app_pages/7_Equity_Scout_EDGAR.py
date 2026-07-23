@@ -754,10 +754,8 @@ if _cache_key and _cache_key in st.session_state:
     # formula omitted it), and (c) applies _roic_denominator_reliable() to
     # guard against near-zero-invested-capital years distorting the trend
     # (see sec_utils.py for the VeriSign case that guard was built for).
-    history = data.get("_history", {})
-    op_cf_hist  = history.get("op_cf", [])
-    inv_cf_hist = history.get("inv_cf", [])
-    roic_hist   = history.get("roic", [])
+    history   = data.get("_history", {})
+    roic_hist = history.get("roic", [])
 
     if len(roic_hist) >= 3:
         with st.expander("📈 Historical ROIC Trend (from EDGAR)", expanded=False):
@@ -795,15 +793,18 @@ if _cache_key and _cache_key in st.session_state:
                 st.plotly_chart(fig2, use_container_width=True)
 
     # ── FCF History Chart ─────────────────────────────────────────────────────
-    if len(op_cf_hist) >= 3 and len(inv_cf_hist) >= 3:
+    # Plots sec_utils' canonical history["fcf"] series (capex-based, i.e.
+    # op_cf - capex) rather than recomputing op_cf + inv_cf inline. That
+    # inline formula is what let this exact chart show FCF going negative
+    # for cash-rich filers in years they were clearly hugely profitable
+    # (confirmed on NVDA FY2021: -$13.9B) -- inv_cf is dominated by
+    # marketable-securities purchases/maturities for a company sitting on
+    # a large investment portfolio, not capex. See sec_utils.py's FCF
+    # comment for the full writeup.
+    fcf_hist_chart = data.get("_history", {}).get("fcf", [])
+    if len(fcf_hist_chart) >= 3:
         with st.expander("💰 Historical Free Cash Flow (from EDGAR)", expanded=False):
-            op_by_yr  = {h["period"]: h["value"] for h in op_cf_hist if h.get("value") is not None}
-            inv_by_yr = {h["period"]: h["value"] for h in inv_cf_hist if h.get("value") is not None}
-            years_fcf = sorted(set(op_by_yr) & set(inv_by_yr))
-            fcf_series = [
-                {"year": yr, "fcf": op_by_yr[yr] + inv_by_yr[yr]}
-                for yr in years_fcf
-            ]
+            fcf_series = [{"year": h["period"], "fcf": h["value"]} for h in fcf_hist_chart]
             if fcf_series:
                 fig3 = go.Figure()
                 fig3.add_trace(go.Bar(

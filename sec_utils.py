@@ -519,11 +519,26 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     op_inc  = latest.get("op_income")
     int_pd  = latest.get("interest_paid") or latest.get("interest_expense")
 
-    # FCF: operating CF + investing CF (investing is negative, so this subtracts capex proxy)
-    if op_cf is not None and inv_cf is not None:
-        latest["fcf"] = op_cf + inv_cf
-    elif op_cf is not None and capex is not None:
+    # FCF: operating CF - capex is the primary definition -- capex is the
+    # cash actually needed to maintain/grow the business. Prefer it over
+    # op_cf + inv_cf when capex data exists.
+    #
+    # Bug fixed here: op_cf + inv_cf was tried FIRST, with the capex-based
+    # formula only as a fallback when inv_cf was missing. For a cash-rich
+    # company that parks money in marketable securities (NVDA, AAPL, MSFT,
+    # GOOGL, ...), "investing cash flow" is dominated by purchases/
+    # maturities of those investments, not capex -- pure treasury
+    # management with nothing to do with what the business needs to keep
+    # running. Confirmed on NVDA: FY2021 showed FCF of -$13.9B (op_cf+inv_cf)
+    # in a year the company was hugely profitable, purely because it moved
+    # ~$20B into investments that year; the capex-based figure never goes
+    # negative and tracks owner earnings far more sensibly across the full
+    # history. op_cf + inv_cf is now only the fallback, for filers that
+    # don't tag capex at all.
+    if op_cf is not None and capex is not None:
         latest["fcf"] = op_cf - abs(capex)
+    elif op_cf is not None and inv_cf is not None:
+        latest["fcf"] = op_cf + inv_cf
 
     # Invested capital
     if eq is not None:
@@ -769,12 +784,14 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
         icf = inv_cf_h.get(end)
         cpx = capex_h.get(end)
 
-        # FCF
+        # FCF -- capex-based preferred over op_cf+inv_cf; see the latest-
+        # period comment above for why (treasury/investment activity in
+        # inv_cf swamps capex for cash-rich filers).
         fcf_val = None
-        if ocf is not None and icf is not None:
-            fcf_val = ocf + icf
-        elif ocf is not None and cpx is not None:
+        if ocf is not None and cpx is not None:
             fcf_val = ocf - abs(cpx)
+        elif ocf is not None and icf is not None:
+            fcf_val = ocf + icf
         if fcf_val is not None:
             fcf_hist.append({"period": period, "end": end, "value": fcf_val})
 
@@ -1320,14 +1337,16 @@ def fetch_fundamentals_edgar(ticker):
     if owner_earn and owner_earn > 0 and shares and price:
         poe = price / (owner_earn / shares)
 
-    # 5. FCF growth (compare latest vs prior year from history)
+    # 5. FCF growth (compare latest vs prior year from history) -- reads
+    # the already-corrected history["fcf"] series (capex-based, see the
+    # comment on the FCF calc above) rather than recombining op_cf/inv_cf
+    # inline, so prior-year and latest-year use the identical formula.
     fcf_growth = None
     history = facts.get("history", {})
-    op_cf_hist = history.get("op_cf", [])
-    inv_cf_hist = history.get("inv_cf", [])
-    if len(op_cf_hist) >= 2 and len(inv_cf_hist) >= 2:
+    fcf_hist_series = history.get("fcf", [])
+    if len(fcf_hist_series) >= 2:
         try:
-            fcf_prior = op_cf_hist[-2]["value"] + inv_cf_hist[-2]["value"]
+            fcf_prior = fcf_hist_series[-2]["value"]
             if fcf_prior and fcf_prior != 0 and fcf:
                 fcf_growth = (fcf / fcf_prior) - 1
         except Exception:
@@ -1457,11 +1476,12 @@ def extract_tickers_from_text(text: str, valid_tickers: list) -> list:
 # shares outstanding. Shared so both Equity Scout EDGAR and Compare Stocks
 # EDGAR can show "DCF Intrinsic Value" directly under the live price.
 #
-# Simplifying assumption: FCF here (op_cf + inv_cf) already reflects
-# post-interest cash flow under GAAP's indirect method, so it's treated as
-# cash flow to equity — no separate net-debt adjustment is applied. This is
-# a standard simplification for a per-share DCF, not a rigorous FCFF/FCFE
-# build, and is disclosed in the UI caption wherever this is shown.
+# Simplifying assumption: FCF here (op_cf - capex, see the FCF calc
+# comment above -- #34-era fix) already reflects post-interest cash flow
+# under GAAP's indirect method, so it's treated as cash flow to equity —
+# no separate net-debt adjustment is applied. This is a standard
+# simplification for a per-share DCF, not a rigorous FCFF/FCFE build, and
+# is disclosed in the UI caption wherever this is shown.
 
 DCF_DEFAULTS = {
     "discount_rate":    0.09,   # ~9% hurdle rate, typical concentrated-value threshold
