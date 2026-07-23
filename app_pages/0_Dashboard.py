@@ -597,16 +597,34 @@ if df_holdings_raw is not None:
 
         # ── Persist to GitHub (#72) — survives the next redeploy/reboot ──
         # instead of living only in this browser tab's in-memory
-        # session_state. _history/_latest (bulky per-year EDGAR series,
-        # only used for trend charts on other pages) are dropped before
-        # saving since Dashboard itself never reads them.
+        # session_state. _latest (raw per-concept EDGAR debug dump, only
+        # used by Equity Scout/Compare Stocks' raw-facts expanders) is
+        # still dropped -- genuinely unused here. _history used to be
+        # dropped too "since Dashboard itself never reads them" -- no
+        # longer true as of the DCF-everywhere rollout: compute_dcf_value()
+        # reads _history["fcf"] for its own growth-rate estimate, and a
+        # session that loads holding_raw_data from THIS cache (rather
+        # than a fresh in-memory "Score All Holdings" run) was silently
+        # falling back to the flat 4% default growth rate instead of the
+        # holding's own trend -- confirmed live on ALL: Dashboard showed
+        # $678 intrinsic value/share vs. $1556 on Equity Scout/Compare
+        # Stocks (both reading fresh, un-stripped data), a >2x gap
+        # entirely explained by 15% real trend growth vs. 4% default.
+        # Fixed by keeping _history["fcf"] specifically -- the only slice
+        # compute_dcf_value actually needs -- rather than the full
+        # multi-metric _history dict (~45x smaller per holding: ~1.2KB
+        # vs. ~53KB for one real company's full history, keeping the
+        # GitHub cache file size reasonable across ~65 holdings).
         _cache_timestamp = datetime.now(timezone.utc).isoformat()
         _cache_payload = {
             "scored_timestamp": _cache_timestamp,
             "scores":  scores,
             "sources": sources,
             "raw_data": {
-                sym: {k: v for k, v in d.items() if k not in ("_history", "_latest")}
+                sym: {
+                    **{k: v for k, v in d.items() if k not in ("_history", "_latest")},
+                    "_history": {"fcf": d.get("_history", {}).get("fcf", [])},
+                }
                 for sym, d in raw_data_cache.items() if d is not None
             },
         }

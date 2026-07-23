@@ -1085,9 +1085,30 @@ if _cache_key and _cache_key in st.session_state:
                     st.session_state[f"pending_edgar_claude_q_{ticker_input}"] = q
                     st.rerun()
 
+    # ── Deferred chat_input mount (cold-load scroll fix, same as
+    # Dashboard's) ─────────────────────────────────────────────────────
+    # st.chat_input's mere presence makes Streamlit wrap the page in its
+    # own auto-scroll-to-bottom chat container -- see ui_utils.py's
+    # scroll-fix docstring and 0_Dashboard.py's matching gate for the
+    # full story. Deferring the widget itself behind a click (starter
+    # question or an explicit enable button) means nothing creates that
+    # container on a fresh/auto-analyzed load of this page.
+    chat_enabled_key = f"edgar_chat_enabled_{ticker_input}"
+    if chat_enabled_key not in st.session_state:
+        st.session_state[chat_enabled_key] = bool(st.session_state[convo_key])
+
     pending_q = st.session_state.pop(f"pending_edgar_claude_q_{ticker_input}", None)
-    user_q    = st.chat_input(f"Ask Claude about {ticker_input}'s 10-K filing...",
-                              key=f"edgar_claude_input_{ticker_input}")
+    if pending_q:
+        st.session_state[chat_enabled_key] = True
+
+    if not st.session_state[chat_enabled_key]:
+        if st.button(f"💬 Ask Claude about {ticker_input}'s 10-K filing", key=f"edgar_enable_chat_{ticker_input}"):
+            st.session_state[chat_enabled_key] = True
+            st.rerun()
+        user_q = None
+    else:
+        user_q = st.chat_input(f"Ask Claude about {ticker_input}'s 10-K filing...",
+                                key=f"edgar_claude_input_{ticker_input}")
     active_q  = pending_q or user_q
 
     if active_q:

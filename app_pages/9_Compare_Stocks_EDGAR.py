@@ -459,8 +459,26 @@ if not st.session_state[cmp_convo_key]:
                 st.session_state["cmp_pending_q"] = q
                 st.rerun()
 
+# ── Deferred chat_input mount (cold-load scroll fix, same as
+# Dashboard's/Equity Scout's) ────────────────────────────────────────────
+# st.chat_input's mere presence makes Streamlit wrap the page in its own
+# auto-scroll-to-bottom chat container -- see ui_utils.py's scroll-fix
+# docstring for the full story. Deferring the widget itself behind a
+# click means nothing creates that container on a fresh load here either.
+if "cmp_chat_enabled" not in st.session_state:
+    st.session_state["cmp_chat_enabled"] = bool(st.session_state[cmp_convo_key])
+
 cmp_pending_q = st.session_state.pop("cmp_pending_q", None)
-cmp_user_q    = st.chat_input("Ask Claude about these companies...", key="cmp_claude_input")
+if cmp_pending_q:
+    st.session_state["cmp_chat_enabled"] = True
+
+if not st.session_state["cmp_chat_enabled"]:
+    if st.button("💬 Ask Claude about these companies", key="cmp_enable_chat"):
+        st.session_state["cmp_chat_enabled"] = True
+        st.rerun()
+    cmp_user_q = None
+else:
+    cmp_user_q = st.chat_input("Ask Claude about these companies...", key="cmp_claude_input")
 cmp_active_q  = cmp_pending_q or cmp_user_q
 
 if cmp_active_q:

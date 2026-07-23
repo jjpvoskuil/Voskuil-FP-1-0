@@ -1328,6 +1328,43 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                         icon = "✅" if passed else "❌"
                         st.markdown(f"{icon} **{label}** — {actual_str} (need {rule_str}){years_str}")
 
+                    # (2026-07-23) This tool checked quality-funnel legs
+                    # only -- no price, no DCF, nothing about valuation at
+                    # all, on the one page whose whole job is letting the
+                    # owner sanity-check a single ticker against what a
+                    # full scan would produce. A full scan's own results
+                    # table has shown Margin of Safety since the DCF-
+                    # everywhere rollout; this debug tool never got it,
+                    # so there was no way to check a ticker's MoS here
+                    # even though the checklist legs right next to it
+                    # were fully verifiable. Added: same compute_dcf_value()
+                    # call every other page uses, with a live price fetch
+                    # (this tool doesn't otherwise touch price at all).
+                    dbg_price_data = fetch_price_data(dbg_ticker)
+                    dbg_dcf = compute_dcf_value({
+                        **dbg_latest,
+                        "price":      dbg_price_data.get("price"),
+                        "shares":     dbg_price_data.get("shares"),
+                        "market_cap": dbg_price_data.get("market_cap"),
+                        "_history":   {"fcf": dbg_history.get("fcf", [])},
+                    })
+
+                    def _show_dcf_block():
+                        st.markdown("#### Valuation (DCF, default assumptions)")
+                        if dbg_dcf.get("error"):
+                            st.caption(f"💰 **DCF:** — _{dbg_dcf['error']}_")
+                            return
+                        _dv1, _dv2, _dv3 = st.columns(3)
+                        with _dv1:
+                            _cp = dbg_price_data.get("price")
+                            st.metric("Current Price", f"${_cp:.2f}" if _cp else "N/A")
+                        with _dv2:
+                            _iv = dbg_dcf.get("intrinsic_value_per_share")
+                            st.metric("Intrinsic Value", f"${_iv:.2f}/sh" if _iv is not None else "N/A")
+                        with _dv3:
+                            _mos = dbg_dcf.get("margin_of_safety")
+                            st.metric("Margin of Safety", f"{_mos:+.0%}" if _mos is not None else "—")
+
                     if dbg_subtype in ("bank", "insurance"):
                         # ── Bank/Insurer alt framework (#36) ────────────
                         dbg_funnel = evaluate_financial_firm_funnel(dbg_facts, dbg_subtype)
@@ -1367,6 +1404,8 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                             f"shares chg {_dil_pct_str} over {_dil['years_compared'] or '?'}y",
                             "≤ 0% over 5y",
                         )
+
+                        _show_dcf_block()
 
                         if dbg_criteria:
                             st.markdown("#### Score Breakdown")
@@ -1435,6 +1474,8 @@ with st.expander("🔬 Debug: Verify a Single Ticker", expanded=False):
                             f"shares chg {_dil_pct_str} over {_dil['years_compared'] or '?'}y",
                             f"≤ 0% over {funnel_thresholds['dilution_lookback_years']}y",
                         )
+
+                        _show_dcf_block()
 
                         st.markdown("#### Raw History Depth (validates the tag-merge fix — should NOT be truncated for a long-tenured filer)")
                         _hist_rows = []
@@ -1669,6 +1710,18 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
         price_data = fetch_price_data(ticker)
         return qdata, price_data
 
+    # (2026-07-23) dropped_tickers used to be silent -- a ticker whose
+    # yfinance price fetch threw (rate limit, transient timeout, etc.)
+    # or that the dividend filter excluded just vanished from the results
+    # with zero trace, making "why isn't X here" impossible to answer
+    # after the fact (confirmed live: ALL is a genuine Stage 1 survivor
+    # per the scan cache, but didn't appear in a Stage 2 run -- with no
+    # record of which of these two paths dropped it, or whether it was
+    # something else entirely). Now tracked and surfaced below the
+    # results so a one-off transient failure is visibly distinguishable
+    # from "this ticker doesn't qualify."
+    dropped_tickers = []
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(_stage2_worker, q): q["ticker"] for q in stage1_results}
         for future in concurrent.futures.as_completed(futures):
@@ -1676,9 +1729,11 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
             pct = completed2 / n_survivors
             progress_bar2.progress(pct)
             status_text2.markdown(f"⏳ Stage 2: {completed2} of {n_survivors} ({int(pct*100)}%)")
+            _fut_ticker = futures[future]
             try:
                 qdata, price_data = future.result()
-            except Exception:
+            except Exception as _e:
+                dropped_tickers.append((_fut_ticker, f"price fetch failed: {_e}"))
                 continue
 
             price      = price_data.get("price")
@@ -1688,6 +1743,7 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
             sector     = price_data.get("sector", "N/A")
 
             if min_div and not div_yield:
+                dropped_tickers.append((_fut_ticker, "no dividend (Dividend payers only filter active)"))
                 continue
 
             fcf        = qdata.get("fcf")
@@ -1712,6 +1768,11 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
 
     progress_bar2.progress(1.0)
     status_text2.markdown(f"✅ Stage 2 complete — {len(results)} priced companies.")
+    if dropped_tickers:
+        with st.expander(f"⚠️ {len(dropped_tickers)} Stage 1 survivor(s) dropped in Stage 2 — click for why", expanded=False):
+            st.caption("These passed the quality checklist but didn't make it into the priced results below.")
+            st.dataframe(pd.DataFrame(dropped_tickers, columns=["Ticker", "Reason"]),
+                         hide_index=True, use_container_width=True)
 
     if not results:
         st.warning("No results survived Stage 2. Try removing the dividend filter.")
@@ -2336,8 +2397,27 @@ if 'ms_edgar_results_df' in st.session_state:
                     st.session_state["ms_pending_claude_q"] = q
                     st.rerun()
 
+    # ── Deferred chat_input mount (cold-load scroll fix, same as
+    # Dashboard's/Equity Scout's/Compare Stocks') ───────────────────────
+    # st.chat_input's mere presence makes Streamlit wrap the page in its
+    # own auto-scroll-to-bottom chat container -- see ui_utils.py's
+    # scroll-fix docstring for the full story. Deferring the widget
+    # itself behind a click means nothing creates that container on a
+    # fresh load of this page either.
+    if "ms_chat_enabled" not in st.session_state:
+        st.session_state["ms_chat_enabled"] = bool(st.session_state[ms_convo_key])
+
     ms_pending_q = st.session_state.pop("ms_pending_claude_q", None)
-    ms_user_q    = st.chat_input("Ask Claude about these screen results...", key="ms_claude_input")
+    if ms_pending_q:
+        st.session_state["ms_chat_enabled"] = True
+
+    if not st.session_state["ms_chat_enabled"]:
+        if st.button("💬 Ask Claude about these screen results", key="ms_enable_chat"):
+            st.session_state["ms_chat_enabled"] = True
+            st.rerun()
+        ms_user_q = None
+    else:
+        ms_user_q = st.chat_input("Ask Claude about these screen results...", key="ms_claude_input")
     ms_active_q  = ms_pending_q or ms_user_q
 
     if ms_active_q:
