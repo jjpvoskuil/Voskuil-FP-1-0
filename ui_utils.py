@@ -497,22 +497,56 @@ def force_scroll_to_top():
     a tiny script inside it can reach window.parent.document and reset
     scroll position on the real scrolling container (see module docstring
     -- it's a specific inner <section>, not the window/document itself).
-    Listens for the container's own 'scroll' event and corrects
-    synchronously inside that handler -- catching every fight instantly,
-    including ones Streamlit's own ~17ms internal loop wins/loses faster
-    than any fixed-interval poll could reliably observe -- while hidden
-    behind the rule installed by hide_main_for_scroll_fix(). Also tracks
-    the container's own scrollHeight, resetting the quiet-clock on any
-    change -- a late chart layout pass can keep resizing the container
-    without necessarily firing a scroll event in between. Reveals only
-    once BOTH the render-complete marker (see mark_render_complete) has
-    been observed AND the position/height have gone quiet for a short
-    stretch of real time, so the container only ever becomes visible
-    already settled, with no bounce. A hard cap reveals regardless if
-    something upstream goes wrong (marker never appears, etc.), so the
-    page can never get stuck invisible. After revealing, keeps reacting
-    to scroll events indefinitely (Streamlit's own behavior can still
-    re-assert itself much later on a heavy page), backing off immediately
+
+    A console-level trace (dashboard_scroll_diagnostic_v5, run directly
+    against the live app) finally showed why the earlier "listen for
+    'scroll' and correct in the same handler" approach, and later the
+    scroll-behavior:auto CSS override, both failed to actually stop the
+    visible bounce even though each looked completely clean in its own
+    isolated verification: Streamlit's own bundle isn't calling
+    scrollTo()/scrollIntoView() at all for this, and isn't relying on CSS
+    smooth-scroll either -- it's a plain JS animation loop that just
+    assigns container.scrollTop = <climbing value> directly, once per
+    animation frame (~16-17ms apart, 0 -> ~235 -> ~541 -> ... -> the
+    container's full scrollHeight), completely oblivious to
+    scroll-behavior (which only governs the browser's OWN smooth-scroll
+    implementation, never manual per-frame property writes) and
+    oblivious to whatever value a 'scroll' event handler had just written
+    back, because it computes each frame's target from its own internal
+    animation state, not by reading the DOM. Reacting after the fact --
+    via a scroll event, however synchronous -- can only ever win the
+    fight one frame late at best, since 'scroll' events are dispatched
+    asynchronously (coalesced to the next paint) rather than inline with
+    the write that triggered them, leaving a real window for the browser
+    to paint Streamlit's climbing value before any correction lands.
+
+    Fixed properly this time by intercepting the write itself instead of
+    reacting to it: installs an own-property override of `scrollTop` on
+    the actual container element (Object.defineProperty, instance-level,
+    not prototype-level) that silently discards any attempt to set it to
+    a non-zero value while the guard is active, and lets the real setter
+    run for anything else. Because this runs synchronously as part of the
+    assignment expression itself, Streamlit's frame-by-frame writes never
+    actually reach the DOM in the first place -- there is no intermediate
+    value left for the browser to ever paint, regardless of how the scroll
+    event queue is timed. The original 'scroll'-listener correction is
+    kept alongside it as a second, redundant layer (harmless -- it only
+    ever fires for a scrollTop that already isn't 0, which the guard
+    should prevent from happening at all) and to catch anything that
+    moves scroll position through some other API entirely.
+
+    Also tracks the container's own scrollHeight, resetting the
+    quiet-clock on any change -- a late chart layout pass can keep
+    resizing the container without necessarily firing a scroll event in
+    between. Reveals only once BOTH the render-complete marker (see
+    mark_render_complete) has been observed AND the position/height have
+    gone quiet for a short stretch of real time, so the container only
+    ever becomes visible already settled, with no bounce. A hard cap
+    reveals regardless if something upstream goes wrong (marker never
+    appears, etc.), so the page can never get stuck invisible. After
+    revealing, keeps guarding indefinitely (Streamlit's own behavior can
+    still re-assert itself much later on a heavy page), backing off
+    immediately -- releasing the real scrollTop setter back to normal --
     the instant it detects the user manually scrolling. height=0 keeps
     the iframe invisible and out of the page's layout.
     """
@@ -528,7 +562,47 @@ def force_scroll_to_top():
         var _lastFixAt = Date.now();
         var _lastHeight = null;
         var _attachedTo = null;
-        var _cancel = function() {{ _stop = true; }};
+        var _guard = null;
+        var _cancel = function() {{
+            _stop = true;
+            if (_guard) {{ _guard.restore(); _guard = null; }}
+        }};
+
+        // Instance-level override of scrollTop on the live container --
+        // NOT the prototype -- so only this one element's writes are
+        // intercepted. Any write of a non-zero value while `active` is
+        // discarded outright (the underlying native setter is simply
+        // never called with that value), which stops Streamlit's own
+        // per-frame animation writes from ever reaching the DOM instead
+        // of merely reacting after they already have.
+        function _installGuard(c) {{
+            if (c.__scrollFixGuard) return c.__scrollFixGuard;
+            var proto = window.parent.Element.prototype;
+            var desc = Object.getOwnPropertyDescriptor(proto, 'scrollTop');
+            if (!desc || !desc.set) return null;
+            var nativeSet = desc.set;
+            var nativeGet = desc.get;
+            var guard = {{ active: true }};
+            guard.restore = function() {{
+                guard.active = false;
+                try {{ Object.defineProperty(c, 'scrollTop', desc); }} catch (e) {{}}
+                delete c.__scrollFixGuard;
+            }};
+            Object.defineProperty(c, 'scrollTop', {{
+                configurable: true,
+                get: function() {{ return nativeGet.call(this); }},
+                set: function(v) {{
+                    if (guard.active && v !== 0) {{
+                        nativeSet.call(this, 0);
+                        _lastFixAt = Date.now();
+                        return;
+                    }}
+                    nativeSet.call(this, v);
+                }},
+            }});
+            c.__scrollFixGuard = guard;
+            return guard;
+        }}
 
         function _correct() {{
             var c = _getScrollContainer();
@@ -548,15 +622,20 @@ def force_scroll_to_top():
         }}
         function _ensureAttached() {{
             var c = _getScrollContainer();
-            if (!c || c === _attachedTo) return;
-            _attachedTo = c;
-            c.addEventListener('scroll', function() {{
-                if (_stop) return;
-                _correct();
-            }}, {{passive: true}});
-            ['wheel', 'touchstart', 'mousedown'].forEach(function(evt) {{
-                c.addEventListener(evt, _cancel, {{once: true, passive: true}});
-            }});
+            if (!c) return;
+            if (c !== _attachedTo) {{
+                _attachedTo = c;
+                c.addEventListener('scroll', function() {{
+                    if (_stop) return;
+                    _correct();
+                }}, {{passive: true}});
+                ['wheel', 'touchstart', 'mousedown'].forEach(function(evt) {{
+                    c.addEventListener(evt, _cancel, {{once: true, passive: true}});
+                }});
+            }}
+            if (!_stop && (!_guard || !_guard.active)) {{
+                _guard = _installGuard(c);
+            }}
         }}
         _correct();
         _ensureAttached();
@@ -573,7 +652,7 @@ def force_scroll_to_top():
                 _revealed = true;
             }}
         }}, {_REVEAL_CHECK_INTERVAL_MS});
-        setTimeout(function() {{ clearInterval(_iv); }}, {_SAFETY_CAP_MS});
+        setTimeout(function() {{ clearInterval(_iv); _cancel(); }}, {_SAFETY_CAP_MS});
         </script>""",
         height=0,
     )

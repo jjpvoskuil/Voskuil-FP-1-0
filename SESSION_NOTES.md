@@ -966,3 +966,52 @@ needs the user's own confirmation.
 Marked punch list #75 done again, with the full addendum, but flagged
 that cold-load needs explicit user confirmation given this item's long
 track record of automated "clean" verifications not holding up.
+
+## Dashboard scroll bounce — 8th attempt: found the real mechanism (diag5)
+
+Owner reported disable_smooth_scroll() (commit 95bab82) still bounced in
+their real browser, despite 871/871 clean automated samples. Rather than
+guess again, wrote `dashboard_scroll_diagnostic_v5.js` — monkey-patches
+`scrollTo`, `scrollIntoView`, and the `scrollTop` setter on the app's own
+window to log call args, live `getComputedStyle().scrollBehavior`, and a
+call stack for every scroll-affecting call. Owner ran it directly against
+the live app and pasted back the trace.
+
+The trace overturned the `scroll-behavior:smooth` theory entirely: zero
+`scrollTo_call`/`scrollIntoView_call` entries in the whole capture.
+Streamlit's own bundle (stack resolving into `index.BvGIeCyC.js`) is
+directly assigning `container.scrollTop = <value>` on a climbing ramp
+(0 → ~235 → ~541 → ... → full scrollHeight) roughly every 16-17ms — a
+`requestAnimationFrame`-paced JS loop, not a CSS transition.
+`cssScrollBehavior` read `"auto"` on every single one of these writes —
+the CSS override genuinely was active throughout, just irrelevant, since
+`scroll-behavior` only governs the browser's own native smooth-scroll,
+never a script manually writing `scrollTop` frame by frame. The existing
+`'scroll'`-event correction was firing right after each Streamlit write,
+but `scroll` events dispatch asynchronously (coalesced toward next
+paint), leaving a real per-frame window for the browser to paint the
+climbing value before correction landed — which is exactly what would
+read as a bounce even though the correction was "working" in its own
+terms.
+
+Fixed by intercepting the write instead of reacting to it:
+`force_scroll_to_top()` now installs an instance-level
+`Object.defineProperty` override of `scrollTop` directly on the live
+container, discarding any non-zero write while active (native setter
+never called with that value) — runs synchronously inside the assignment
+itself, so there's no intermediate value left for the browser to ever
+paint, regardless of scroll-event timing. Releases on manual scroll
+(existing wheel/touchstart/mousedown cancel path) or the existing safety
+cap. Old scroll-listener correction and the CSS rule both left in place
+as harmless secondary layers.
+
+Verified: `node --check` on the actual rendered JS (extracted by calling
+`force_scroll_to_top()` against mocked `streamlit`/`components` modules).
+Standalone simulation harness replayed the exact climbing-ramp values
+from the diag5 trace against the real guard logic — scrollTop never left
+0 while guarded, `restore()` cleanly released the native setter
+afterward. This is unit-level verification of the mechanism only.
+
+Punch list #75 set back to `done: false` pending the owner's confirmation
+in their real browser — seven prior "clean" verifications on this exact
+item did not hold up, so no claim of fixed until they see it themselves.
