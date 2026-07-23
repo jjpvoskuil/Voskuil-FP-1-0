@@ -4,6 +4,7 @@ import pandas as pd
 from io import StringIO
 import time
 import threading
+import zlib
 from datetime import datetime, timezone
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -24,6 +25,148 @@ st.set_page_config(page_title="Market Screener — EDGAR", layout="wide")
 SCAN_CACHE_PATH = "market_screener_scan_cache.json"
 
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
+
+# ═════════════════════════════════════════════════════════════════════
+# EDGAR facts cache (#52 remaining scope)
+#
+# Caches fetch_company_facts_with_cik()'s normalized output -- the raw
+# per-field "latest"/"history" facts, NOT the scan's computed scores --
+# for up to EDGAR_FACTS_CACHE_MAX_AGE_DAYS, keyed by ticker, persisted
+# to GitHub. Market Screener only (#52 was scoped down to just this
+# page -- Equity Scout's single-ticker lookups are already fast enough
+# live that caching there wasn't worth the added complexity).
+#
+# Sharded across a fixed number of files rather than either extreme:
+#   - One file per company (the original punch-list wording,
+#     historical/{TICKER}.json) means 500-7,000 individual GitHub API
+#     writes per scan -- blows past GitHub's rate limits and floods the
+#     repo with commits at the current universe size.
+#   - One single consolidated file doesn't work either at the top end:
+#     a full "All US Common Stocks" scan caching ~7,000 tickers' worth
+#     of 10-year history serializes to well over 100MB, over GitHub's
+#     hard per-file limit via the Contents API (and a bad idea to diff/
+#     commit repeatedly even under that limit).
+# Sharding by a stable hash of the ticker keeps each shard small (a few
+# MB even at full 7,000-ticker scale) while a single scan still only
+# ever touches a small, bounded number of files -- not thousands.
+EDGAR_FACTS_CACHE_NUM_SHARDS   = 40
+EDGAR_FACTS_CACHE_MAX_AGE_DAYS = 7
+
+
+def _facts_cache_shard_path(ticker: str) -> str:
+    shard = zlib.crc32(ticker.upper().encode()) % EDGAR_FACTS_CACHE_NUM_SHARDS
+    return f"edgar_facts_cache/shard_{shard:02d}.json"
+
+
+def _load_facts_cache_shards(tickers: list) -> dict:
+    """
+    Loads every shard file touched by this ticker list, once, up front
+    (called from the main thread before the background scan starts --
+    same "load once, hand it to the workers" pattern as
+    get_ticker_cik_map()). Returns {TICKER: {"fetched_at": iso_str,
+    "facts": {...}}}. Missing/unreadable shards are treated as empty
+    (a cold cache, not an error) -- worst case is that scan just fetches
+    everything fresh, same as before this feature existed.
+    """
+    shard_paths = sorted({_facts_cache_shard_path(t) for t in tickers})
+    cache = {}
+    for path in shard_paths:
+        try:
+            data, _sha, _err = github_get_json(path)
+        except Exception:
+            data = None
+        if data:
+            cache.update(data)
+    return cache
+
+
+def _facts_cache_entry_fresh(entry: dict) -> bool:
+    """True if a cached entry is within the freshness window and safe to
+    reuse instead of re-fetching from EDGAR."""
+    if not entry or not entry.get("fetched_at"):
+        return False
+    try:
+        fetched_at = datetime.fromisoformat(entry["fetched_at"])
+    except (TypeError, ValueError):
+        return False
+    return (datetime.now(timezone.utc) - fetched_at).days < EDGAR_FACTS_CACHE_MAX_AGE_DAYS
+
+
+# Thread-local scratch slot: fetch_quality_edgar() runs inside worker
+# threads (see _run_stage1_scan_background's ThreadPoolExecutor), one
+# ticker at a time per thread, synchronously start to finish. Using a
+# thread-local here instead of a shared dict + lock means _worker() can
+# read back "did this particular call actually hit EDGAR, and if so
+# what did it get back" with zero cross-thread contention -- each
+# thread only ever sees its own slot, and it's overwritten fresh on
+# every ticker that thread handles.
+_facts_cache_tls = threading.local()
+
+
+def _get_facts_maybe_cached(ticker: str, cik: str, facts_cache: dict, force_refresh: bool) -> dict:
+    """
+    Cache-aware replacement for a direct fetch_company_facts_with_cik()
+    call -- used by fetch_quality_edgar() below. Serves a fresh-enough
+    cached entry if one exists and force_refresh isn't set; otherwise
+    fetches live from EDGAR as before. Either way, stashes what should
+    be persisted (or None, if nothing changed) on _facts_cache_tls for
+    the calling worker to pick up -- see its own docstring for why a
+    thread-local, not a shared structure, is used here.
+    """
+    entry = None if force_refresh else (facts_cache or {}).get(ticker.upper())
+    if entry and _facts_cache_entry_fresh(entry):
+        _facts_cache_tls.update = None
+        return entry["facts"]
+
+    facts = fetch_company_facts_with_cik(ticker, cik)
+    # Don't cache a fetch failure -- that would "poison" the cache for
+    # up to 7 days on what's very likely a transient EDGAR/network
+    # issue (see _sec_get()'s own retry logic in sec_utils.py, which
+    # already handles the transient case; this is the layer above that).
+    if facts.get("error"):
+        _facts_cache_tls.update = None
+    else:
+        _facts_cache_tls.update = {
+            "ticker": ticker.upper(),
+            "entry": {"fetched_at": datetime.now(timezone.utc).isoformat(), "facts": facts},
+        }
+    return facts
+
+
+def _save_facts_cache_updates(updates: dict):
+    """
+    updates: {TICKER: {"fetched_at": iso_str, "facts": {...}}} -- newly
+    fetched or refreshed entries from the scan that just finished, only
+    (tickers served from a still-fresh cache hit are NOT included here,
+    since nothing about them needs to be re-persisted). Groups by shard
+    and does exactly one GitHub read+write per shard actually touched,
+    not per ticker -- mirrors the scan-results cache's "one commit per
+    scan" pattern, just per-shard instead of a single file.
+    """
+    if not updates:
+        return
+    by_shard = {}
+    for ticker, entry in updates.items():
+        by_shard.setdefault(_facts_cache_shard_path(ticker), {})[ticker] = entry
+    for path, shard_updates in by_shard.items():
+        try:
+            existing, _sha, _err = github_get_json(path)
+        except Exception:
+            existing = None
+        merged = dict(existing) if existing else {}
+        merged.update(shard_updates)
+        try:
+            github_put_json(
+                path, merged,
+                commit_message=f"EDGAR facts cache update — {path} — {len(shard_updates)} ticker(s)",
+            )
+        except Exception:
+            # Best-effort persistence -- a shard that fails to save just
+            # means those tickers get re-fetched from EDGAR next time
+            # instead of served from cache. Never worth failing the
+            # whole scan (whose real output -- stage1_results -- already
+            # saved successfully by this point) over a cache write.
+            pass
 
 # ── Helper: build context string from results dataframe ──────────────
 def build_ms_context(df):
@@ -346,10 +489,19 @@ def _fetch_market_cap_and_sector(ticker: str):
     return market_cap, sector
 
 
-def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -> dict:
+def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
+                         facts_cache: dict = None, force_refresh: bool = False) -> dict:
     """
     Fetches fundamentals from EDGAR Company Facts using a pre-resolved CIK
     (no redundant ticker->CIK lookup per call — see get_ticker_cik_map()).
+
+    facts_cache/force_refresh (#52): if facts_cache is given and has a
+    fresh-enough entry for this ticker, that's used instead of hitting
+    EDGAR at all -- see _get_facts_maybe_cached() above. force_refresh
+    bypasses the cache entirely regardless of what's in it. Both are
+    optional and default to "no cache, always fetch live" so this
+    function still works exactly as before for any caller that doesn't
+    pass them (e.g. the Equity Scout debug panel further up this file).
     Returns the price-independent fields plus the Buffett/Munger funnel
     checklist breakdown (evaluate_buffett_funnel — 10-yr avg ROIC, 10-yr
     avg FCF margin, dual debt-hurdle check, dilution check). Legacy
@@ -369,7 +521,7 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None) -
 
     Does NOT fetch price — that happens only for Stage 1 survivors.
     """
-    facts = fetch_company_facts_with_cik(ticker, cik)
+    facts = _get_facts_maybe_cached(ticker, cik, facts_cache, force_refresh)
     if facts.get("error"):
         if facts.get("status_code") == 404:
             # Permanent, not transient — this CIK has no XBRL Company Facts at
@@ -595,6 +747,8 @@ def _get_scan_state() -> dict:
         "error":             None,
         "github_save_ok":    None,
         "github_save_msg":   "",
+        "facts_cache_hits":   0,
+        "facts_cache_misses": 0,
     }
 
 
@@ -605,7 +759,8 @@ def _scan_snapshot() -> dict:
 
 
 def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
-                                   skip_financials, universe_label, cache_path):
+                                   skip_financials, universe_label, cache_path,
+                                   facts_cache=None, force_refresh_facts=False):
     """
     Initializes the cache_resource-backed scan state and spawns the background thread. Called
     from the MAIN script thread (the button-click handler), NOT from
@@ -638,16 +793,19 @@ def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresh
             "started_at": datetime.now(timezone.utc).isoformat(),
             "finished_at": None, "error": None,
             "github_save_ok": None, "github_save_msg": "",
+            "facts_cache_hits": 0, "facts_cache_misses": 0,
         })
     threading.Thread(
         target=_run_stage1_scan_background,
-        args=(tickers_to_scan, ticker_cik_map, funnel_thresholds, skip_financials, universe_label, cache_path),
+        args=(tickers_to_scan, ticker_cik_map, funnel_thresholds, skip_financials, universe_label, cache_path,
+              facts_cache, force_refresh_facts),
         daemon=True,
     ).start()
 
 
 def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
-                                 skip_financials, universe_label, cache_path):
+                                 skip_financials, universe_label, cache_path,
+                                 facts_cache=None, force_refresh_facts=False):
     """
     Does the actual scanning work on a background thread. State is
     already initialized by _start_stage1_scan_background() (on the main
@@ -665,7 +823,16 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
         cik = ticker_cik_map.get(ticker.upper())
         if not cik:
             return {"_status": "no_cik", "ticker": ticker}
-        return fetch_quality_edgar(ticker, cik, funnel_thresholds)
+        result = fetch_quality_edgar(ticker, cik, funnel_thresholds,
+                                      facts_cache=facts_cache, force_refresh=force_refresh_facts)
+        # Picked up from the thread-local slot _get_facts_maybe_cached()
+        # just wrote to, still on this same worker thread -- see that
+        # function's docstring. None means this ticker was served from
+        # cache (nothing new to persist).
+        result["_facts_cache_update"] = getattr(_facts_cache_tls, "update", None)
+        return result
+
+    facts_cache_updates = {}  # collected on the consumer side below (single-threaded, no lock needed)
 
     try:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
@@ -682,9 +849,23 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
 
                 status = data.get("_status") if data else "no_cik"
 
+                # Cache bookkeeping -- pop before status handling below
+                # so this internal key never leaks into stage1_results/
+                # fetch_failures/CSV export. Only meaningful for tickers
+                # that actually reached a facts fetch (status != "no_cik").
+                _cache_update = data.pop("_facts_cache_update", None) if data else None
+                if status != "no_cik":
+                    if _cache_update:
+                        facts_cache_updates[_cache_update["ticker"]] = _cache_update["entry"]
+
                 with _get_scan_lock():
                     _get_scan_state()["completed"] += 1
                     wf = _get_scan_state()["waterfall"]
+                    if status != "no_cik":
+                        if _cache_update:
+                            _get_scan_state()["facts_cache_misses"] += 1
+                        else:
+                            _get_scan_state()["facts_cache_hits"] += 1
 
                     if status == "no_cik":
                         wf["no_cik"] += 1
@@ -740,6 +921,14 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
         _get_scan_state()["finished_at"] = datetime.now(timezone.utc).isoformat()
         stage1_results = list(_get_scan_state()["stage1_results"])
         total_scanned  = _get_scan_state()["completed"] if was_cancelled else _get_scan_state()["total"]
+
+    # Persist any newly-fetched EDGAR facts (#52) regardless of whether
+    # the scan was cancelled partway or found zero survivors -- tickers
+    # already fetched fresh from EDGAR this run are still valid, still
+    # worth caching for 7 days, and shouldn't be thrown away just
+    # because the SCAN itself didn't finish or pass anything.
+    if facts_cache_updates:
+        _save_facts_cache_updates(facts_cache_updates)
 
     # Persist to GitHub from the background thread itself — this way it
     # happens exactly once regardless of how many browser tabs/sessions
@@ -1315,6 +1504,18 @@ _approx_universe_size = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)"
 _est_min = max(1, round(_approx_universe_size / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
 st.caption(f"⏱️ Estimated Stage 1 time for ALL ~{_approx_universe_size:,} tickers: ~{_est_min} minutes. Stage 2 (price lookups on survivors) adds 10-60 seconds. Runs in the background — you can navigate elsewhere while it works.")
 
+force_refresh_facts = st.checkbox(
+    "🔄 Force fresh EDGAR fetch for every ticker (ignore the 7-day cache)",
+    value=False,
+    help="Each ticker's normalized EDGAR history is cached for 7 days so repeat scans "
+         "skip most EDGAR calls and run far faster — this is on by default (unchecked "
+         "here means 'use the cache'). Check this box to bypass the cache entirely and "
+         "re-fetch every ticker fresh from EDGAR on this run instead, e.g. right after a "
+         "company you care about files a new 10-K/10-Q, or if you suspect a cached value "
+         "is stale or wrong. The freshly-fetched data replaces the old cache entries as "
+         "usual either way.",
+)
+
 st.divider()
 run_screen = st.button("🚀 Run Two-Stage Screen", type="primary", use_container_width=True)
 
@@ -1576,9 +1777,21 @@ if run_screen:
         # execution for potentially several minutes. State is initialized
         # synchronously here (see _start_stage1_scan_background's
         # docstring for why that ordering matters) before the rerun below.
+        # Load whichever cache shards this ticker list touches, once,
+        # up front (see _load_facts_cache_shards()'s docstring) -- unless
+        # the user asked to bypass the cache entirely this run, in which
+        # case there's no point spending the GitHub reads on a cache
+        # every ticker is about to ignore anyway.
+        if force_refresh_facts:
+            facts_cache = {}
+        else:
+            with st.spinner("Loading cached EDGAR history..."):
+                facts_cache = _load_facts_cache_shards(tickers_to_scan)
+
         _start_stage1_scan_background(
             tickers_to_scan, ticker_cik_map, funnel_thresholds,
             skip_financials, universe_choice, SCAN_CACHE_PATH,
+            facts_cache=facts_cache, force_refresh_facts=force_refresh_facts,
         )
         st.rerun()
 
@@ -1638,6 +1851,15 @@ elif _snap["finished_at"] and st.session_state.get('ms_edgar_ingested_finish_ts'
         # The persistent GitHub save already happened inside the
         # background worker itself (exactly once, regardless of how many
         # sessions/tabs are watching) — just reflect its outcome here.
+        _facts_hits   = _snap.get("facts_cache_hits", 0)
+        _facts_misses = _snap.get("facts_cache_misses", 0)
+        if _facts_hits or _facts_misses:
+            st.caption(
+                f"📦 EDGAR facts cache: {_facts_hits:,} served from cache, "
+                f"{_facts_misses:,} fetched fresh from EDGAR "
+                f"({EDGAR_FACTS_CACHE_MAX_AGE_DAYS}-day freshness window)."
+            )
+
         if _snap.get("github_save_ok") is True:
             st.session_state['ms_edgar_scan_timestamp'] = _snap["github_save_msg"]  # holds the timestamp on success
             st.session_state['ms_edgar_scan_universe']  = _snap["universe"]
