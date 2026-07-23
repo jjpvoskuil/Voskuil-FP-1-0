@@ -328,18 +328,25 @@ for i, t in enumerate(active_tickers):
             if dcf["error"]:
                 st.caption(f"**Residual Income Value:** — _{dcf['error']}_")
             else:
+                # (2026-07-23) Both stages' target prices now shown --
+                # owner feedback: single-stage was only surfacing its
+                # MoS%, no dollar figure, here and on every other page
+                # that displays this. Same compact M/S convention as
+                # Dashboard/Market Screener.
                 _ms = dcf["multi_stage"]
                 _ss = dcf["single_stage"]
                 if _ms.get("intrinsic_value_per_share") is not None:
                     _ms_mos = _ms.get("margin_of_safety")
                     _mos_color = "green" if (_ms_mos or 0) > 0 else "red"
-                    st.caption(f"**Value (multi-stage):** ${_ms['intrinsic_value_per_share']:.2f}")
-                    if _ms_mos is not None:
-                        st.caption(f":{_mos_color}[{_ms_mos:+.0%} MoS]")
-                if _ss.get("margin_of_safety") is not None:
-                    st.caption(f"Single-stage MoS: {_ss['margin_of_safety']:+.0%}")
+                    st.caption(f"**M** ${_ms['intrinsic_value_per_share']:.2f}"
+                               + (f"  :{_mos_color}[{_ms_mos:+.0%}]" if _ms_mos is not None else ""))
+                if _ss.get("intrinsic_value_per_share") is not None:
+                    _ss_mos = _ss.get("margin_of_safety")
+                    _mos_color = "green" if (_ss_mos or 0) > 0 else "red"
+                    st.caption(f"**S** ${_ss['intrinsic_value_per_share']:.2f}"
+                               + (f"  :{_mos_color}[{_ss_mos:+.0%}]" if _ss_mos is not None else ""))
                 if dcf.get("divergence") is not None and dcf["divergence"] >= 0.30:
-                    st.caption(f"⚠️ {dcf['divergence']:.0%} divergence")
+                    st.caption(f"⚠️ {dcf['divergence']:.0%} gap")
         elif dcf["error"]:
             st.caption(f"**DCF Value:** — _{dcf['error']}_")
         else:

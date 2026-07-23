@@ -111,6 +111,11 @@ with st.spinner("Fetching price/score/DCF snapshots..."):
             "DCF Value": snap.get("dcf_value"),
             "MoS %": (mos * 100) if mos is not None else None,
             "Model": "RI (multi)" if snap.get("methodology") == "residual_income" else "DCF",
+            # (2026-07-23) "Single Value" added alongside "Single MoS %" --
+            # owner feedback: every page showing this needs both stages'
+            # target PRICES, not the multi-stage price with single-stage
+            # reduced to a bare percentage.
+            "Single Value": snap.get("single_stage_value"),
             "Single MoS %": (_single_mos * 100) if _single_mos is not None else None,
             "Score": snap.get("score"),
             "Action": (f"{snap.get('action_emoji', '')} {snap.get('action_label', '—')}").strip(),
@@ -135,6 +140,8 @@ wl_column_config = {
                                                        help="Margin of safety: (intrinsic value - price) / intrinsic value"),
     "Model":           st.column_config.TextColumn(disabled=True,
                                                      help="DCF, or RI (multi) for the Residual Income model's multi-stage result on banks/insurers"),
+    "Single Value":    st.column_config.NumberColumn(format="$%.2f", disabled=True,
+                                                       help="Residual Income single-stage target price (today's ROE held forever), for comparison against the multi-stage headline (banks/insurers only)"),
     "Single MoS %":    st.column_config.NumberColumn(format="%.0f%%", disabled=True,
                                                        help="Residual Income single-stage MoS, for comparison against the multi-stage headline (banks/insurers only)"),
     "Score":           st.column_config.NumberColumn(format="%d", disabled=True),

@@ -2418,26 +2418,35 @@ if 'ms_edgar_results_df' in st.session_state:
                     # defensible one for a cyclical name -- single-stage
                     # and the gap between them in the caption, same "show
                     # both, flag a big gap" approach as the debug tool.
+                    # (2026-07-23) Redesigned to match Dashboard's format
+                    # (owner feedback: show BOTH stages' target prices,
+                    # not just multi-stage's -- single-stage was only
+                    # showing its MoS% with no dollar figure -- and make
+                    # it easier to read). Same compact price/M/S layout
+                    # everywhere this appears now, so a ticker's residual
+                    # income numbers look the same whether you're looking
+                    # at Market Screener, Dashboard, Compare Stocks, or
+                    # Watchlist.
                     _ri_multi_mos  = row.get('ri_multi_mos')
                     _ri_single_mos = row.get('ri_single_mos')
                     _ri_multi_iv   = row.get('ri_multi_iv')
+                    _ri_single_iv  = row.get('ri_single_iv')
                     _ri_div        = row.get('ri_divergence')
-                    if pd.notna(_ri_multi_mos):
-                        st.metric("MoS (Residual Income)", f"{_ri_multi_mos:+.0%}",
-                                  help="Multi-stage residual income model (ROE fades to normalized) -- see Debug tool above for full detail")
-                    else:
-                        st.metric("MoS (Residual Income)", "N/A", help="ROE, book value, or shares unavailable for this ticker")
-                    _bits = []
+                    st.caption("MoS (Residual Income) — Multi/Single-stage")
                     if pd.notna(_price):
-                        _bits.append(f"${_price:.0f} now")
-                    if pd.notna(_ri_multi_iv):
-                        _bits.append(f"${_ri_multi_iv:.0f} target")
-                    if pd.notna(_ri_single_mos):
-                        _bits.append(f"single-stage: {_ri_single_mos:+.0%}")
-                    if _bits:
-                        st.caption(" → ".join(_bits))
+                        st.caption(f"${_price:.0f} now")
+                    if pd.notna(_ri_multi_iv) and pd.notna(_ri_multi_mos):
+                        _c = "#2ecc71" if _ri_multi_mos > 0 else "#e74c3c"
+                        st.markdown(f"**M** ${_ri_multi_iv:.0f} <span style='color:{_c}; font-weight:bold'>{_ri_multi_mos:+.0%}</span>",
+                                    unsafe_allow_html=True)
+                    if pd.notna(_ri_single_iv) and pd.notna(_ri_single_mos):
+                        _c = "#2ecc71" if _ri_single_mos > 0 else "#e74c3c"
+                        st.markdown(f"**S** ${_ri_single_iv:.0f} <span style='color:{_c}; font-weight:bold'>{_ri_single_mos:+.0%}</span>",
+                                    unsafe_allow_html=True)
+                    if not (pd.notna(_ri_multi_iv) or pd.notna(_ri_single_iv)):
+                        st.caption("N/A — ROE, book value, or shares unavailable")
                     if pd.notna(_ri_div) and _ri_div >= 0.30:
-                        st.caption("⚠️ ROE well off normal — see Debug tool")
+                        st.caption(f"⚠️ {_ri_div:.0%} gap — see Debug tool")
                 elif pd.notna(_mos):
                     st.metric("Margin of Safety", f"{_mos:+.0%}",
                               help="DCF intrinsic value (default assumptions)")

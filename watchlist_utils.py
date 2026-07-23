@@ -357,7 +357,7 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
             "dcf_value": None, "margin_of_safety": None, "dcf_error": None,
             "score": None, "action_label": "—", "action_emoji": "",
             "foreign_currency": None, "methodology": None,
-            "single_stage_mos": None, "divergence": None,
+            "single_stage_value": None, "single_stage_mos": None, "divergence": None,
         }
     subtype = d.get("financial_subtype")
     if subtype in ("bank", "insurance"):
@@ -373,10 +373,14 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
         _ms = iv.get("multi_stage", {})
         _ss = iv.get("single_stage", {})
         dcf_value, mos, dcf_error = _ms.get("intrinsic_value_per_share"), _ms.get("margin_of_safety"), iv.get("error") or _ms.get("error")
-        single_stage_mos, divergence = _ss.get("margin_of_safety"), iv.get("divergence")
+        # (2026-07-23) single_stage_value added alongside single_stage_mos
+        # -- owner feedback: every page showing this needs BOTH stages'
+        # target PRICES, not just the multi-stage price with single-stage
+        # reduced to a bare percentage.
+        single_stage_value, single_stage_mos, divergence = _ss.get("intrinsic_value_per_share"), _ss.get("margin_of_safety"), iv.get("divergence")
     else:
         dcf_value, mos, dcf_error = iv.get("intrinsic_value_per_share"), iv.get("margin_of_safety"), iv.get("error")
-        single_stage_mos, divergence = None, None
+        single_stage_value, single_stage_mos, divergence = None, None, None
     return {
         "error": None,
         "name": d.get("name", ticker),
@@ -385,6 +389,7 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
         "margin_of_safety": mos,
         "dcf_error": dcf_error,
         "methodology": iv.get("methodology"),
+        "single_stage_value": single_stage_value,
         "single_stage_mos": single_stage_mos,
         "divergence": divergence,
         "score": score,

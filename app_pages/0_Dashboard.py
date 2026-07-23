@@ -707,6 +707,8 @@ if df_holdings_raw is not None:
     display_df['MoS']            = _dcfs.apply(_mos_for)
     display_df['Intrinsic']      = _dcfs.apply(_iv_for)
     display_df['IsFinancialRI']  = _dcfs.apply(lambda d: d.get('methodology') == 'residual_income')
+    display_df['SingleStageIV']  = _dcfs.apply(
+        lambda d: d.get('single_stage', {}).get('intrinsic_value_per_share') if d.get('methodology') == 'residual_income' else None)
     display_df['SingleStageMoS'] = _dcfs.apply(
         lambda d: d.get('single_stage', {}).get('margin_of_safety') if d.get('methodology') == 'residual_income' else None)
     display_df['RIDivergence']   = _dcfs.apply(
@@ -763,6 +765,11 @@ if df_holdings_raw is not None:
         st.session_state.holdings_sort_asc = True
 
     st.caption("Click a column header to sort by it — click again to reverse the order.")
+    st.caption(
+        "MoS: current price vs. intrinsic value. Banks/insurers use the Residual Income model "
+        "and show **M**ulti-stage (ROE fades to normalized — the more defensible number) and "
+        "**S**ingle-stage (today's ROE held forever) side by side; everyone else uses DCF."
+    )
 
     def _sort_header(container, col_key):
         cfg    = SORT_COLUMNS[col_key]
@@ -778,7 +785,7 @@ if df_holdings_raw is not None:
                     st.session_state.holdings_sort_asc = cfg["default_asc"]
 
     # ── Column Headers ─────────────────────────────────────────────────
-    h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11 = st.columns([1.2, 2.4, 1.6, 1.3, 1.0, 1.2, 1.2, 1.1, 1.2, 1.7, 0.9])
+    h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11 = st.columns([1.1, 2.1, 1.3, 1.2, 0.8, 1.0, 1.1, 2.0, 1.0, 1.5, 0.8])
     _sort_header(h1, "Symbol")
     _sort_header(h2, "Name")
     _sort_header(h3, "Type")
@@ -801,7 +808,7 @@ if df_holdings_raw is not None:
 
     # ── Rows ───────────────────────────────────────────────────────────
     for _, row in display_df.iterrows():
-        c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11 = st.columns([1.2, 2.4, 1.6, 1.3, 1.0, 1.2, 1.2, 1.1, 1.2, 1.7, 0.9])
+        c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11 = st.columns([1.1, 2.1, 1.3, 1.2, 0.8, 1.0, 1.1, 2.0, 1.0, 1.5, 0.8])
         with c1:
             st.markdown(f"**{row['Symbol']}**")
         with c2:
@@ -847,33 +854,53 @@ if df_holdings_raw is not None:
             # is exactly how ALL showed "+nan%" instead of "—".
             # (2026-07-23) Banks/insurers route through the Residual
             # Income model (get_intrinsic_value() dispatcher) instead of
-            # FCF-DCF -- headline number here is the multi-stage result,
-            # same convention as Market Screener's main table and debug
-            # tool, with the single-stage figure and a divergence flag
-            # in the caption so a wide gap (current ROE running well off
-            # the company's own normal range) is visible at a glance.
-            _mos = row['MoS']
-            if pd.notna(_mos):
-                _mos_color = "#2ecc71" if _mos > 0 else "#e74c3c"
-                st.markdown(f"<span style='font-weight:bold; color:{_mos_color}'>{_mos:+.0%}</span>",
-                            unsafe_allow_html=True)
-                _price_bits = []
-                if pd.notna(row['CurPrice']):
-                    _price_bits.append(f"${row['CurPrice']:.0f} now")
-                if pd.notna(row['Intrinsic']):
-                    _price_bits.append(f"${row['Intrinsic']:.0f} target")
-                if _price_bits:
-                    st.caption(" → ".join(_price_bits))
-                if row.get('IsFinancialRI'):
-                    st.caption("Residual income (multi-stage)")
-                    _single_mos = row.get('SingleStageMoS')
-                    if pd.notna(_single_mos):
-                        st.caption(f"Single-stage: {_single_mos:+.0%}")
-                    _div = row.get('RIDivergence')
-                    if pd.notna(_div) and _div >= 0.30:
-                        st.caption(f"⚠️ {_div:.0%} single/multi divergence")
+            # FCF-DCF. Owner feedback: showing only the multi-stage
+            # target (with single-stage buried as a caption %, no dollar
+            # figure) wasn't enough -- both stages' target prices need
+            # to be visible everywhere this shows up, and the old 4-5
+            # line caption stack here was hard to read in this narrow a
+            # column. Redesigned as a compact 3-line block: current
+            # price, then Multi/Single each as "$target  +MoS%" with the
+            # MoS% color-coded, widened this column (see the st.columns
+            # call above) to give it room. Same S/M convention explained
+            # once in the legend caption above the table instead of
+            # repeated on every row.
+            if row.get('IsFinancialRI'):
+                _price  = row['CurPrice']
+                _m_iv   = row['Intrinsic']
+                _m_mos  = row['MoS']
+                _s_iv   = row.get('SingleStageIV')
+                _s_mos  = row.get('SingleStageMoS')
+                if pd.notna(_price):
+                    st.caption(f"${_price:.0f} now")
+                if pd.notna(_m_iv) and pd.notna(_m_mos):
+                    _c = "#2ecc71" if _m_mos > 0 else "#e74c3c"
+                    st.markdown(f"**M** ${_m_iv:.0f} <span style='color:{_c}; font-weight:bold'>{_m_mos:+.0%}</span>",
+                                unsafe_allow_html=True)
+                if pd.notna(_s_iv) and pd.notna(_s_mos):
+                    _c = "#2ecc71" if _s_mos > 0 else "#e74c3c"
+                    st.markdown(f"**S** ${_s_iv:.0f} <span style='color:{_c}; font-weight:bold'>{_s_mos:+.0%}</span>",
+                                unsafe_allow_html=True)
+                if not (pd.notna(_m_iv) or pd.notna(_s_iv)):
+                    st.caption("—")
+                _div = row.get('RIDivergence')
+                if pd.notna(_div) and _div >= 0.30:
+                    st.caption(f"⚠️ {_div:.0%} gap")
             else:
-                st.caption("—")
+                _mos = row['MoS']
+                if pd.notna(_mos):
+                    _mos_color = "#2ecc71" if _mos > 0 else "#e74c3c"
+                    st.markdown(f"<span style='font-weight:bold; color:{_mos_color}'>{_mos:+.0%}</span>",
+                                unsafe_allow_html=True)
+                    _price_bits = []
+                    if pd.notna(row['CurPrice']):
+                        _price_bits.append(f"${row['CurPrice']:.0f} now")
+                    if pd.notna(row['Intrinsic']):
+                        _price_bits.append(f"${row['Intrinsic']:.0f} target")
+                    if _price_bits:
+                        st.caption(" → ".join(_price_bits))
+                else:
+                    st.caption("—")
         with c9:
             si_data = st.session_state.get("_si_full_map", {})
             if si_data and si_data.get("ticker_map"):
