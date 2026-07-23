@@ -173,7 +173,7 @@
     },
     {
       "id": 20,
-      "title": "Use the Connect page to API into Bank od America",
+      "title": "Use the Connect page to API into Bank of America",
       "note": "API into BOA so that I can auto popluate the dashboard and transactions pages",
       "phase": "Data Quality",
       "priority": "Low",
