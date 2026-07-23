@@ -15,6 +15,7 @@ from sec_utils import (
     evaluate_buffett_funnel, FUNNEL_THRESHOLDS,
     evaluate_financial_firm_funnel, score_financial_firm_breakdown,
     compute_dcf_value, compute_residual_income_value,
+    fetch_price_and_market_cap,
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
@@ -1165,44 +1166,29 @@ def _render_scan_progress_fragment():
 def fetch_price_data(ticker: str) -> dict:
     """Lightweight yfinance price/market cap/dividend fetch — Stage 2 only.
 
-    (2026-07-23) One retry after a brief backoff on failure -- confirmed
-    live that a ticker whose price fetch fails silently returns all-None
-    here (by design, so one bad ticker doesn't crash the whole Stage 2
-    thread pool), which then shows as blank price/MoS/dividend fields
-    for that row with no obvious explanation (ALL: had target/MoS
-    working in one scan, blank in the next, no code changed in between
-    -- consistent with a transient yfinance rate limit/timeout on that
-    specific request rather than a real bug). A single retry costs at
-    most ~1.5s for the one ticker that needs it and costs nothing for
-    the rest, while meaningfully reducing how often a genuinely-fine
-    ticker shows up blank purely from bad luck on the first attempt.
+    (2026-07-23, superseded same day) This used to be its own separate
+    copy of the price-fetch logic, with its own retry loop -- and a real
+    bug: it called _normalize_dividend_yield() without that name ever
+    being imported into this module. Every successful yfinance fetch
+    NameError'd while building the return dict, got swallowed by the
+    broad except below, retried once, NameError'd again, and returned
+    all-None -- meaning current price silently failed for EVERY ticker
+    in Stage 2, not just ALL (confirmed by reproducing the exact
+    NameError in isolation). Now a thin wrapper around
+    sec_utils.fetch_price_and_market_cap() -- the SAME cached,
+    retrying, correctly-scoped implementation Dashboard/Equity Scout/
+    Compare Stocks/Watchlist already use, so there's exactly one price-
+    fetch implementation for the whole app rather than two that can
+    silently drift (again).
     """
-    import time as _time
-    for _attempt in range(2):
-        try:
-            import yfinance as yf
-            info = yf.Ticker(ticker).info
-            price = safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
-            if price is None and _attempt == 0:
-                # Empty-looking response without a hard exception --
-                # still worth one retry before giving up.
-                _time.sleep(1.5)
-                continue
-            return {
-                "price":          price,
-                "market_cap":     safe_float(info.get("marketCap")),
-                "shares":         safe_float(info.get("sharesOutstanding")),
-                "dividend_yield": _normalize_dividend_yield(info.get("dividendYield")),
-                "sector":         info.get("sector", "N/A"),
-            }
-        except Exception:
-            if _attempt == 0:
-                _time.sleep(1.5)
-                continue
-            return {"price": None, "market_cap": None, "shares": None,
-                     "dividend_yield": None, "sector": "N/A"}
-    return {"price": None, "market_cap": None, "shares": None,
-             "dividend_yield": None, "sector": "N/A"}
+    d = fetch_price_and_market_cap(ticker)
+    return {
+        "price":          d.get("price"),
+        "market_cap":     d.get("market_cap"),
+        "shares":         d.get("shares"),
+        "dividend_yield": d.get("dividend_yield"),
+        "sector":         d.get("sector", "N/A"),
+    }
 
 
 

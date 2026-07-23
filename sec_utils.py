@@ -1265,30 +1265,54 @@ def fetch_price_and_market_cap(ticker):
     Fetch current price and market cap from yfinance.
     EDGAR provides shares outstanding; we use yfinance for live price only.
     Returns dict with price, market_cap, shares, dividend_yield.
+
+    (2026-07-23) THE single price-fetch implementation for the whole app --
+    Market Screener used to maintain its own separate, uncached copy of
+    this exact logic (fetch_price_data() on that page), which is how it
+    quietly drifted: this function is wrapped in @st.cache_data(ttl=900)
+    a few lines up, so a ticker that fetched successfully once stays
+    "working" here for 15 minutes even if yfinance is currently flaky
+    for it -- Market Screener's uncached copy got no such benefit of the
+    doubt and would show blank for the exact same ticker at the exact
+    same moment Dashboard showed a real (cached) price, for no reason a
+    user could see. Retry-with-backoff (same pattern Market Screener's
+    copy already had) folded in here too, so every caller gets it
+    instead of just one page.
     """
-    try:
-        import yfinance as yf
-        info = yf.Ticker(ticker).info
-        price      = info.get("currentPrice") or info.get("regularMarketPrice")
-        market_cap = info.get("marketCap")
-        shares     = info.get("sharesOutstanding")
-        div_yield  = info.get("dividendYield")
-        name       = info.get("longName") or info.get("shortName") or ticker
-        sector     = info.get("sector", "N/A")
-        description = (info.get("longBusinessSummary", "")[:400] + "...") if info.get("longBusinessSummary") else ""
-        return {
-            "price":         safe_float(price),
-            "market_cap":    safe_float(market_cap),
-            "shares":        safe_float(shares),
-            "dividend_yield": _normalize_dividend_yield(div_yield),
-            "name":          name,
-            "sector":        sector,
-            "description":   description,
-        }
-    except Exception as e:
-        return {"price": None, "market_cap": None, "shares": None,
-                "dividend_yield": None, "name": ticker, "sector": "N/A",
-                "description": "", "error": str(e)}
+    import time as _time
+    for _attempt in range(2):
+        try:
+            import yfinance as yf
+            info = yf.Ticker(ticker).info
+            price = info.get("currentPrice") or info.get("regularMarketPrice")
+            if price is None and _attempt == 0:
+                _time.sleep(1.5)
+                continue
+            market_cap = info.get("marketCap")
+            shares     = info.get("sharesOutstanding")
+            div_yield  = info.get("dividendYield")
+            name       = info.get("longName") or info.get("shortName") or ticker
+            sector     = info.get("sector", "N/A")
+            description = (info.get("longBusinessSummary", "")[:400] + "...") if info.get("longBusinessSummary") else ""
+            return {
+                "price":         safe_float(price),
+                "market_cap":    safe_float(market_cap),
+                "shares":        safe_float(shares),
+                "dividend_yield": _normalize_dividend_yield(div_yield),
+                "name":          name,
+                "sector":        sector,
+                "description":   description,
+            }
+        except Exception as e:
+            if _attempt == 0:
+                _time.sleep(1.5)
+                continue
+            return {"price": None, "market_cap": None, "shares": None,
+                    "dividend_yield": None, "name": ticker, "sector": "N/A",
+                    "description": "", "error": str(e)}
+    return {"price": None, "market_cap": None, "shares": None,
+            "dividend_yield": None, "name": ticker, "sector": "N/A",
+            "description": ""}
 
 
 @st.cache_data(ttl=3600)
