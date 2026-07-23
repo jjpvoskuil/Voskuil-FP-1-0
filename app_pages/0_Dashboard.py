@@ -918,8 +918,37 @@ if df_holdings_raw is not None:
                     st.session_state["dash_pending_q"] = q
                     st.rerun()
 
+    # ── Deferred chat_input mount (cold-load scroll fix) ─────────────
+    # st.chat_input's mere presence makes Streamlit wrap the page in its
+    # own auto-scroll-to-bottom chat container (data-testid=
+    # stAppScrollToBottomContainer -- see ui_utils.py's scroll-fix
+    # docstring for the full saga). That container's native "scroll to
+    # bottom on mount" fires as part of Streamlit's own core frontend,
+    # before any of our app-delivered corrective JS can possibly load --
+    # there's no click event to hook on a fresh session, unlike
+    # navigation, which install_instant_nav_hide() can catch. Deferring
+    # the widget itself behind an explicit button click closes the gap
+    # at the root: nothing creates that container on a cold Dashboard
+    # load, so there's nothing for Streamlit to auto-scroll. Once chat
+    # has actually been used (or a starter question clicked), it stays
+    # mounted for the rest of the session -- including across navigating
+    # away and back -- so this only affects the very first render.
+    dash_chat_enabled_key = "dash_chat_enabled"
+    if dash_chat_enabled_key not in st.session_state:
+        st.session_state[dash_chat_enabled_key] = bool(st.session_state[dash_convo_key])
+
     dash_pending_q = st.session_state.pop("dash_pending_q", None)
-    dash_user_q    = st.chat_input("Ask Claude about your portfolio...", key="dash_claude_input")
+    if dash_pending_q:
+        st.session_state[dash_chat_enabled_key] = True
+
+    if not st.session_state[dash_chat_enabled_key]:
+        if st.button("💬 Ask Claude about your portfolio", key="dash_enable_chat"):
+            st.session_state[dash_chat_enabled_key] = True
+            st.rerun()
+        dash_user_q = None
+    else:
+        dash_user_q = st.chat_input("Ask Claude about your portfolio...", key="dash_claude_input")
+
     dash_active_q  = dash_pending_q or dash_user_q
 
     if dash_active_q:
