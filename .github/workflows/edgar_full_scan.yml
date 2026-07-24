@@ -1,1 +1,70 @@
+name: EDGAR Full-Universe Cache Refresh
 
+# Keeps the Market Screener's persistent EDGAR facts cache
+# (edgar_facts_cache/shard_*.json) warm for the WHOLE ~6,000+ ticker
+# "All US Common Stocks" universe, running outside the Streamlit Cloud
+# app entirely.
+#
+# Why this job exists: the identical fetch logic (shared SEC rate
+# limiter, connection-pooled Session, 2 requests/ticker) measured
+# ~242 tickers/min as a bare script vs. ~75-130/min inside the
+# deployed app — same code, same network, just much slower wall-clock
+# when run inside the app's own process alongside its UI/websocket
+# work. Rather than fighting that, the expensive full-universe fetch
+# moved here. The in-app scan then mostly reads from this cache
+# instead of live-fetching ~6,000 tickers every time someone runs it.
+#
+# Incremental: edgar_full_scan_cloud.py loads the existing cache first
+# and only refetches entries older than the 7-day freshness window
+# (edgar_scan_core.EDGAR_FACTS_CACHE_MAX_AGE_DAYS), so a normal
+# scheduled run is much cheaper than a cold full scan. Weekly cadence
+# below keeps every entry inside that same 7-day window continuously.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_refresh:
+        description: 'Ignore the 7-day freshness window and refetch every ticker'
+        required: false
+        default: 'false'
+      sample:
+        description: 'Limit to first N tickers (testing only — leave blank for a real full run)'
+        required: false
+        default: ''
+  schedule:
+    # Sundays 06:00 UTC. Adjust as needed — a full cold run projects to
+    # ~25 minutes; a normal incremental run should be well under that.
+    - cron: '0 6 * * 0'
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install streamlit requests
+
+      - name: Run full-universe EDGAR scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
+            ARGS="$ARGS --force-refresh"
+          fi
+          if [ -n "${{ github.event.inputs.sample }}" ]; then
+            ARGS="$ARGS --sample ${{ github.event.inputs.sample }}"
+          fi
+          python edgar_full_scan_cloud.py $ARGS
+
+      - name: Done
+        run: echo "✅ EDGAR full-universe cache refresh complete"
