@@ -96,13 +96,39 @@ def fetch_price_and_market_cap_live(ticker):
     as-is for any caller that still wants a direct, uncached live call
     -- this is a separate, cache-aware path used by the background
     refresh script and by get_price_maybe_cached() below).
+
+    (2026-07-24, MSFT-never-cached bug) `.info` is yfinance's heavier
+    "quoteSummary" call, and it can come back with no `currentPrice`/
+    `regularMarketPrice` field at all for a given ticker/moment --
+    confirmed live for MSFT, which had NEVER been successfully cached
+    despite the full-universe scan completing cleanly (no exception,
+    just two attempts of `.info` genuinely lacking both price fields).
+    Because get_price_maybe_cached() deliberately never persists a
+    price=None result (so a transient miss can't poison the cache for
+    up to 18h -- see that function's comment), this failure mode was
+    also completely silent: no error, no cache entry, forever. Adding
+    a `fast_info` fallback here (the same, lighter-weight endpoint
+    already used successfully as the primary source in
+    edgar_scan_core.fetch_market_cap_and_sector()'s live path) recovers
+    a price for exactly this case; if fast_info ALSO comes up empty, an
+    explicit "error" is now attached instead of a silent clean miss, so
+    a persistent per-ticker failure is visible in logs going forward
+    rather than indistinguishable from "hasn't been scanned yet."
     """
     from sec_utils import safe_float, _normalize_dividend_yield
 
     def _one_attempt():
         import yfinance as yf
-        info = yf.Ticker(ticker).info
+        yf_ticker = yf.Ticker(ticker)
+        info  = yf_ticker.info
         price = info.get("currentPrice") or info.get("regularMarketPrice")
+        if price is None:
+            # .info didn't have it -- try the lighter fast_info endpoint
+            # before giving up (see docstring above).
+            try:
+                price = getattr(yf_ticker.fast_info, "last_price", None)
+            except Exception:
+                pass
         return info, price
 
     for attempt in range(2):
@@ -111,7 +137,7 @@ def fetch_price_and_market_cap_live(ticker):
             if price is None and attempt == 0:
                 time.sleep(1.5)
                 continue
-            return {
+            result = {
                 "price":          safe_float(price),
                 "market_cap":     safe_float(info.get("marketCap")),
                 "shares":         safe_float(info.get("sharesOutstanding")),
@@ -120,6 +146,9 @@ def fetch_price_and_market_cap_live(ticker):
                 "sector":         info.get("sector", "N/A"),
                 "description":    (info.get("longBusinessSummary", "")[:400] + "...") if info.get("longBusinessSummary") else "",
             }
+            if price is None:
+                result["error"] = "no price in .info or fast_info after retry -- Yahoo returned data but no price field"
+            return result
         except Exception as e:
             if attempt == 0:
                 time.sleep(1.5)
