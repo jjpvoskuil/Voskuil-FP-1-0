@@ -1372,26 +1372,18 @@ with fcol3:
              "(adds some time vs. deferring to Stage 2, but enables this filter).",
     )
 
-# Superinvestor coverage filter — reuses the same load button pattern
-# used elsewhere in the app, but offered here so it can act as a Stage 1
-# filter rather than only a post-scan display enhancement.
-_si_loaded_pre = "_si_full_map" in st.session_state
+# Superinvestor coverage filter — data now loads automatically (2026-07-24,
+# same change as Dashboard's holdings table) since get_conviction_data()
+# almost always hits the fast persistent GitHub-backed cache from punch
+# list #1's background job rather than needing a live 30-60s Dataroma
+# scrape; no reason left to gate this behind a manual button.
+if "_si_full_map" not in st.session_state:
+    st.session_state["_si_full_map"] = get_conviction_data()
 si_filt_col1, si_filt_col2 = st.columns([2, 4])
 with si_filt_col1:
-    if not _si_loaded_pre:
-        if st.button("🦁 Load Superinvestor Conviction", use_container_width=True,
-                     help="Fetches all 82 superinvestor portfolios from Dataroma (~30-60s, one-time per session). "
-                          "Required to use the SI coverage filter."):
-            st.session_state["_si_full_map"] = get_conviction_data()
-            st.rerun()
-        si_only_filter = False
-    else:
-        si_only_filter = st.checkbox("🦁 Only show companies with superinvestor coverage", value=False)
+    si_only_filter = st.checkbox("🦁 Only show companies with superinvestor coverage", value=False)
 with si_filt_col2:
-    if _si_loaded_pre:
-        st.caption("Superinvestor data loaded — filter available below, and results will show holder counts.")
-    else:
-        st.caption("Optional — load to filter Stage 1 results to only companies held by at least one of 82 tracked superinvestors.")
+    st.caption("Filters Stage 1 results to only companies held by at least one of 82 tracked superinvestors; results also show holder counts.")
 
 _approx_universe_size = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)": 7000}[universe_choice]
 _est_min = max(1, round(_approx_universe_size / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
@@ -1468,7 +1460,10 @@ def run_filters_and_stage2(stage1_pool: list, total_tickers: int):
             if market_cap_tier(d.get("market_cap")) in cap_filter
         ]
 
-    if _si_loaded_pre and si_only_filter:
+    if si_only_filter:
+        # (2026-07-24) No longer gated on a "was SI data loaded" check --
+        # it's always loaded now (see the auto-load above), so the
+        # checkbox alone is a sufficient condition.
         stage1_results = [
             d for d in stage1_results
             if get_superinvestor_conviction(d["ticker"]).get("holder_count", 0) > 0

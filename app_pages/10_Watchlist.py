@@ -81,17 +81,16 @@ st.caption(f"{len(items)} ticker(s) · DCF/Score/Action use the same pipeline as
 
 weights = st.session_state.get("committed_weights", DEFAULT_WEIGHTS.copy())
 
+# Superinvestor data loads automatically (2026-07-24, same change as
+# Dashboard's holdings table and Market Screener) -- get_conviction_data()
+# almost always hits the fast persistent GitHub-backed cache from punch
+# list #1's background job rather than needing a live 30-60s Dataroma
+# scrape, so there's no reason left to gate the SI column behind a
+# manual button.
+if not st.session_state.get("_si_full_map", {}).get("ticker_map"):
+    from superinvestor_utils import get_conviction_data
+    st.session_state["_si_full_map"] = get_conviction_data()
 si_loaded = bool(st.session_state.get("_si_full_map", {}).get("ticker_map"))
-if not si_loaded:
-    si_col1, si_col2 = st.columns([2, 5])
-    with si_col1:
-        if st.button("🦁 Load Superinvestor Conviction", use_container_width=True,
-                     help="Fetches all 82 superinvestor portfolios from Dataroma (~30-60s, one-time per session)"):
-            from superinvestor_utils import get_conviction_data
-            get_conviction_data()
-            st.rerun()
-    with si_col2:
-        st.caption("Optional — adds an SI column showing how many of 82 tracked value investors hold each ticker.")
 
 table_rows = []
 _foreign_currency_tickers = {}
