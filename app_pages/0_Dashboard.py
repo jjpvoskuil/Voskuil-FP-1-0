@@ -670,9 +670,6 @@ if df_holdings_raw is not None:
     display_df['Source'] = display_df['Symbol'].apply(
         lambda s: st.session_state.holding_sources.get(s, None)
     )
-    display_df['Accounts_Label'] = display_df['Account_Count'].apply(
-        lambda n: f"{n} acct{'s' if n > 1 else ''}"
-    )
 
     # ── Signal (Hold/Add/Trim verdict) — materialized as a real column
     # (not just computed at render time) so it can be sorted on (#71).
@@ -768,7 +765,6 @@ if df_holdings_raw is not None:
         "Name":   {"field": "Name",          "label": "Name",    "default_asc": True},
         "Type":   {"field": "Product_Type",  "label": "Type",    "default_asc": True},
         "Value":  {"field": "Total_Value",   "label": "Value",   "default_asc": False},
-        "Accts":  {"field": "Account_Count", "label": "Accts",   "default_asc": False},
         "Score":  {"field": "Score_Num",     "label": "Score",   "default_asc": False},
         "Signal": {"field": "Signal",        "label": "Signal",  "default_asc": True},
         "MoS":    {"field": "MoS",           "label": "MoS",     "default_asc": False},
@@ -799,18 +795,17 @@ if df_holdings_raw is not None:
                     st.session_state.holdings_sort_asc = cfg["default_asc"]
 
     # ── Column Headers ─────────────────────────────────────────────────
-    h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11 = st.columns([1.1, 2.1, 1.3, 1.2, 0.8, 1.0, 1.1, 2.0, 1.0, 1.5, 0.8])
+    h1, h2, h3, h4, h5, h6, h7, h8, h9, h10 = st.columns([1.1, 2.3, 1.3, 1.3, 1.0, 1.1, 2.0, 1.0, 1.5, 0.8])
     _sort_header(h1, "Symbol")
     _sort_header(h2, "Name")
     _sort_header(h3, "Type")
     _sort_header(h4, "Value")
-    _sort_header(h5, "Accts")
-    _sort_header(h6, "Score")
-    _sort_header(h7, "Signal")
-    _sort_header(h8, "MoS")
-    _sort_header(h9, "SI")
-    with h10: st.markdown("**Analysis**")
-    with h11: st.markdown("**Watch**")
+    _sort_header(h5, "Score")
+    _sort_header(h6, "Signal")
+    _sort_header(h7, "MoS")
+    _sort_header(h8, "SI")
+    with h9: st.markdown("**Analysis**")
+    with h10: st.markdown("**Watch**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     # ── Apply sort (after header buttons, so a click this run is reflected
@@ -822,7 +817,7 @@ if df_holdings_raw is not None:
 
     # ── Rows ───────────────────────────────────────────────────────────
     for _, row in display_df.iterrows():
-        c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11 = st.columns([1.1, 2.1, 1.3, 1.2, 0.8, 1.0, 1.1, 2.0, 1.0, 1.5, 0.8])
+        c1, c2, c3, c4, c5, c6, c7, c8, c9, c10 = st.columns([1.1, 2.3, 1.3, 1.3, 1.0, 1.1, 2.0, 1.0, 1.5, 0.8])
         with c1:
             st.markdown(f"**{row['Symbol']}**")
         with c2:
@@ -832,8 +827,6 @@ if df_holdings_raw is not None:
         with c4:
             st.markdown(f"${row['Total_Value']:,.0f}")
         with c5:
-            st.caption(row['Accounts_Label'])
-        with c6:
             badge = row['Badge']
             if badge != "—":
                 color = "#2ecc71" if badge.startswith("🟢") else "#f39c12" if badge.startswith("🟡") else "#e67e22" if badge.startswith("🟠") else "#e74c3c"
@@ -843,7 +836,7 @@ if df_holdings_raw is not None:
                     st.caption(f"🏦 {_row_data['financial_subtype'].title()} scoring")
             else:
                 st.caption("—")
-        with c7:
+        with c6:
             # Signal/Signal_Color/Signal_Icon were materialized on
             # display_df above (same hold_verdict() call) so sorting and
             # rendering always agree -- no need to recompute here.
@@ -854,7 +847,7 @@ if df_holdings_raw is not None:
                 )
             else:
                 st.caption("—")
-        with c8:
+        with c7:
             # MoS/Intrinsic materialized on display_df above -- current
             # price vs. DCF target price, right next to Score/Signal
             # (owner feedback -- previously only visible on Equity Scout).
@@ -915,7 +908,7 @@ if df_holdings_raw is not None:
                         st.caption(" → ".join(_price_bits))
                 else:
                     st.caption("—")
-        with c9:
+        with c8:
             si_data = st.session_state.get("_si_full_map", {})
             if si_data and si_data.get("ticker_map"):
                 si_result   = get_superinvestor_conviction(row['Symbol'])
@@ -932,11 +925,11 @@ if df_holdings_raw is not None:
                     st.caption("🦁 0")
             else:
                 st.caption("—")
-        with c10:
+        with c9:
             if st.button("🔍 Deep Dive", key=f"dive_{row['Symbol']}", use_container_width=True, type="primary"):
                 st.session_state["dive_ticker"] = row['Symbol']
                 st.switch_page("app_pages/7_Equity_Scout_EDGAR.py")
-        with c11:
+        with c10:
             # Add-only control (#68) -- removal only happens on the
             # Watchlist page itself, deliberately, so an accidental
             # uncheck here can't silently wipe a tracked position's
