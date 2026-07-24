@@ -737,17 +737,18 @@ if df_holdings_raw is not None:
 
     st.subheader(f"{n_symbols} Unique Holdings — Consolidated Across All Accounts")
 
-    # ── Superinvestor data load button (only if not already cached) ────
+    # ── Superinvestor data — loads automatically, no manual button ─────
+    # (2026-07-24) Used to be gated behind a "Load Superinvestor
+    # Conviction" button, back when the only source was a live 30-60s
+    # Dataroma scrape and blocking the page load on that unprompted felt
+    # too heavy. Since punch list #1's background job, get_conviction_data()
+    # almost always hits the persistent GitHub-backed cache first (fast,
+    # no scrape) and only falls back to a live scrape (with its own
+    # spinner) on a genuinely cold cache -- so there's no longer a good
+    # reason to make the owner ask for this column explicitly; it should
+    # just always be there, same as Score/Signal/MoS.
     if "_si_full_map" not in st.session_state:
-        si_load_col1, si_load_col2 = st.columns([2, 5])
-        with si_load_col1:
-            if st.button("🦁 Load Superinvestor Conviction", use_container_width=True,
-                         help="Fetches all 82 superinvestor portfolios from Dataroma (~30-60s, one-time per session)"):
-                st.session_state["_si_full_map"] = get_conviction_data()
-                st.rerun()
-        with si_load_col2:
-            st.caption("Optional — adds a Superinvestor Conviction column showing how many of 82 tracked value investors hold each position.")
-        st.markdown("")
+        st.session_state["_si_full_map"] = get_conviction_data()
 
     # SI_Count materialized the same way as Signal, only once superinvestor
     # data is loaded, so it can be sorted on like any other column.
