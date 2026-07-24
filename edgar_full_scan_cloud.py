@@ -141,16 +141,29 @@ def main():
         print(f"    ! {err}")
 
     def worker(ticker):
+        # (2026-07-24) Per-ticker wall-clock timing -- added after the
+        # first real GitHub Actions run measured 9.6 tickers/min, far
+        # below both the local bare-script baseline (~242/min) AND the
+        # in-app Streamlit Cloud baseline (~75-130/min) this job exists
+        # to beat. No 429s anywhere in that run's log, which rules out
+        # active SEC rate-limiting as the cause -- so the next question
+        # is whether the slowness is spread evenly across every ticker
+        # (points to runner network latency/throughput) or concentrated
+        # in a handful of outliers (points to a few large-payload
+        # filers or retry-triggering timeouts on specific tickers).
+        # fetch_time_s below answers that from the next run's summary.
+        t0 = time.time()
         cik = ticker_cik_map.get(ticker.upper())
         if not cik:
-            return ticker, "no_cik", None
+            return ticker, "no_cik", None, time.time() - t0
         facts = _get_facts_maybe_cached(ticker, cik, facts_cache, args.force_refresh)
         update = getattr(_facts_cache_tls, "update", None)
         status = "error" if facts.get("error") else ("fetched" if update else "cache_hit")
-        return ticker, status, update
+        return ticker, status, update, time.time() - t0
 
     facts_cache_updates = {}
     counts = {"no_cik": 0, "cache_hit": 0, "fetched": 0, "error": 0}
+    fetch_times = []  # (ticker, seconds) -- only for status == "fetched" (live EDGAR hits, not cache hits)
     done = 0
     start = time.time()
 
@@ -162,13 +175,15 @@ def main():
         for future in concurrent.futures.as_completed(futures):
             ticker = futures[future]
             try:
-                _t, status, update = future.result()
+                _t, status, update, fetch_time = future.result()
             except Exception as e:
-                status, update = "error", None
+                status, update, fetch_time = "error", None, None
                 print(f"  ! {ticker}: unexpected exception: {e}")
             counts[status] = counts.get(status, 0) + 1
             if update:
                 facts_cache_updates[update["ticker"]] = update["entry"]
+            if status == "fetched" and fetch_time is not None:
+                fetch_times.append((ticker, fetch_time))
 
             done += 1
             if done % 100 == 0 or done == len(tickers):
@@ -198,6 +213,15 @@ def main():
     print(f"  Cache hits (skipped, still fresh): {counts['cache_hit']}")
     print(f"  Freshly fetched:                   {counts['fetched']}")
     print(f"  No CIK match:                      {counts['no_cik']}")
+    if fetch_times:
+        secs = sorted(t for _tk, t in fetch_times)
+        n = len(secs)
+        p50 = secs[n // 2]
+        p90 = secs[int(n * 0.9)] if n > 1 else secs[0]
+        print(f"  Live fetch time/ticker (2 requests): min={secs[0]:.1f}s  p50={p50:.1f}s  "
+              f"p90={p90:.1f}s  max={secs[-1]:.1f}s")
+        slowest = sorted(fetch_times, key=lambda x: -x[1])[:10]
+        print(f"  10 slowest fetches: " + ", ".join(f"{tk}={t:.1f}s" for tk, t in slowest))
     print(f"  Errors:                            {counts['error']}")
     print(f"  Finished at:                        {datetime.now(timezone.utc).isoformat()}")
 
