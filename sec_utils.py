@@ -217,9 +217,20 @@ def fetch_fx_rate(currency: str, on_date: str):
     what makes a 2015 EUR figure and a 2024 EUR figure both land in
     roughly the right USD ballpark instead of all being skewed by
     whatever EUR/USD happens to be today.
+
+    (2026-07-24) Guards against a non-currency string reaching yfinance
+    -- _pick_unit_observations() is the only caller today and is now
+    fixed at its own source (see its docstring), but this is the actual
+    network boundary, so it gets its own defense too: a real ISO 4217
+    code is always exactly 3 uppercase letters, so anything else (e.g. a
+    stray "USD/shares" compound unit key) returns immediately instead of
+    building a malformed yfinance ticker like "USD/sharesUSD=X" and
+    paying for a network round trip that could only ever fail.
     """
     if currency == "USD":
         return 1.0, on_date
+    if not (len(currency) == 3 and currency.isalpha() and currency.isupper()):
+        return None, None
     try:
         import yfinance as yf
         target = datetime.fromisoformat(on_date).date()
@@ -258,6 +269,28 @@ def _pick_unit_observations(units: dict, field: str):
         return units["USD"], "USD"
     for key, obs in units.items():
         if key == "shares" or not obs:
+            continue
+        # (2026-07-24) SEC's companyfacts units dict isn't ALWAYS a plain
+        # currency key -- concepts like per-share figures get tagged with
+        # a compound/ratio unit such as "USD/shares", not a currency, and
+        # this fallback used to treat that string as if it WERE a
+        # currency code whenever a domestic filer's field had no plain
+        # "USD" unit available. That fed straight into fetch_fx_rate(),
+        # which built the yfinance ticker "USD/sharesUSD=X" -- not a
+        # real FX pair, so it always failed, but not before costing a
+        # real (slow, sometimes-hanging) network round trip. Confirmed
+        # live via Streamlit Cloud's app logs during a full ~6,159-
+        # ticker scan: this exact malformed ticker string, repeated
+        # across many different worker threads over 10+ minutes -- i.e.
+        # this was firing for a meaningful share of ordinary US
+        # companies, not just genuine foreign filers (ASML/ARGX/etc.,
+        # #11), which is who this fallback is actually meant for. A real
+        # ISO 4217 currency code is always exactly 3 uppercase letters
+        # with no separators -- "EUR"/"GBP"/"JPY" pass, "USD/shares"/
+        # "pure"/anything else doesn't, so this now only ever hands a
+        # plausible currency to the FX path, leaving the #11 behavior
+        # for actual foreign filers completely unchanged.
+        if not (len(key) == 3 and key.isalpha() and key.isupper()):
             continue
         return obs, key
     return [], None
