@@ -17,8 +17,11 @@ name: EDGAR Full-Universe Cache Refresh
 # Incremental: edgar_full_scan_cloud.py loads the existing cache first
 # and only refetches entries older than the 7-day freshness window
 # (edgar_scan_core.EDGAR_FACTS_CACHE_MAX_AGE_DAYS), so a normal
-# scheduled run is much cheaper than a cold full scan. Weekly cadence
-# below keeps every entry inside that same 7-day window continuously.
+# scheduled run is much cheaper than a cold full scan. Daily cadence
+# below keeps every entry well inside that same 7-day window, and once
+# the cache is fully warm (no longer racing a second concurrent writer
+# -- see the shard-write-race fix in edgar_scan_core.py/github_store.py)
+# a normal day's run should mostly be cache hits, not a full re-fetch.
 
 on:
   workflow_dispatch:
@@ -32,9 +35,10 @@ on:
         required: false
         default: ''
   schedule:
-    # Sundays 06:00 UTC. Adjust as needed — a full cold run projects to
-    # ~25 minutes; a normal incremental run should be well under that.
-    - cron: '0 6 * * 0'
+    # Daily 06:00 UTC (changed from weekly 2026-07-24, once the cache
+    # was confirmed to hold a genuinely full, uncorrupted pass — see
+    # SESSION_NOTES.md). Adjust as needed.
+    - cron: '0 6 * * *'
 
 jobs:
   refresh:
