@@ -913,8 +913,25 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
 
     facts_cache_updates = {}  # collected on the consumer side below (single-threaded, no lock needed)
 
+    # (2026-07-24) Stage 1 concurrency: 8 -> 20 worker threads. The
+    # shared SEC rate limiter (_rate_lock / _MIN_REQUEST_INTERVAL in
+    # sec_utils.py) already caps the actual request DISPATCH rate at
+    # ~8.3 req/sec system-wide regardless of worker count -- that's the
+    # real safety mechanism, not the thread count -- so more workers
+    # can't push past SEC's fair-access guidance, they just let more
+    # already-dispatched requests be in flight (sent, awaiting a
+    # response) at once. Live-measured after today's two bug fixes
+    # (malformed FX ticker lookups, over-broad companyconcept fallback):
+    # zero transient errors across 500+ tickers at 8 workers, averaging
+    # ~2-3s per request -- meaning throughput was bounded by "only 8
+    # requests can be outstanding at a time" long before it was bounded
+    # by the rate limiter's own ceiling (8 workers / ~2.5s per response
+    # ~= 3.2 req/sec actual vs. the limiter's ~8.3 req/sec allowance).
+    # 20 workers gets closer to actually using that already-safe
+    # budget. If this starts producing 429s/errors where there were
+    # none before, that's the signal to dial back, not push further.
     try:
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
         futures = {executor.submit(_worker, t): t for t in tickers_to_scan}
         try:
             for future in concurrent.futures.as_completed(futures):
