@@ -55,13 +55,29 @@ from sec_utils import (
     evaluate_financial_firm_funnel, score_financial_firm_breakdown,
 )
 
-EDGAR_FACTS_CACHE_NUM_SHARDS   = 40
+# (2026-07-24, punch list #76 follow-up) Raised 40 -> 500. Each cached
+# entry stores full multi-year history per financial concept -- rich
+# enough that measured shards were already averaging ~29KB/ticker with
+# only 25-46 tickers each (some shards already 1.2-1.66MB). GitHub's
+# Contents API silently omits the file body (no usable "content" field)
+# for anything over ~1MB, which made those already-oversized shards
+# unreadable -- and a failed read used to get silently treated as "this
+# shard is empty" and overwritten with just the current checkpoint's
+# batch (see save_facts_cache_updates()'s docstring for the full
+# mechanism), which is what kept the whole cache stuck around ~1,000
+# tickers instead of growing toward the ~6,157-ticker universe. At 500
+# shards, the full universe averages ~12 tickers/shard (~350KB) --
+# comfortable headroom under the 1MB ceiling even for a shard well
+# above average, and still room to grow before this needs revisiting.
+# Old shard_00.json..shard_39.json content was migrated into the new
+# scheme (see migrate_edgar_shards.py, run once) rather than re-fetched.
+EDGAR_FACTS_CACHE_NUM_SHARDS   = 500
 EDGAR_FACTS_CACHE_MAX_AGE_DAYS = 7
 
 
 def _facts_cache_shard_path(ticker: str) -> str:
     shard = zlib.crc32(ticker.upper().encode()) % EDGAR_FACTS_CACHE_NUM_SHARDS
-    return f"edgar_facts_cache/shard_{shard:02d}.json"
+    return f"edgar_facts_cache/shard_{shard:03d}.json"
 
 
 def load_facts_cache_shards(tickers: list, get_json_fn) -> tuple:
@@ -154,6 +170,29 @@ def save_facts_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
     indication of the actual cause. Backward compatible with anything
     that only calls len() on the result (the app's own display code
     does exactly that).
+
+    (2026-07-24, punch list #76 follow-up) CRITICAL: never merges
+    shard_updates into an empty dict and writes it just because a read
+    attempt failed. The previous version treated any get_json_fn()
+    failure the same as "existing is empty" (`merged = dict(existing)
+    if existing else {}`), then still called put_json_fn(path, merged,
+    sha=None) -- and put_json_fn's own "sha wasn't supplied, fetch a
+    fresh one" fallback would find a perfectly valid CURRENT sha (the
+    read failure was transient/content-shape related, not "file doesn't
+    exist"), so the write would succeed and silently REPLACE the
+    shard's real existing content with just this checkpoint's small
+    batch. Confirmed as the actual mechanism behind a near-total EDGAR
+    facts cache wipe: shard files rich enough to cross GitHub's ~1MB
+    Contents-API inline-content limit stopped returning readable
+    content, every read of them "failed" in exactly this way, and every
+    subsequent checkpoint quietly reset them back down -- with ZERO
+    entries in failed_shards, because the write itself never errored.
+    Now a failed read is retried (same backoff as before) but NEVER
+    treated as "safe to merge from" -- only a clean read (real data, or
+    a genuine 404-doesn't-exist-yet, which get_json_fn distinguishes by
+    returning error=None either way) reaches the merge+write step. If
+    all 3 read attempts fail, the shard is marked failed and left
+    completely untouched, same as a write failure always was.
     """
     if not updates:
         return []
@@ -176,9 +215,17 @@ def save_facts_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
             if attempt > 0:
                 time.sleep(2 ** attempt)  # 2s, then 4s
             try:
-                existing, sha, _err = get_json_fn(path)
+                existing, sha, err = get_json_fn(path)
             except Exception as e:
-                existing, sha, last_msg = None, None, str(e)
+                existing, sha, err = None, None, str(e)
+            if err:
+                # A REAL read failure -- NOT the clean "file doesn't
+                # exist yet" case (that comes back as (None, None,
+                # None), err falsy). Do not proceed to merge/write on
+                # this attempt; retry the read instead. See the
+                # docstring above for why this specific branch is the
+                # one that used to cause silent data loss.
+                last_msg = err
                 continue
             merged = dict(existing) if existing else {}
             merged.update(shard_updates)
@@ -188,6 +235,8 @@ def save_facts_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
                 # "current" sha -- is what makes this retry loop actually
                 # detect a concurrent writer instead of overwriting it.
                 # See gh_put_json()'s comment in edgar_full_scan_cloud.py.
+                # Safe now even on a genuine sha=None (brand-new shard,
+                # confirmed via a CLEAN read above, not a failed one).
                 ok, last_msg = put_json_fn(
                     path, merged, sha=sha,
                     commit_message=f"EDGAR facts cache update — {path} — {len(shard_updates)} ticker(s)",

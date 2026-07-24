@@ -215,7 +215,24 @@ def save_yahoo_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
     silently overwritten by this process's older, already-stale merge,
     with no error raised anywhere. This exact clobbering pattern is
     what left several EDGAR facts cache shards missing most of their
-    entries after two full-universe runs overlapped earlier today."""
+    entries after two full-universe runs overlapped earlier today.
+
+    (2026-07-24, punch list #76 follow-up) Also closes a related, worse
+    hole: a FAILED read used to be treated the same as "shard is empty"
+    (`merged = dict(existing) if existing else {}` unconditionally),
+    then still written -- and put_json_fn's own sha=None fallback would
+    happily fetch a fresh, valid sha for the write (the failure wasn't
+    "file doesn't exist," so a normal sha existed), letting the write
+    succeed while silently replacing the shard's real content with just
+    this checkpoint's batch. This is the mechanism confirmed to have
+    wiped most of the EDGAR facts cache once shard files grew past
+    GitHub's ~1MB Contents-API inline-content limit; Yahoo's much
+    lighter per-ticker payloads haven't hit that ceiling in practice,
+    but the same defensive fix belongs here too rather than leaving a
+    latent copy of the bug for whenever they do. Now a failed read is
+    retried, never merged from -- only a clean read (real data, or a
+    genuine 404-doesn't-exist-yet) reaches the merge+write step.
+    """
     if not updates:
         return []
     by_shard = {}
@@ -233,9 +250,11 @@ def save_yahoo_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
             if attempt > 0:
                 time.sleep(2 ** attempt)
             try:
-                existing, sha, _err = get_json_fn(path)
+                existing, sha, err = get_json_fn(path)
             except Exception as e:
-                existing, sha, last_msg = None, None, str(e)
+                existing, sha, err = None, None, str(e)
+            if err:
+                last_msg = err
                 continue
             merged = dict(existing) if existing else {}
             merged.update(shard_updates)
