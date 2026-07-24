@@ -26,6 +26,7 @@ YAHOO_CACHE_MAX_AGE_HOURS.
 import time
 import threading
 import zlib
+import concurrent.futures
 from datetime import datetime, timezone
 
 YAHOO_CACHE_NUM_SHARDS     = 40
@@ -64,17 +65,35 @@ def _yahoo_cache_shard_path(ticker: str) -> str:
     return f"yahoo_price_cache/shard_{shard:02d}.json"
 
 
+# See edgar_scan_core.load_facts_cache_shards()'s comment for why
+# loading cache shards is parallelized (pure independent reads, not
+# subject to the yfinance pacing this module otherwise cares about --
+# this hits GitHub's API, not Yahoo's).
+_CACHE_LOAD_WORKERS = 24
+
+
 def load_yahoo_cache_shards(tickers: list, get_json_fn) -> tuple:
-    """Same contract as edgar_scan_core.load_facts_cache_shards()."""
+    """Same contract as edgar_scan_core.load_facts_cache_shards() --
+    (2026-07-24) also parallelized the same way; see that function's
+    docstring for the full reasoning. Yahoo only has 40 shards (vs.
+    EDGAR's 500), so this was less of a bottleneck on its own, but
+    costs nothing to fix alongside the EDGAR one since a full scan
+    loads both."""
     shard_paths = sorted({_yahoo_cache_shard_path(t) for t in tickers})
     cache = {}
     errors = []
-    for path in shard_paths:
-        data, _sha, err = get_json_fn(path)
-        if err:
-            errors.append(f"{path}: {err}")
-        if data:
-            cache.update(data)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_CACHE_LOAD_WORKERS) as executor:
+        futures = {executor.submit(get_json_fn, path): path for path in shard_paths}
+        for future in concurrent.futures.as_completed(futures):
+            path = futures[future]
+            try:
+                data, _sha, err = future.result()
+            except Exception as e:
+                data, _sha, err = None, None, str(e)
+            if err:
+                errors.append(f"{path}: {err}")
+            if data:
+                cache.update(data)
     return cache, errors
 
 

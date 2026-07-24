@@ -45,6 +45,7 @@ source is available to it:
 import zlib
 import time
 import threading
+import concurrent.futures
 from datetime import datetime, timezone
 import requests
 import streamlit as st
@@ -80,6 +81,17 @@ def _facts_cache_shard_path(ticker: str) -> str:
     return f"edgar_facts_cache/shard_{shard:03d}.json"
 
 
+# Loading cache shards is pure read fan-out (independent GET requests,
+# no shared mutable state, no writes) -- safe to run at higher
+# concurrency than the scan itself (which is bottlenecked by SEC's own
+# ~8.3 req/sec rate limit, not by GitHub's API). GitHub's REST API
+# allows 5,000 authenticated requests/hour; even the full 500-shard
+# EDGAR cache read (see load_facts_cache_shards() below) uses a small
+# fraction of that per scan, so this is bounded by GitHub's per-request
+# latency, not by any rate limit worth pacing against.
+_CACHE_LOAD_WORKERS = 24
+
+
 def load_facts_cache_shards(tickers: list, get_json_fn) -> tuple:
     """
     Loads every shard file touched by this ticker list, once, up front.
@@ -90,16 +102,34 @@ def load_facts_cache_shards(tickers: list, get_json_fn) -> tuple:
                 came back with a real error (a clean 404 just means
                 that shard hasn't been written yet — cold, not a
                 problem).
+
+    (2026-07-24, "why does the 2-stage scan take so long just to load
+    the cache" report) Was a plain sequential loop, one shard at a
+    time -- fine back when EDGAR_FACTS_CACHE_NUM_SHARDS was 40, but
+    after the 500-shard increase (needed to stay under GitHub's 1MB
+    Contents API limit -- see that constant's comment), a full-universe
+    scan touches up to 500 shard files, each its own GitHub API round
+    trip, entirely serial. Parallelized with a thread pool (same
+    pattern as the scan's own worker pool, just for reads instead of
+    fetches) -- cuts a ~500-shard load from ~500 sequential round trips
+    to ~500/_CACHE_LOAD_WORKERS batches, no change to what gets loaded
+    or how errors are reported, just how fast it happens.
     """
     shard_paths = sorted({_facts_cache_shard_path(t) for t in tickers})
     cache = {}
     errors = []
-    for path in shard_paths:
-        data, _sha, err = get_json_fn(path)
-        if err:
-            errors.append(f"{path}: {err}")
-        if data:
-            cache.update(data)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_CACHE_LOAD_WORKERS) as executor:
+        futures = {executor.submit(get_json_fn, path): path for path in shard_paths}
+        for future in concurrent.futures.as_completed(futures):
+            path = futures[future]
+            try:
+                data, _sha, err = future.result()
+            except Exception as e:
+                data, _sha, err = None, None, str(e)
+            if err:
+                errors.append(f"{path}: {err}")
+            if data:
+                cache.update(data)
     return cache, errors
 
 
