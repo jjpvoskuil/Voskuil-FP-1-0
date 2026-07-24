@@ -176,15 +176,20 @@ def save_facts_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
             if attempt > 0:
                 time.sleep(2 ** attempt)  # 2s, then 4s
             try:
-                existing, _sha, _err = get_json_fn(path)
+                existing, sha, _err = get_json_fn(path)
             except Exception as e:
-                existing, last_msg = None, str(e)
+                existing, sha, last_msg = None, None, str(e)
                 continue
             merged = dict(existing) if existing else {}
             merged.update(shard_updates)
             try:
+                # (2026-07-24) Passing sha through from the read above --
+                # NOT letting put_json_fn silently re-fetch its own
+                # "current" sha -- is what makes this retry loop actually
+                # detect a concurrent writer instead of overwriting it.
+                # See gh_put_json()'s comment in edgar_full_scan_cloud.py.
                 ok, last_msg = put_json_fn(
-                    path, merged,
+                    path, merged, sha=sha,
                     commit_message=f"EDGAR facts cache update — {path} — {len(shard_updates)} ticker(s)",
                 )
             except Exception as e:

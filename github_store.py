@@ -103,11 +103,16 @@ def github_put_text(path: str, text: str, commit_message: str, size_warn_mb: flo
         return True, "Synced"
     except Exception as e:
         return False, f"PUSH exception: {e}"
-def github_put_json(path: str, data, commit_message: str, size_warn_mb: float = 20.0):
+def github_put_json(path: str, data, commit_message: str, size_warn_mb: float = 20.0, sha: str = None):
     """
     Write a JSON-serializable object to the repo, creating or updating the
-    file as needed. Fetches the current SHA first so updates don't clobber
-    a version pushed since we last read (same pattern as the punch list).
+    file as needed. Uses `sha` if the caller supplies it (the sha from
+    whatever github_get_json() read `data` was merged from) so a
+    concurrent writer's just-saved changes are detected as a conflict
+    (409) instead of silently overwritten -- re-fetching a "current" sha
+    right before every write, like this used to do unconditionally,
+    defeats that check. Falls back to a fresh GET for backward
+    compatibility with callers that don't pass one.
 
     Returns (success: bool, message: str).
     """
@@ -126,10 +131,11 @@ def github_put_json(path: str, data, commit_message: str, size_warn_mb: float = 
         api   = f"https://api.github.com/repos/{repo}/contents/{path}"
         heads = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
 
-        r = requests.get(api, headers=heads, timeout=20)
-        if r.status_code not in (200, 404):
-            return False, f"GitHub GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
-        sha = r.json().get("sha") if r.status_code == 200 else None
+        if sha is None:
+            r = requests.get(api, headers=heads, timeout=20)
+            if r.status_code not in (200, 404):
+                return False, f"GitHub GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+            sha = r.json().get("sha") if r.status_code == 200 else None
 
         payload = {
             "message": commit_message,

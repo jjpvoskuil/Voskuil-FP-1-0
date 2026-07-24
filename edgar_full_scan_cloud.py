@@ -94,14 +94,25 @@ def gh_get_json(path: str):
         return None, None, f"GET exception: {e}"
 
 
-def gh_put_json(path: str, data, commit_message: str):
+def gh_put_json(path: str, data, commit_message: str, sha: str = None):
+    # (2026-07-24) `sha` should be the sha returned by the get_json_fn()
+    # read that `data` was merged from -- NOT re-fetched fresh here. See
+    # the matching fix/comment in yahoo_full_scan_cloud.py's gh_put_json
+    # for the full explanation: re-fetching a "current" sha right before
+    # every write defeats GitHub's optimistic-concurrency check, letting
+    # a concurrent writer's just-saved entries get silently overwritten
+    # by this process's older, already-stale merge. This is the actual
+    # root cause of today's near-total EDGAR facts cache wipe when the
+    # GitHub Actions run and local bootstrap run overlapped. Falls back
+    # to a fresh GET if no sha is supplied, for backward compatibility.
     if not GITHUB_TOKEN:
         return False, "GITHUB_TOKEN not set"
     try:
         content_str = json.dumps(data)
         api = f"{API_ROOT}/{path}"
-        r = requests.get(api, headers=HEADERS, timeout=20)
-        sha = r.json().get("sha") if r.status_code == 200 else None
+        if sha is None:
+            r = requests.get(api, headers=HEADERS, timeout=20)
+            sha = r.json().get("sha") if r.status_code == 200 else None
         payload = {"message": commit_message, "content": base64.b64encode(content_str.encode()).decode()}
         if sha:
             payload["sha"] = sha
@@ -190,7 +201,17 @@ def main():
         t0 = time.time()
         cik = ticker_cik_map.get(ticker.upper())
         if not cik:
-            return ticker, "no_cik", None, time.time() - t0
+            # (2026-07-24) Must match the 5-tuple every other return path
+            # uses (ticker, status, update, fetch_time, error_reason) --
+            # this one was left at 4 when the error_reason field was
+            # added, which threw "not enough values to unpack" on every
+            # no-CIK ticker at the call site. That exception then got
+            # caught by the generic `except Exception` handler and
+            # miscounted as a real error instead of no_cik -- inflating
+            # the error count and zeroing out no_cik in the next run's
+            # summary. Confirmed via the grouped error-reason output
+            # itself: "19x not enough values to unpack (expected 5, got 4)".
+            return ticker, "no_cik", None, time.time() - t0, None
         # In-flight concurrency tracking -- added alongside the timing
         # instrumentation to check a second hypothesis: the elevated
         # baseline latency (min=2.6s, p50=4.5s vs. ~2s locally) plus a
