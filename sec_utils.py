@@ -435,12 +435,22 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     facts       = data.get("facts", {})
     us_gaap     = facts.get("us-gaap", {})
 
-    # Get SIC from submissions API (lightweight call, cached by EDGAR)
+    # Get SIC from submissions API (lightweight call, cached by EDGAR).
+    # Also check recent filing form types here -- "20-F"/"20-F/A" marks a
+    # genuine foreign private issuer, which the companyconcept fallback
+    # below (#11 continued) needs to know BEFORE deciding whether to use
+    # it, not just "did the bulk pass come back sparse" (see that
+    # fallback's own comment for why the distinction matters). Reusing
+    # this same submissions call rather than a second request.
     sic = None
+    is_20f_filer = False
     try:
         sub_resp = _sec_get(f"{EDGAR_BASE}/submissions/CIK{cik}.json", timeout=10)
         if sub_resp.status_code == 200:
-            sic = str(sub_resp.json().get("sic", ""))
+            sub_data = sub_resp.json()
+            sic = str(sub_data.get("sic", ""))
+            recent_forms = sub_data.get("filings", {}).get("recent", {}).get("form", [])
+            is_20f_filer = any(f in ("20-F", "20-F/A") for f in recent_forms)
     except Exception:
         pass
 
@@ -504,14 +514,35 @@ def _fetch_company_facts_for_cik(ticker: str, cik: str) -> dict:
     # core financial-statement concepts for at least one foreign filer
     # with a very long 20-F history (ASML) even though the exact same
     # concepts return full data via the lighter companyconcept endpoint
-    # (verified directly against live EDGAR). Scoped tightly -- only
-    # fires when the bulk pass found almost nothing at all for this
-    # company -- so it doesn't add dozens of extra per-concept requests
-    # to the common case, where bulk Company Facts works fine and a
-    # genuinely small "missing" list just reflects fields this filer
-    # doesn't report (e.g. an industrial company with no insurance
-    # concepts).
-    if len(latest) <= 2:
+    # (verified directly against live EDGAR).
+    #
+    # (2026-07-24) THE root cause of the full-universe scan slowing from
+    # ~10 minutes to ~160 minutes with caching controlled for entirely
+    # (owner explicitly tested "force fresh EDGAR fetch" both before and
+    # after, ruling out cache warmth as the explanation). This fallback
+    # shipped earlier today (cffcabe6) gated only on "len(latest) <= 2"
+    # -- meaning ANY ticker whose bulk pass came back sparse, not just a
+    # genuine 20-F foreign filer, triggered it. That's a much bigger
+    # population than ASML-style filers: funds, SPACs, shells, very new
+    # IPOs, and any other filer that genuinely doesn't report most
+    # CONCEPT_MAP fields all hit this same condition. Each occurrence
+    # loops every one of the 36 CONCEPT_MAP fields not yet found and
+    # fires a SEPARATE companyconcept request per candidate concept
+    # (36 fields x ~2.3 candidates each = up to ~80 individual requests,
+    # all serialized through the shared SEC rate limiter) -- for a
+    # company that usually doesn't have that data via companyconcept
+    # either, since it's not a bulk-vs-companyconcept API quirk for
+    # these, it's just a company that doesn't report much. The S&P 500
+    # (uniformly well-tagged large caps) almost never has len(latest)
+    # <= 2, so this cost was invisible there; the full ~6,000+ universe
+    # is full of exactly the sparse-filer types that trigger it
+    # constantly. Scoped now to ONLY the population this was actually
+    # built for -- genuine 20-F foreign private issuers (is_20f_filer,
+    # captured above from the same submissions call already being made
+    # for SIC, no extra request) -- so ASML/ARGX-style filers still get
+    # the fallback exactly as before, and every shell/SPAC/thin filer
+    # that was never going to benefit from it stops paying for it.
+    if len(latest) <= 2 and is_20f_filer:
         for field, concepts in CONCEPT_MAP.items():
             if field in latest:
                 continue
