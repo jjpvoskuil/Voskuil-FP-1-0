@@ -1,1 +1,71 @@
+name: Yahoo Finance Price Cache Refresh
 
+# Keeps the app's persistent Yahoo Finance price/market-cap/sector
+# cache (yahoo_price_cache/shard_*.json) warm for the WHOLE ~6,000+
+# ticker "All US Common Stocks" universe, running outside the
+# Streamlit Cloud app entirely -- same idea as
+# edgar_full_scan.yml/edgar_full_scan_cloud.py, applied to price data.
+#
+# Twice a day, not weekly: price/market cap moves far faster than
+# EDGAR fundamentals, and yahoo_scan_core.YAHOO_CACHE_MAX_AGE_HOURS
+# (18h) is sized to match. Times below are roughly pre-market and
+# post-close (12:00 and 22:00 UTC = ~8am and ~6pm US Eastern during
+# daylight time) -- adjust if you want different timing.
+#
+# IMPORTANT: yfinance is not an official, rate-documented API the way
+# SEC EDGAR is -- it scrapes Yahoo's own endpoints and its limits are
+# undocumented and stricter in practice. yahoo_full_scan_cloud.py
+# paces requests more conservatively than the EDGAR job on purpose
+# (~2/sec vs ~8.3/sec, 8 workers vs 20) specifically because a block
+# here would affect live price display across the WHOLE app, not just
+# slow this job down. Watch the first few real runs before assuming
+# this cadence/pacing is safe long-term.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_refresh:
+        description: 'Ignore the freshness window and refetch every ticker'
+        required: false
+        default: 'false'
+      sample:
+        description: 'Limit to first N tickers (testing only — leave blank for a real full run)'
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 12,22 * * *'
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install streamlit requests yfinance
+
+      - name: Run full-universe Yahoo Finance price scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
+            ARGS="$ARGS --force-refresh"
+          fi
+          if [ -n "${{ github.event.inputs.sample }}" ]; then
+            ARGS="$ARGS --sample ${{ github.event.inputs.sample }}"
+          fi
+          python yahoo_full_scan_cloud.py $ARGS
+
+      - name: Done
+        run: echo "✅ Yahoo Finance price cache refresh complete"
