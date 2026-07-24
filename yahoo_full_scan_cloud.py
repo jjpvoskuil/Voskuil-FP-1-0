@@ -78,14 +78,34 @@ def gh_get_json(path: str):
         return None, None, f"GET exception: {e}"
 
 
-def gh_put_json(path: str, data, commit_message: str):
+def gh_put_json(path: str, data, commit_message: str, sha: str = None):
+    # (2026-07-24) `sha` should be the sha returned by the get_json_fn()
+    # read that `data` was merged from -- NOT re-fetched fresh here.
+    # Re-fetching a "current" sha right before every write defeats
+    # GitHub's optimistic-concurrency check: if another process (e.g. a
+    # concurrent local bootstrap run writing the same shard) saved a
+    # newer version of this file in between our read and our write, a
+    # freshly-fetched sha would match that newer version and let this
+    # PUT succeed anyway -- silently overwriting the other process's
+    # just-saved entries with our older, already-stale merge. Passing
+    # through the original sha instead means a conflicting concurrent
+    # write correctly causes this PUT to fail (409/422 -> caller's
+    # retry loop re-reads, re-merges, and retries) instead of silently
+    # clobbering data. Root-caused after two parallel full-universe
+    # runs (GitHub Actions + local bootstrap) left several EDGAR facts
+    # cache shards missing most of their entries despite both runs
+    # reporting near-complete fetch counts -- same clobbering pattern
+    # applies here since this script mirrors edgar_full_scan_cloud.py.
+    # Falls back to a fresh GET if no sha is supplied, for backward
+    # compatibility with any other caller.
     if not GITHUB_TOKEN:
         return False, "GITHUB_TOKEN not set"
     try:
         content_str = json.dumps(data)
         api = f"{API_ROOT}/{path}"
-        r = requests.get(api, headers=HEADERS, timeout=20)
-        sha = r.json().get("sha") if r.status_code == 200 else None
+        if sha is None:
+            r = requests.get(api, headers=HEADERS, timeout=20)
+            sha = r.json().get("sha") if r.status_code == 200 else None
         payload = {"message": commit_message, "content": base64.b64encode(content_str.encode()).decode()}
         if sha:
             payload["sha"] = sha

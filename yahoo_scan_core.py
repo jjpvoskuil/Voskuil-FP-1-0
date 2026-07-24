@@ -167,7 +167,17 @@ def save_yahoo_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
     edgar_scan_core.save_facts_cache_updates() -- see that function for
     the detailed reasoning (GitHub Contents API pacing, SHA-conflict
     retries, returning (path, reason) tuples for real failure
-    visibility)."""
+    visibility).
+
+    (2026-07-24) Passes the sha from the get_json_fn() read through to
+    put_json_fn() -- see gh_put_json()'s docstring/comment in
+    yahoo_full_scan_cloud.py for why. Without this, a concurrent writer
+    to the same shard (e.g. a local bootstrap run overlapping with a
+    scheduled GitHub Actions run) can have its just-saved entries
+    silently overwritten by this process's older, already-stale merge,
+    with no error raised anywhere. This exact clobbering pattern is
+    what left several EDGAR facts cache shards missing most of their
+    entries after two full-universe runs overlapped earlier today."""
     if not updates:
         return []
     by_shard = {}
@@ -185,15 +195,15 @@ def save_yahoo_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
             if attempt > 0:
                 time.sleep(2 ** attempt)
             try:
-                existing, _sha, _err = get_json_fn(path)
+                existing, sha, _err = get_json_fn(path)
             except Exception as e:
-                existing, last_msg = None, str(e)
+                existing, sha, last_msg = None, None, str(e)
                 continue
             merged = dict(existing) if existing else {}
             merged.update(shard_updates)
             try:
                 ok, last_msg = put_json_fn(
-                    path, merged,
+                    path, merged, sha=sha,
                     commit_message=f"Yahoo price cache update — {path} — {len(shard_updates)} ticker(s)",
                 )
             except Exception as e:
