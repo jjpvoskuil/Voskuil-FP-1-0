@@ -3,9 +3,9 @@ import requests
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar, compute_dcf_value, DCF_DEFAULTS, compute_residual_income_value, RESIDUAL_INCOME_DEFAULTS, score_financial_firm_display, investment_verdict
+from sec_utils import fetch_10k_sections, fetch_company_facts, safe_float, fmt_val, fetch_price_and_market_cap, fetch_fundamentals_edgar_cached, compute_dcf_value, DCF_DEFAULTS, compute_residual_income_value, RESIDUAL_INCOME_DEFAULTS, score_financial_firm_display, investment_verdict
 from claude_utils import ask_claude_about_equity
-from ui_utils import scroll_to_element
+from ui_utils import scroll_to_element, render_sidebar_refresh_controls
 from superinvestor_utils import get_superinvestor_conviction, clear_superinvestor_cache
 from watchlist_utils import add_to_watchlist, is_watchlisted
 
@@ -102,6 +102,7 @@ def fetch_fundamentals_polygon(ticker):
         return {"error": str(e)}
 
 st.set_page_config(page_title="Equity Scout — EDGAR", layout="wide")
+render_sidebar_refresh_controls()
 
 APP_URL = "https://voskuil-fp-1-0-k85bd7afbw8dnqeftzxwbu.streamlit.app"
 
@@ -429,13 +430,25 @@ if analyze and ticker_input:
     if total_weight != 100:
         st.warning(f"Weights add up to {total_weight}, not 100. Adjust sliders for accurate scores.")
 
-    with st.spinner(f"🏛️ Fetching **{ticker_input}** from SEC EDGAR..."):
-        data = fetch_fundamentals_edgar(ticker_input)
+    with st.spinner(f"🏛️ Loading **{ticker_input}** from the EDGAR cache..."):
+        data = fetch_fundamentals_edgar_cached(ticker_input)
 
-    # EDGAR errors are blocking — can't show the page without it
+    # (punch list #76) Cache errors are blocking, same as a live EDGAR
+    # error used to be -- can't show the page without fundamentals. A
+    # cache_miss gets a pointer to the sidebar refresh control instead of
+    # a raw EDGAR error string, since there's nothing EDGAR-specific to
+    # show the user in that case.
     if data.get("error"):
-        st.error(f"EDGAR fetch failed for {ticker_input}: {data['error']}")
+        if data.get("cache_miss"):
+            st.error(f"{data['error']}")
+        else:
+            st.error(f"EDGAR fetch failed for {ticker_input}: {data['error']}")
         st.stop()
+    if data.get("cache_stale"):
+        st.caption(
+            f"ℹ️ Cached EDGAR data as of {data.get('cache_fetched_at', 'unknown')} "
+            "— use 'Refresh EDGAR data' in the sidebar for the latest filing."
+        )
 
     # Financial/cyclical firm warnings
     financial_subtype = data.get("financial_subtype")

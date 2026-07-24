@@ -201,6 +201,51 @@ def save_facts_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
     return failed_shards
 
 
+def get_cached_facts_readonly(ticker: str, get_json_fn) -> dict:
+    """
+    Cache-only, no-live-fallback single-ticker read of the persistent
+    EDGAR facts cache (punch list #76). Reads just the one shard file
+    this ticker hashes to, not the whole cache. Unlike
+    _get_facts_maybe_cached() above (used by the bulk Market Screener
+    scan), this NEVER calls EDGAR live -- a miss or a stale entry both
+    come back as-is, with the caller responsible for deciding what to
+    show (e.g. "click Refresh EDGAR data in the sidebar"), per the
+    owner's explicit preference for a manual trigger over a silent live
+    fallback on a cache miss/stale entry.
+
+    get_json_fn(path) -> (data, sha, error), same contract as
+    github_store.github_get_json() -- passed in rather than imported
+    directly, matching this module-s existing dependency-injection
+    pattern (see module docstring).
+
+    Returns:
+      {"facts": dict or None, "fetched_at": iso_str or None,
+       "is_stale": bool or None, "error": str or None}
+
+    "facts" is None only for a genuine cache miss (this ticker's shard
+    has no entry for it yet) or a real read error -- check "error" to
+    tell those apart. A present-but-stale entry (fetched_at older than
+    EDGAR_FACTS_CACHE_MAX_AGE_DAYS) still returns its facts with
+    is_stale=True rather than None: the 7-day window is tight enough
+    that slightly-old real data usually beats a blank page, so the
+    caller shows it with a staleness note rather than refusing to
+    display anything.
+    """
+    path = _facts_cache_shard_path(ticker)
+    data, _sha, err = get_json_fn(path)
+    if err:
+        return {"facts": None, "fetched_at": None, "is_stale": None, "error": err}
+    entry = (data or {}).get(ticker.upper())
+    if not entry:
+        return {"facts": None, "fetched_at": None, "is_stale": None, "error": None}
+    return {
+        "facts":      entry.get("facts"),
+        "fetched_at": entry.get("fetched_at"),
+        "is_stale":   not _facts_cache_entry_fresh(entry),
+        "error":      None,
+    }
+
+
 def fetch_market_cap_and_sector(ticker: str):
     """
     Shared market cap / GICS sector lookup — used by both the standard

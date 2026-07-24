@@ -23,11 +23,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_fundamentals_edgar, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, get_intrinsic_value, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display, investment_verdict
+from sec_utils import fetch_fundamentals_edgar_cached, fmt_val, fetch_filings_parallel, extract_tickers_from_text, compute_dcf_value, DCF_DEFAULTS, get_intrinsic_value, DEFAULT_WEIGHTS, THRESHOLDS, score_stock_breakdown, score_financial_firm_display, investment_verdict
 from claude_utils import ask_claude_about_equity, get_user_profile
 from watchlist_utils import add_to_watchlist, is_watchlisted
+from ui_utils import render_sidebar_refresh_controls
 
 st.set_page_config(page_title="Compare Stocks — EDGAR", layout="wide")
+render_sidebar_refresh_controls()
 
 MAX_COMPARE = 5
 
@@ -247,9 +249,12 @@ if len(tickers) > MAX_COMPARE:
 # ── Fetch fundamentals for all tickers ──────────────────────────────────
 fundamentals = {}
 missing_tickers = []
-with st.spinner(f"Loading EDGAR fundamentals for {', '.join(tickers)}..."):
+with st.spinner(f"Loading cached EDGAR fundamentals for {', '.join(tickers)}..."):
     for t in tickers:
-        d = fetch_fundamentals_edgar(t)
+        # (punch list #76) cache-only -- d["error"] already carries a
+        # clear "click Refresh EDGAR data in the sidebar" message on a
+        # genuine cache miss, surfaced via the st.warning() loop below.
+        d = fetch_fundamentals_edgar_cached(t)
         if d.get("error"):
             missing_tickers.append((t, d["error"]))
         else:

@@ -150,3 +150,50 @@ def github_put_json(path: str, data, commit_message: str, size_warn_mb: float = 
         return True, "Synced"
     except Exception as e:
         return False, f"PUSH exception: {e}"
+
+
+def github_trigger_workflow(workflow_filename: str, ref: str = "main", inputs: dict = None):
+    """
+    Fire a GitHub Actions workflow_dispatch event for one of the background
+    cache-refresh jobs (edgar_full_scan.yml / yahoo_price_refresh.yml) —
+    used by the sidebar "Refresh EDGAR data" / "Refresh Yahoo data" controls
+    (#76) so a user can force an on-demand cache refresh (e.g. right after
+    a company they care about files a new 10-K) without needing to wait for
+    the next scheduled run or touch GitHub directly.
+
+    Different GitHub API surface than the Contents API calls elsewhere in
+    this module (POST .../actions/workflows/{file}/dispatches instead of
+    GET/PUT .../contents/{path}), but the same GITHUB_TOKEN from Streamlit
+    secrets — that token needs "Actions: write" permission (fine-grained
+    PAT) or the classic "repo" scope for this call to succeed; a token that
+    only has Contents access (sufficient for every other call in this
+    module) will get a 403 here specifically. workflow_dispatch itself
+    always returns 204 No Content with an empty body on success — there's
+    no run ID or other handle returned synchronously, so the caller can
+    only confirm the dispatch was accepted, not watch the run's progress
+    from here (that requires polling the separate workflow runs API, not
+    implemented — the sidebar control instead just links to the repo's
+    Actions tab).
+
+    Returns (success: bool, message: str).
+    """
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo  = st.secrets.get("GITHUB_REPO", "jjpvoskuil/Voskuil-FP-1-0")
+    if not token:
+        return False, "GITHUB_TOKEN not found in Streamlit secrets."
+    try:
+        api   = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_filename}/dispatches"
+        heads = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+        payload = {"ref": ref}
+        if inputs:
+            payload["inputs"] = inputs
+        r = requests.post(api, headers=heads, json=payload, timeout=20)
+        if r.status_code == 204:
+            return True, "Dispatched"
+        try:
+            msg = r.json().get("message", r.text)[:200]
+        except Exception:
+            msg = r.text[:200]
+        return False, f"Dispatch failed: {r.status_code} {msg}"
+    except Exception as e:
+        return False, f"Dispatch exception: {e}"

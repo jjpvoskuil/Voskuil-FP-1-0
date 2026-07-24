@@ -20,10 +20,11 @@ from sec_utils import (
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
 from watchlist_utils import add_to_watchlist, is_watchlisted
-from ui_utils import scroll_to_element
+from ui_utils import scroll_to_element, render_sidebar_refresh_controls
 import concurrent.futures
 
 st.set_page_config(page_title="Market Screener — EDGAR", layout="wide")
+render_sidebar_refresh_controls()
 
 SCAN_CACHE_PATH = "market_screener_scan_cache.json"
 
@@ -1323,17 +1324,27 @@ _approx_universe_size = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)"
 _est_min = max(1, round(_approx_universe_size / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
 st.caption(f"⏱️ Estimated Stage 1 time for ALL ~{_approx_universe_size:,} tickers: ~{_est_min} minutes. Stage 2 (price lookups on survivors) adds 10-60 seconds. Runs in the background — you can navigate elsewhere while it works.")
 
-force_refresh_facts = st.checkbox(
-    "🔄 Force fresh EDGAR fetch for every ticker (ignore the 7-day cache)",
-    value=False,
-    help="Each ticker's normalized EDGAR history is cached for 7 days so repeat scans "
-         "skip most EDGAR calls and run far faster — this is on by default (unchecked "
-         "here means 'use the cache'). Check this box to bypass the cache entirely and "
-         "re-fetch every ticker fresh from EDGAR on this run instead, e.g. right after a "
-         "company you care about files a new 10-K/10-Q, or if you suspect a cached value "
-         "is stale or wrong. The freshly-fetched data replaces the old cache entries as "
-         "usual either way.",
-)
+# (2026-07-24, punch list #76) Collapsed into an Advanced expander,
+# collapsed by default -- now that edgar_full_scan_cloud.py refreshes
+# this same persistent cache daily via GitHub Actions (see the sidebar's
+# "Refresh EDGAR data" button for an on-demand version of that same
+# job), the 7-day-stale case this checkbox exists for is rare in
+# practice. Kept, not removed outright, for the genuine edge case of
+# needing a scan-scoped force-refresh right now rather than waiting on
+# either the daily job or a full sidebar-triggered run to land.
+with st.expander("⚙️ Advanced"):
+    force_refresh_facts = st.checkbox(
+        "🔄 Force fresh EDGAR fetch for every ticker in this scan (ignore the 7-day cache)",
+        value=False,
+        help="A daily GitHub Actions job (see the sidebar's 'Refresh EDGAR data' button "
+             "for an on-demand version) already keeps this cache fresh for the whole "
+             "universe, so this is rarely needed. Check it only if you want THIS scan "
+             "specifically to bypass the cache and re-fetch every ticker fresh from EDGAR "
+             "right now, e.g. immediately after a company you care about files a new "
+             "10-K/10-Q and you don't want to wait for the next scheduled or sidebar-"
+             "triggered refresh. The freshly-fetched data replaces the old cache entries "
+             "as usual either way.",
+    )
 
 st.divider()
 run_screen = st.button("🚀 Run Two-Stage Screen", type="primary", use_container_width=True)

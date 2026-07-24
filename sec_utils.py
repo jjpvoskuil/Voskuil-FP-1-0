@@ -1405,6 +1405,44 @@ def fetch_price_and_market_cap(ticker):
             "description": ""}
 
 
+@st.cache_data(ttl=300)
+def fetch_price_and_market_cap_cached(ticker):
+    """
+    Cache-only equivalent of fetch_price_and_market_cap() (punch list #76)
+    -- used by Watchlist's live-price column, which previously called the
+    live yfinance version directly on every page load for every ticker on
+    the list. Reads the persistent Yahoo price cache
+    (yahoo_full_scan_cloud.py, twice-daily via GitHub Actions) instead;
+    same "no automatic live fallback, manual sidebar trigger instead" policy
+    as fetch_fundamentals_edgar_cached() (see that function's docstring for
+    the full reasoning).
+
+    Returns the same shape as fetch_price_and_market_cap() ("price",
+    "market_cap", "shares", "dividend_yield", "name", "sector",
+    "description"), PLUS "cache_miss"/"cache_stale"/"cache_fetched_at". On
+    a cache miss, "price"/"market_cap"/"shares"/"dividend_yield" all come
+    back None (same as a live yfinance failure would produce) with
+    "cache_miss": True and "name" falling back to the raw ticker -- the
+    caller can check "cache_miss" to show a refresh prompt instead of
+    treating a None price as some other kind of error.
+    """
+    from github_store import github_get_json
+    from yahoo_scan_core import get_cached_price_readonly
+
+    entry = get_cached_price_readonly(ticker, github_get_json)
+    if not entry.get("data"):
+        return {"price": None, "market_cap": None, "shares": None,
+                "dividend_yield": None, "name": ticker, "sector": "N/A",
+                "description": "", "cache_miss": True, "cache_stale": None,
+                "cache_fetched_at": None}
+
+    result = dict(entry["data"])
+    result["cache_miss"]       = False
+    result["cache_stale"]      = bool(entry.get("is_stale"))
+    result["cache_fetched_at"] = entry.get("fetched_at")
+    return result
+
+
 @st.cache_data(ttl=3600)
 def fetch_fundamentals_edgar(ticker):
     """
@@ -1413,18 +1451,134 @@ def fetch_fundamentals_edgar(ticker):
     Returns a data dict compatible with score_stock() in Equity Scout EDGAR
     and Market Screener EDGAR, plus raw "_history"/"_latest" for trend charts
     (Compare Stocks page, #60).
+
+    Live-fetches from both SEC EDGAR and yfinance -- for the cache-only
+    equivalent used by Dashboard/Equity Scout/Compare Stocks/Watchlist's
+    normal page loads (punch list #76), see fetch_fundamentals_edgar_cached()
+    below, which reads the same persistent GitHub caches the background
+    refresh jobs keep warm instead of hitting either API live. Both share
+    the exact same processing/scoring logic via _build_fundamentals_dict()
+    so a ticker's numbers can't drift between the live and cached paths.
     """
     # 1. Fetch EDGAR company facts (fundamentals + history)
     facts = fetch_company_facts(ticker)
     if facts.get("error"):
         return {"error": facts["error"]}
 
+    # 2. Fetch live price + market cap from yfinance
+    price_data = fetch_price_and_market_cap(ticker)
+
+    return _build_fundamentals_dict(ticker, facts, price_data)
+
+
+@st.cache_data(ttl=300)
+def fetch_fundamentals_edgar_cached(ticker):
+    """
+    Cache-only equivalent of fetch_fundamentals_edgar() (punch list #76).
+    Reads the persistent, GitHub-committed EDGAR facts cache and Yahoo
+    price cache directly -- the same caches edgar_full_scan_cloud.py /
+    yahoo_full_scan_cloud.py keep warm on a daily / twice-daily schedule
+    via GitHub Actions -- instead of calling SEC EDGAR or yfinance live.
+
+    Deliberately NO automatic live fallback on a cache miss or a stale
+    entry: the owner explicitly prefers a manual trigger (the sidebar
+    "Refresh EDGAR data" / "Refresh Yahoo data" buttons, see
+    ui_utils.render_sidebar_refresh_controls()) over silently falling
+    back to a live fetch, which is what made Dashboard/Equity Scout/
+    Compare Stocks slow and Streamlit-Cloud-unreliable in the first
+    place (see SESSION_NOTES.md 2026-07-24) -- reintroducing a silent
+    live fallback here would just bring that problem back in a
+    different shape.
+
+    Result dict is the same shape fetch_fundamentals_edgar() returns,
+    PLUS:
+      "cache_miss"             -- True if there's no EDGAR facts cache
+                                   entry for this ticker at all (never
+                                   scanned, or genuinely new to the
+                                   universe). "error" is set to a
+                                   human-readable message in this case;
+                                   the caller should show it and point
+                                   at the sidebar refresh control rather
+                                   than silently falling back.
+      "cache_stale"            -- True if EDGAR facts were found but are
+                                   older than the 7-day freshness window.
+      "cache_fetched_at"       -- ISO timestamp the EDGAR facts were
+                                   fetched, or None.
+      "price_cache_miss"       -- True if there's no Yahoo price cache
+                                   entry for this ticker (fundamentals
+                                   still render using EDGAR-only data;
+                                   price/market-cap-dependent fields
+                                   come back None).
+      "price_cache_stale"      -- True if Yahoo price data was found but
+                                   older than the 18-hour freshness
+                                   window.
+      "price_cache_fetched_at" -- ISO timestamp the price was fetched,
+                                   or None.
+
+    A missing/stale Yahoo entry is non-fatal (price-dependent fields
+    just come back None/N-A, same as the live path's own yfinance-error
+    handling) since EDGAR fundamentals are still useful on their own;
+    a missing EDGAR entry IS fatal (matches fetch_fundamentals_edgar()'s
+    own "can't score without fundamentals" behavior) and short-circuits
+    with cache_miss=True before ever looking at the price cache.
+    """
+    from github_store import github_get_json
+    from edgar_scan_core import get_cached_facts_readonly
+    from yahoo_scan_core import get_cached_price_readonly
+
+    facts_entry = get_cached_facts_readonly(ticker, github_get_json)
+    if not facts_entry.get("facts"):
+        msg = facts_entry.get("error") or (
+            f"No cached EDGAR data yet for {ticker.upper()} -- click "
+            f"'Refresh EDGAR data' in the sidebar, then check back once "
+            f"the GitHub Actions run finishes."
+        )
+        return {"error": msg, "cache_miss": True}
+
+    price_entry = get_cached_price_readonly(ticker, github_get_json)
+    price_data = price_entry.get("data") or {
+        "price": None, "market_cap": None, "shares": None,
+        "dividend_yield": None, "name": ticker, "sector": "N/A", "description": "",
+    }
+
+    result = _build_fundamentals_dict(ticker, facts_entry["facts"], price_data)
+    result["cache_miss"]             = False
+    result["cache_stale"]            = bool(facts_entry.get("is_stale"))
+    result["cache_fetched_at"]       = facts_entry.get("fetched_at")
+    result["price_cache_miss"]       = price_entry.get("data") is None
+    result["price_cache_stale"]      = bool(price_entry.get("is_stale"))
+    result["price_cache_fetched_at"] = price_entry.get("fetched_at")
+    return result
+
+
+def _build_fundamentals_dict(ticker, facts, price_data):
+    """
+    Pure processing step shared by fetch_fundamentals_edgar() (live) and
+    fetch_fundamentals_edgar_cached() (cache-only, punch list #76) --
+    everything downstream of "facts fetched, price fetched" that turns
+    those two raw inputs into the scoring-ready dict both Equity Scout
+    EDGAR/Market Screener EDGAR and Compare Stocks/Dashboard/Watchlist
+    consume. Split out 2026-07-24 specifically so the live and cached
+    paths can never silently drift apart the way Market Screener's old
+    standalone price-fetch copy once did (see fetch_price_and_market_cap()'s
+    docstring) -- one processing implementation, two ways of supplying
+    its inputs.
+
+    `facts` is a fetch_company_facts()/fetch_company_facts_with_cik()-shaped
+    dict ({"latest", "history", "meta", "missing", "error"} -- same shape
+    whether it just came back from a live SEC EDGAR call or was read out of
+    the persistent GitHub-committed facts cache, since that cache stores
+    exactly this dict under each ticker's "facts" key).
+
+    `price_data` is a fetch_price_and_market_cap()-shaped dict ({"price",
+    "market_cap", "shares", "dividend_yield", "name", "sector",
+    "description"} -- same shape live or cached, per
+    yahoo_scan_core.fetch_price_and_market_cap_live()'s docstring).
+    """
     latest = facts["latest"]
     meta   = facts["meta"]
     missing = facts.get("missing", [])
 
-    # 2. Fetch live price + market cap from yfinance
-    price_data = fetch_price_and_market_cap(ticker)
     price      = price_data.get("price")
     market_cap = price_data.get("market_cap")
     shares     = price_data.get("shares") or latest.get("diluted_shares")

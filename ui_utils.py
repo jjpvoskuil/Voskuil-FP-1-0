@@ -1103,3 +1103,66 @@ def scroll_to_element(anchor_id: str):
         </script>""",
         height=0,
     )
+
+
+def render_sidebar_refresh_controls():
+    """
+    Sidebar controls to manually trigger the two background data-refresh
+    GitHub Actions jobs on demand (punch list #76): "Refresh EDGAR data"
+    (edgar_full_scan.yml, daily schedule otherwise) and "Refresh Yahoo
+    data" (yahoo_price_refresh.yml, twice-daily otherwise). Call once near
+    the top of every page.
+
+    Why this exists: once Dashboard/Equity Scout/Compare Stocks/Watchlist
+    stopped calling SEC EDGAR/yfinance live on every page load and started
+    reading only the persistent GitHub-committed caches instead (see
+    sec_utils.fetch_fundamentals_edgar_cached()), there needed to be SOME
+    way to force a fresher pull on demand -- e.g. right after a held
+    company files a new 10-K -- without waiting for the next scheduled
+    run. Deliberately two separate buttons, not one combined one: EDGAR
+    and Yahoo refreshes are independent, differently-paced jobs, and the
+    owner may only want to force one (e.g. just-filed 10-K -> EDGAR only,
+    no reason to also re-pull every price).
+
+    Each button fires a workflow_dispatch event and returns immediately
+    (github_store.github_trigger_workflow()) -- it does NOT wait for the
+    run to finish (a full-universe run takes tens of minutes to ~1-2
+    hours; blocking the UI on that would defeat the point). Success just
+    means "GitHub accepted the dispatch," not "the cache is refreshed
+    yet" -- the button links to the repo's Actions tab so progress can be
+    checked there. A short per-session cooldown (5 minutes) guards
+    against accidental repeat clicks queuing up multiple redundant runs;
+    it does not persist across a real page reload/new session.
+    """
+    import time as _time
+    from github_store import github_trigger_workflow
+
+    _COOLDOWN_SECONDS = 300
+    _REPO = "jjpvoskuil/Voskuil-FP-1-0"
+
+    st.sidebar.divider()
+    st.sidebar.caption("🔄 Background data refresh")
+    st.sidebar.caption(
+        "EDGAR fundamentals refresh daily, prices twice daily, automatically. "
+        "Use these only to force a refresh sooner."
+    )
+
+    def _fire(label: str, session_key: str, workflow_file: str):
+        last = st.session_state.get(session_key, 0)
+        remaining = _COOLDOWN_SECONDS - (_time.time() - last)
+        disabled = remaining > 0
+        button_label = label if not disabled else f"{label} ({int(remaining)}s)"
+        if st.sidebar.button(button_label, key=f"_refresh_btn_{session_key}",
+                              disabled=disabled, use_container_width=True):
+            ok, msg = github_trigger_workflow(workflow_file)
+            if ok:
+                st.session_state[session_key] = _time.time()
+                st.sidebar.success(
+                    f"{label} dispatched. Track progress in "
+                    f"[GitHub Actions](https://github.com/{_REPO}/actions)."
+                )
+            else:
+                st.sidebar.error(f"{label} failed: {msg}")
+
+    _fire("Refresh EDGAR data", "_last_edgar_refresh_trigger", "edgar_full_scan.yml")
+    _fire("Refresh Yahoo data", "_last_yahoo_refresh_trigger", "yahoo_price_refresh.yml")

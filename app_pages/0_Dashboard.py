@@ -8,13 +8,14 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from claude_utils import ask_claude_about_equity, get_user_profile, build_context
-from ui_utils import scroll_to_element
+from ui_utils import scroll_to_element, render_sidebar_refresh_controls
 from superinvestor_utils import get_conviction_data, get_superinvestor_conviction
-from sec_utils import fetch_fundamentals_edgar, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS, investment_verdict, VERDICT_THRESHOLDS, compute_dcf_value, get_intrinsic_value
+from sec_utils import fetch_fundamentals_edgar_cached, DEFAULT_WEIGHTS, THRESHOLDS, score_stock, score_financial_firm_breakdown, FINANCIAL_THRESHOLDS, investment_verdict, VERDICT_THRESHOLDS, compute_dcf_value, get_intrinsic_value
 from github_store import github_get_json, github_put_json
 from watchlist_utils import add_to_watchlist, is_watchlisted
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
+render_sidebar_refresh_controls()
 st.title("🛡️ Voskuil FP 1.0: Sovereign Wealth Dashboard")
 
 # ─────────────────────────────────────────────
@@ -118,7 +119,19 @@ DEFAULT_HOLD_THRESHOLDS = VERDICT_THRESHOLDS
 # used by Equity Scout, Market Screener, and Compare Stocks, so a holding's
 # score here matches its score everywhere else in the app.
 def fetch_score_data(ticker):
-    data = fetch_fundamentals_edgar(ticker)
+    """
+    (2026-07-24, punch list #76) Switched from fetch_fundamentals_edgar()
+    (live SEC EDGAR + yfinance call every time) to
+    fetch_fundamentals_edgar_cached() (reads the persistent, background-
+    refreshed GitHub caches instead) -- this runs once per holding on
+    every "Score All Holdings" click, so a live call here was the biggest
+    remaining live-fetch load on the app. A cache miss/stale entry still
+    just returns None here, same as any other fetch error did before --
+    the "X of Y scored" summary below already surfaces when holdings
+    didn't score; the sidebar's Refresh EDGAR/Yahoo buttons are how the
+    owner backfills a genuine miss.
+    """
+    data = fetch_fundamentals_edgar_cached(ticker)
     if data.get("error"):
         return None
     data["source"] = "edgar"

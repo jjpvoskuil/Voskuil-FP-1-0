@@ -29,10 +29,12 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from sec_utils import fetch_price_and_market_cap, safe_float, DEFAULT_WEIGHTS
+from sec_utils import fetch_price_and_market_cap_cached, safe_float, DEFAULT_WEIGHTS
+from ui_utils import render_sidebar_refresh_controls
 import watchlist_utils as wl
 
 st.set_page_config(page_title="Voskuil FP 1.0", layout="wide")
+render_sidebar_refresh_controls()
 st.title("⭐ Watchlist")
 st.caption(
     "Tickers tagged from Dashboard, Equity Scout, Market Screener, or Compare Stocks land here. "
@@ -59,11 +61,16 @@ if not items:
     )
     st.stop()
 
-# Live prices for everything on the watchlist — used throughout the page.
+# Cached prices for everything on the watchlist (punch list #76) — used
+# throughout the page. Reads the persistent Yahoo price cache instead of
+# calling yfinance live for every watchlisted ticker on every page load;
+# a cache miss just leaves that ticker's price as None (same as a live
+# fetch failure would), the sidebar's "Refresh Yahoo data" button is how
+# a genuinely missing ticker gets backfilled.
 current_prices = {}
-with st.spinner("Fetching live prices..."):
+with st.spinner("Loading cached prices..."):
     for _ticker in items:
-        _pdata = fetch_price_and_market_cap(_ticker)
+        _pdata = fetch_price_and_market_cap_cached(_ticker)
         current_prices[_ticker] = safe_float(_pdata.get("price"))
 
 # ─────────────────────────────────────────────

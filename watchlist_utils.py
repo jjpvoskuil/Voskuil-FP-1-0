@@ -30,7 +30,7 @@ import pandas as pd
 import streamlit as st
 
 from github_store import github_get_json, github_put_json
-from sec_utils import (fetch_fundamentals_edgar, score_stock_breakdown,
+from sec_utils import (fetch_fundamentals_edgar_cached, score_stock_breakdown,
                         score_financial_firm_display, compute_dcf_value,
                         DCF_DEFAULTS, get_intrinsic_value, DEFAULT_WEIGHTS,
                         investment_verdict)
@@ -349,8 +349,10 @@ def get_ticker_snapshot(ticker: str, weights: dict = None):
     so Watchlist's Action column can't silently disagree with its own
     displayed MoS the same way Dashboard's Signal column used to.
     """
+    # (punch list #76) cache-only -- see fetch_fundamentals_edgar_cached()'s
+    # docstring for why this doesn't fall back to a live fetch on a miss.
     weights = weights or DEFAULT_WEIGHTS
-    d = fetch_fundamentals_edgar(ticker)
+    d = fetch_fundamentals_edgar_cached(ticker)
     if d.get("error"):
         return {
             "error": d["error"], "name": ticker, "price": None,

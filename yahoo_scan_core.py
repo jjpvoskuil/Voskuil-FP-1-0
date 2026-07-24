@@ -162,6 +162,44 @@ def get_price_maybe_cached(ticker: str, cache: dict, force_refresh: bool = False
     return data
 
 
+def get_cached_price_readonly(ticker: str, get_json_fn) -> dict:
+    """
+    Cache-only, no-live-fallback single-ticker read of the persistent
+    Yahoo price cache (punch list #76) -- the Yahoo equivalent of
+    edgar_scan_core.get_cached_facts_readonly(). Reads just the one
+    shard this ticker hashes to and never calls yfinance live; a miss
+    or stale entry both come back as-is for the caller to handle (e.g.
+    a sidebar "Refresh Yahoo data" prompt), per the owner's preference
+    for a manual trigger over a silent live fallback.
+
+    get_json_fn(path) -> (data, sha, error), same contract as
+    github_store.github_get_json().
+
+    Returns:
+      {"data": dict or None, "fetched_at": iso_str or None,
+       "is_stale": bool or None, "error": str or None}
+
+    "data" is None only for a genuine cache miss or a real read error
+    (check "error"). A present-but-stale entry (older than
+    YAHOO_CACHE_MAX_AGE_HOURS) still returns its data with
+    is_stale=True -- same reasoning as the EDGAR version: slightly-old
+    real data beats a blank page, caller surfaces the staleness.
+    """
+    path = _yahoo_cache_shard_path(ticker)
+    data, _sha, err = get_json_fn(path)
+    if err:
+        return {"data": None, "fetched_at": None, "is_stale": None, "error": err}
+    entry = (data or {}).get(ticker.upper())
+    if not entry:
+        return {"data": None, "fetched_at": None, "is_stale": None, "error": None}
+    return {
+        "data":       entry.get("data"),
+        "fetched_at": entry.get("fetched_at"),
+        "is_stale":   not _yahoo_cache_entry_fresh(entry),
+        "error":      None,
+    }
+
+
 def save_yahoo_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
     """Same contract and shard-write/retry/pacing logic as
     edgar_scan_core.save_facts_cache_updates() -- see that function for
