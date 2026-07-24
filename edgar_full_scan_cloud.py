@@ -45,6 +45,7 @@ import json
 import os
 import sys
 import time
+import threading
 import concurrent.futures
 from datetime import datetime, timezone
 
@@ -156,7 +157,25 @@ def main():
         cik = ticker_cik_map.get(ticker.upper())
         if not cik:
             return ticker, "no_cik", None, time.time() - t0
-        facts = _get_facts_maybe_cached(ticker, cik, facts_cache, args.force_refresh)
+        # In-flight concurrency tracking -- added alongside the timing
+        # instrumentation to check a second hypothesis: the elevated
+        # baseline latency (min=2.6s, p50=4.5s vs. ~2s locally) plus a
+        # measured throughput far below what even that latency should
+        # allow with 20 workers (Little's Law: ~19 workers should be
+        # enough to approach the rate limiter's own ~250/min ceiling at
+        # a 4.5s/ticker latency, but the actual run got 7-9.6/min --
+        # ~25-30x short of that) raises the question of whether
+        # requests are genuinely running concurrently on a GitHub-hosted
+        # runner or something is serializing them. max_in_flight in the
+        # summary answers that directly.
+        with _inflight_lock:
+            _inflight["current"] += 1
+            _inflight["max"] = max(_inflight["max"], _inflight["current"])
+        try:
+            facts = _get_facts_maybe_cached(ticker, cik, facts_cache, args.force_refresh)
+        finally:
+            with _inflight_lock:
+                _inflight["current"] -= 1
         update = getattr(_facts_cache_tls, "update", None)
         status = "error" if facts.get("error") else ("fetched" if update else "cache_hit")
         return ticker, status, update, time.time() - t0
@@ -164,6 +183,8 @@ def main():
     facts_cache_updates = {}
     counts = {"no_cik": 0, "cache_hit": 0, "fetched": 0, "error": 0}
     fetch_times = []  # (ticker, seconds) -- only for status == "fetched" (live EDGAR hits, not cache hits)
+    _inflight_lock = threading.Lock()
+    _inflight = {"current": 0, "max": 0}
     done = 0
     start = time.time()
 
@@ -222,6 +243,7 @@ def main():
               f"p90={p90:.1f}s  max={secs[-1]:.1f}s")
         slowest = sorted(fetch_times, key=lambda x: -x[1])[:10]
         print(f"  10 slowest fetches: " + ", ".join(f"{tk}={t:.1f}s" for tk, t in slowest))
+    print(f"  Max concurrent in-flight fetches observed: {_inflight['max']} (of {args.workers} workers)")
     print(f"  Errors:                            {counts['error']}")
     print(f"  Finished at:                        {datetime.now(timezone.utc).isoformat()}")
 
