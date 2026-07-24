@@ -17,6 +17,30 @@ import streamlit as st
 import requests
 
 
+def _extract_error_message(r) -> str:
+    """
+    Safely pull a human-readable error message out of a failed response.
+    (2026-07-24, punch list #76 follow-up) Every call site in this module
+    used to do `r.json().get("message", r.text)` directly inline -- fine
+    when the error response IS valid JSON (GitHub's own API errors always
+    are), but a genuine bug when it isn't: a transient proxy/rate-limit
+    response with an empty or non-JSON body made r.json() itself raise
+    (json.decoder.JSONDecodeError, "Expecting value: line 1 column 1
+    (char 0)"), which the outer try/except then caught and returned AS
+    the error message -- silently replacing the real HTTP status/reason
+    with a confusing, generic exception string that gave no indication
+    what actually failed (confirmed live: an Equity Scout EDGAR cache
+    read surfaced exactly this "GET exception: Expecting value..."
+    message with the real cause invisible). Falls back to r.text (still
+    capped) if the body isn't parseable JSON, so callers always get
+    SOMETHING diagnostic instead of a masked exception.
+    """
+    try:
+        return r.json().get("message", r.text)
+    except Exception:
+        return r.text or f"(empty response body, HTTP {r.status_code})"
+
+
 def github_get_json(path: str):
     """
     Fetch and parse a JSON file from the repo.
@@ -36,7 +60,7 @@ def github_get_json(path: str):
         if r.status_code == 404:
             return None, None, None
         if r.status_code != 200:
-            return None, None, f"GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+            return None, None, f"GET failed: {r.status_code} {_extract_error_message(r)[:150]}"
         body    = r.json()
         sha     = body.get("sha")
         content = base64.b64decode(body.get("content", "")).decode()
@@ -61,7 +85,7 @@ def github_get_text(path: str):
         if r.status_code == 404:
             return None, None, None
         if r.status_code != 200:
-            return None, None, f"GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+            return None, None, f"GET failed: {r.status_code} {_extract_error_message(r)[:150]}"
         body    = r.json()
         sha     = body.get("sha")
         content = base64.b64decode(body.get("content", "")).decode()
@@ -87,7 +111,7 @@ def github_put_text(path: str, text: str, commit_message: str, size_warn_mb: flo
 
         r = requests.get(api, headers=heads, timeout=20)
         if r.status_code not in (200, 404):
-            return False, f"GitHub GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+            return False, f"GitHub GET failed: {r.status_code} {_extract_error_message(r)[:150]}"
         sha = r.json().get("sha") if r.status_code == 200 else None
 
         payload = {
@@ -99,7 +123,7 @@ def github_put_text(path: str, text: str, commit_message: str, size_warn_mb: flo
 
         put_r = requests.put(api, headers=heads, json=payload, timeout=60)
         if put_r.status_code not in (200, 201):
-            return False, f"GitHub PUSH failed: {put_r.status_code} {put_r.json().get('message', put_r.text)[:200]}"
+            return False, f"GitHub PUSH failed: {put_r.status_code} {_extract_error_message(put_r)[:200]}"
         return True, "Synced"
     except Exception as e:
         return False, f"PUSH exception: {e}"
@@ -134,7 +158,7 @@ def github_put_json(path: str, data, commit_message: str, size_warn_mb: float = 
         if sha is None:
             r = requests.get(api, headers=heads, timeout=20)
             if r.status_code not in (200, 404):
-                return False, f"GitHub GET failed: {r.status_code} {r.json().get('message', r.text)[:150]}"
+                return False, f"GitHub GET failed: {r.status_code} {_extract_error_message(r)[:150]}"
             sha = r.json().get("sha") if r.status_code == 200 else None
 
         payload = {
@@ -146,7 +170,7 @@ def github_put_json(path: str, data, commit_message: str, size_warn_mb: float = 
 
         put_r = requests.put(api, headers=heads, json=payload, timeout=60)
         if put_r.status_code not in (200, 201):
-            return False, f"GitHub PUSH failed: {put_r.status_code} {put_r.json().get('message', put_r.text)[:200]}"
+            return False, f"GitHub PUSH failed: {put_r.status_code} {_extract_error_message(put_r)[:200]}"
         return True, "Synced"
     except Exception as e:
         return False, f"PUSH exception: {e}"
