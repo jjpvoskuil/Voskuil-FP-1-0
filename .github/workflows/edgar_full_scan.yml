@@ -39,6 +39,13 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    # Required: this repo's default Actions token permissions are
+    # read-only, which was silently rejecting every shard write this
+    # job made (confirmed via error: "403 Resource not accessible by
+    # integration"). This grants write access to just this job's token,
+    # without changing the repo-wide default for other workflows.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repo
