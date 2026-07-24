@@ -117,6 +117,10 @@ def main():
     ap = argparse.ArgumentParser(description="Refresh the full-universe EDGAR facts cache.")
     ap.add_argument("--workers", type=int, default=20, help="Concurrent worker threads (default 20, matches the app's Stage 1 pool)")
     ap.add_argument("--sample", type=int, default=None, help="Limit to first N tickers (testing only — omit for a real full run)")
+    ap.add_argument("--tickers", type=str, default=None,
+                     help="Comma-separated list of specific tickers to run instead of the full universe "
+                          "(e.g. --tickers TIMB,BIRK,HMC,RIO -- for reproducing/debugging specific slow or failing tickers). "
+                          "Overrides --sample/--shard-count/--shard-index.")
     ap.add_argument("--force-refresh", action="store_true", help="Ignore the 7-day freshness window and refetch every ticker")
     ap.add_argument("--shard-count", type=int, default=1,
                      help="Split the universe into this many passes (for staying under GitHub Actions' 6-hour job limit -- "
@@ -136,9 +140,20 @@ def main():
     print(f"Repo: {GITHUB_REPO}")
     print("Loading full US equity universe (Nasdaq Trader symbol directories)...")
     tickers = fetch_full_us_equity_universe(universe="all_us")
-    if args.sample:
+    if args.tickers:
+        wanted = {t.strip().upper() for t in args.tickers.split(",") if t.strip()}
+        universe_set = {t.upper() for t in tickers}
+        missing = wanted - universe_set
+        if missing:
+            print(f"  NOTE: {len(missing)} requested ticker(s) not found in the universe list, running them anyway: {sorted(missing)}")
+        tickers = sorted(wanted)
+        print(f"  --tickers override: running {len(tickers)} specific ticker(s): {tickers}")
+    elif args.sample:
         tickers = tickers[:args.sample]
-    if args.shard_count > 1:
+
+    if args.tickers:
+        pass  # already fully resolved above; skip sharding
+    elif args.shard_count > 1:
         # Modulo slicing, not a contiguous chunk -- spreads any tickers
         # that are unevenly distributed alphabetically (e.g. clusters of
         # ADR/20-F filers, which are expensive -- see the module
