@@ -59,6 +59,11 @@ from edgar_scan_core import (
     save_facts_cache_updates as _save_facts_cache_updates_core,
     fetch_quality_edgar, _facts_cache_tls,
 )
+# (2026-07-24, punch list #76 follow-up) Same bulk-load-once pattern as
+# the EDGAR facts cache, now also used for market_cap/sector so Stage 1
+# stops making its own separate, uncached, per-ticker yfinance call --
+# see edgar_scan_core.fetch_market_cap_and_sector()'s docstring.
+from yahoo_scan_core import load_yahoo_cache_shards as _load_yahoo_cache_shards_core
 
 
 def _load_facts_cache_shards(tickers: list) -> tuple:
@@ -66,6 +71,13 @@ def _load_facts_cache_shards(tickers: list) -> tuple:
     secrets-backed) into the shared, framework-agnostic core function. See
     edgar_scan_core.load_facts_cache_shards() for the actual logic/docstring."""
     return _load_facts_cache_shards_core(tickers, github_get_json)
+
+
+def _load_yahoo_cache_shards(tickers: list) -> tuple:
+    """Same wrapper pattern as _load_facts_cache_shards() above, for the
+    Yahoo price/market-cap/sector cache. See
+    yahoo_scan_core.load_yahoo_cache_shards() for the actual logic."""
+    return _load_yahoo_cache_shards_core(tickers, github_get_json)
 
 
 def _save_facts_cache_updates(updates: dict) -> list:
@@ -376,10 +388,14 @@ def _get_scan_state() -> dict:
         "github_save_ok":    None,
         "github_save_msg":   "",
         "facts_cache_hits":   0,
+        "facts_cache_stale":  0,
         "facts_cache_misses": 0,
+        "facts_cache_not_cached": 0,
         "facts_cache_save_failures": [],
         "facts_cache_loaded_count": 0,
         "facts_cache_load_errors":  [],
+        "yahoo_cache_loaded_count": 0,
+        "yahoo_cache_load_errors":  [],
     }
 
 
@@ -392,7 +408,8 @@ def _scan_snapshot() -> dict:
 def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
                                    skip_financials, universe_label, cache_path,
                                    facts_cache=None, force_refresh_facts=False,
-                                   facts_cache_load_errors=None):
+                                   facts_cache_load_errors=None,
+                                   yahoo_cache=None, yahoo_cache_load_errors=None):
     """
     Initializes the cache_resource-backed scan state and spawns the background thread. Called
     from the MAIN script thread (the button-click handler), NOT from
@@ -413,6 +430,7 @@ def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresh
             "no_xbrl_tickers": [],
             "waterfall": {
                 "no_cik": 0, "no_xbrl_data": 0, "fetch_failed": 0,
+                "not_cached": 0,
                 "excluded_fcf": 0, "excluded_financial": 0,
                 "failed_roic": 0, "failed_fcf_margin": 0,
                 "failed_debt": 0, "failed_dilution": 0, "passed": 0,
@@ -425,22 +443,26 @@ def _start_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresh
             "started_at": datetime.now(timezone.utc).isoformat(),
             "finished_at": None, "error": None,
             "github_save_ok": None, "github_save_msg": "",
-            "facts_cache_hits": 0, "facts_cache_misses": 0,
+            "facts_cache_hits": 0, "facts_cache_stale": 0,
+            "facts_cache_misses": 0, "facts_cache_not_cached": 0,
             "facts_cache_save_failures": [],
             "facts_cache_loaded_count": len(facts_cache or {}),
             "facts_cache_load_errors": list(facts_cache_load_errors or []),
+            "yahoo_cache_loaded_count": len(yahoo_cache or {}),
+            "yahoo_cache_load_errors": list(yahoo_cache_load_errors or []),
         })
     threading.Thread(
         target=_run_stage1_scan_background,
         args=(tickers_to_scan, ticker_cik_map, funnel_thresholds, skip_financials, universe_label, cache_path,
-              facts_cache, force_refresh_facts),
+              facts_cache, force_refresh_facts, yahoo_cache),
         daemon=True,
     ).start()
 
 
 def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_thresholds,
                                  skip_financials, universe_label, cache_path,
-                                 facts_cache=None, force_refresh_facts=False):
+                                 facts_cache=None, force_refresh_facts=False,
+                                 yahoo_cache=None):
     """
     Does the actual scanning work on a background thread. State is
     already initialized by _start_stage1_scan_background() (on the main
@@ -454,17 +476,36 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
     reads this state to display live progress from whatever page/session
     happens to be looking at it.
     """
+    # (2026-07-24, punch list #76 follow-up) Default Stage 1 behavior is
+    # now cache-only: unless the Advanced "force fresh EDGAR fetch"
+    # checkbox is on, a ticker that isn't cached (or a shard read fails)
+    # is skipped rather than live-fetched -- see
+    # edgar_scan_core._get_facts_maybe_cached()'s cache_only docstring.
+    # This is what closes the gap that let a normal Stage 1 scan collide
+    # with the background EDGAR refresh job writing to the exact same
+    # shard files at the same time (confirmed happening -- a scan
+    # started before the app had redeployed onto the shard-integrity fix
+    # wrote to the OLD 40-shard scheme while the background job wrote to
+    # the NEW 500-shard scheme, in parallel, for the same universe).
+    # force_refresh_facts always wins over cache_only when both would
+    # otherwise apply (see that function's docstring).
+    _cache_only = not force_refresh_facts
+
     def _worker(ticker):
         cik = ticker_cik_map.get(ticker.upper())
         if not cik:
             return {"_status": "no_cik", "ticker": ticker}
         result = fetch_quality_edgar(ticker, cik, funnel_thresholds,
-                                      facts_cache=facts_cache, force_refresh=force_refresh_facts)
+                                      facts_cache=facts_cache, force_refresh=force_refresh_facts,
+                                      cache_only=_cache_only, yahoo_cache=yahoo_cache)
         # Picked up from the thread-local slot _get_facts_maybe_cached()
         # just wrote to, still on this same worker thread -- see that
         # function's docstring. None means this ticker was served from
-        # cache (nothing new to persist).
+        # cache (nothing new to persist) or wasn't fetched at all
+        # (not_cached). cache_status ("fresh"/"stale"/"miss"/None) feeds
+        # the cache gut-check breakdown below.
         result["_facts_cache_update"] = getattr(_facts_cache_tls, "update", None)
+        result["_cache_status"] = getattr(_facts_cache_tls, "status", None)
         return result
 
     facts_cache_updates = {}  # collected on the consumer side below (single-threaded, no lock needed)
@@ -502,10 +543,11 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
                 status = data.get("_status") if data else "no_cik"
 
                 # Cache bookkeeping -- pop before status handling below
-                # so this internal key never leaks into stage1_results/
+                # so these internal keys never leak into stage1_results/
                 # fetch_failures/CSV export. Only meaningful for tickers
                 # that actually reached a facts fetch (status != "no_cik").
                 _cache_update = data.pop("_facts_cache_update", None) if data else None
+                _cache_status = data.pop("_cache_status", None) if data else None
                 if status != "no_cik":
                     if _cache_update:
                         facts_cache_updates[_cache_update["ticker"]] = _cache_update["entry"]
@@ -513,14 +555,22 @@ def _run_stage1_scan_background(tickers_to_scan, ticker_cik_map, funnel_threshol
                 with _get_scan_lock():
                     _get_scan_state()["completed"] += 1
                     wf = _get_scan_state()["waterfall"]
-                    if status != "no_cik":
+                    # (#76 follow-up) "not_cached" is neither a hit nor a
+                    # miss-that-fetched -- it's its own bucket (see below)
+                    # so it doesn't skew the hit/miss gut-check either way.
+                    if status not in ("no_cik", "not_cached"):
                         if _cache_update:
                             _get_scan_state()["facts_cache_misses"] += 1
                         else:
                             _get_scan_state()["facts_cache_hits"] += 1
+                            if _cache_status == "stale":
+                                _get_scan_state()["facts_cache_stale"] += 1
 
                     if status == "no_cik":
                         wf["no_cik"] += 1
+                    elif status == "not_cached":
+                        wf["not_cached"] += 1
+                        _get_scan_state()["facts_cache_not_cached"] += 1
                     elif status == "no_xbrl_data":
                         wf["no_xbrl_data"] += 1
                         _get_scan_state()["no_xbrl_tickers"].append(data)
@@ -609,12 +659,14 @@ def _build_waterfall_rows(waterfall: dict, total_tickers: int) -> list:
     """Shared waterfall row builder — used for both the live in-progress
     display and the persisted post-scan display, so they can't drift."""
     reached_checklist = (
-        total_tickers - waterfall.get("no_cik", 0) - waterfall.get("no_xbrl_data", 0)
+        total_tickers - waterfall.get("no_cik", 0) - waterfall.get("not_cached", 0)
+        - waterfall.get("no_xbrl_data", 0)
         - waterfall.get("fetch_failed", 0) - waterfall.get("excluded_fcf", 0)
     )
     return [
         ("Total scanned",                                              total_tickers, None),
         ("→ No CIK match in EDGAR",                                    waterfall.get("no_cik", 0), total_tickers),
+        ("→ Not yet cached (skipped -- see cache gut-check above)",    waterfall.get("not_cached", 0), total_tickers),
         ("→ No XBRL data at all (404 — permanent, not a rate limit)",  waterfall.get("no_xbrl_data", 0), total_tickers),
         ("→ EDGAR fetch failed (rate-limited/timeout — transient)",    waterfall.get("fetch_failed", 0), total_tickers),
         ("→ Excluded: latest-year FCF ≤ 0",                            waterfall.get("excluded_fcf", 0), total_tickers),
@@ -717,7 +769,28 @@ def _render_scan_progress_fragment():
         "anytime to check progress. (It does NOT survive an app restart/redeploy.)"
     )
     _loaded_count = snap.get("facts_cache_loaded_count", 0)
-    st.caption(f"📦 EDGAR facts cache: {_loaded_count:,} cached ticker(s) loaded from GitHub before this scan started.")
+    _yahoo_loaded_count = snap.get("yahoo_cache_loaded_count", 0)
+    st.caption(
+        f"📦 EDGAR facts cache: {_loaded_count:,} cached ticker(s) loaded from GitHub before this scan started · "
+        f"Yahoo price/market-cap/sector cache: {_yahoo_loaded_count:,} loaded."
+    )
+    # (2026-07-24, #76 follow-up) Live running gut-check, updated every
+    # rerun of this fragment -- not just shown after the scan finishes.
+    # Default mode (Advanced checkbox off) never live-fetches, so
+    # "not yet cached" should be the ONLY reason a ticker doesn't get
+    # evaluated (besides no_cik/no_xbrl_data) -- this is what lets the
+    # owner confirm at a glance, mid-scan, that nothing is quietly going
+    # out to EDGAR live.
+    _hits, _stale, _misses, _not_cached = (
+        snap.get("facts_cache_hits", 0), snap.get("facts_cache_stale", 0),
+        snap.get("facts_cache_misses", 0), snap.get("facts_cache_not_cached", 0),
+    )
+    if _hits or _misses or _not_cached:
+        st.caption(
+            f"   ↳ so far: {_hits:,} served from cache ({_stale:,} stale-but-used) · "
+            f"{_not_cached:,} not yet cached (skipped, no live fetch)"
+            + (f" · {_misses:,} live-fetched from EDGAR" if _misses else "")
+        )
     _load_errs = snap.get("facts_cache_load_errors", [])
     if _load_errs:
         with st.expander(f"⚠️ {len(_load_errs)} cache shard(s) failed to load"):
@@ -1324,26 +1397,30 @@ _approx_universe_size = {"S&P 500 (~500)": 500, "All US Common Stocks (~6,000+)"
 _est_min = max(1, round(_approx_universe_size / 8 / 60 * 1.6))  # rough: 8 parallel workers, ~1 req/sec/worker, 60% overhead (sector .info call adds latency vs. fast_info alone)
 st.caption(f"⏱️ Estimated Stage 1 time for ALL ~{_approx_universe_size:,} tickers: ~{_est_min} minutes. Stage 2 (price lookups on survivors) adds 10-60 seconds. Runs in the background — you can navigate elsewhere while it works.")
 
-# (2026-07-24, punch list #76) Collapsed into an Advanced expander,
-# collapsed by default -- now that edgar_full_scan_cloud.py refreshes
-# this same persistent cache daily via GitHub Actions (see the sidebar's
-# "Refresh EDGAR data" button for an on-demand version of that same
-# job), the 7-day-stale case this checkbox exists for is rare in
-# practice. Kept, not removed outright, for the genuine edge case of
-# needing a scan-scoped force-refresh right now rather than waiting on
-# either the daily job or a full sidebar-triggered run to land.
+# (2026-07-24, punch list #76 follow-up) Stage 1 default is now
+# cache-only, not "cache with a live fallback on a miss/stale entry" --
+# a normal scan NEVER calls EDGAR live unless this box is checked. This
+# closes the gap that let a scan collide with the background EDGAR
+# refresh job writing to the exact same shard files at the same time
+# (confirmed happening live). edgar_full_scan_cloud.py refreshes the
+# cache daily via GitHub Actions (see the sidebar's "Refresh EDGAR
+# data" button for an on-demand version of that same job) -- that's now
+# the ONLY intended way new/stale tickers get backfilled during normal
+# use. This checkbox remains as the explicit, rare, opt-in escape valve
+# for wanting live data during the scan itself rather than waiting on
+# either the daily job or a sidebar-triggered run to land.
 with st.expander("⚙️ Advanced"):
     force_refresh_facts = st.checkbox(
-        "🔄 Force fresh EDGAR fetch for every ticker in this scan (ignore the 7-day cache)",
+        "🔄 Force fresh EDGAR fetch for every ticker in this scan (ignore the cache entirely)",
         value=False,
-        help="A daily GitHub Actions job (see the sidebar's 'Refresh EDGAR data' button "
-             "for an on-demand version) already keeps this cache fresh for the whole "
-             "universe, so this is rarely needed. Check it only if you want THIS scan "
-             "specifically to bypass the cache and re-fetch every ticker fresh from EDGAR "
-             "right now, e.g. immediately after a company you care about files a new "
-             "10-K/10-Q and you don't want to wait for the next scheduled or sidebar-"
-             "triggered refresh. The freshly-fetched data replaces the old cache entries "
-             "as usual either way.",
+        help="OFF (default): cache-only. Tickers with fresh or stale-but-present cached data "
+             "are used as-is; tickers with NO cached data are skipped (see the cache gut-check "
+             "counts above/below) rather than fetched live -- nothing in a normal scan calls "
+             "EDGAR. Use the sidebar's 'Refresh EDGAR data' button to backfill missing tickers "
+             "in the background instead. ON: bypasses the cache entirely and live-fetches "
+             "EVERY ticker in this scan from EDGAR, e.g. immediately after a company you care "
+             "about files a new 10-K/10-Q and you don't want to wait for a background refresh. "
+             "The freshly-fetched data still gets persisted to the cache as usual either way.",
     )
 
 st.divider()
@@ -1669,11 +1746,18 @@ if run_screen:
         # case there's no point spending the GitHub reads on a cache
         # every ticker is about to ignore anyway.
         _load_errors = []
+        _yahoo_load_errors = []
         if force_refresh_facts:
             facts_cache = {}
+            yahoo_cache = {}
         else:
             with st.spinner("Loading cached EDGAR history..."):
                 facts_cache, _load_errors = _load_facts_cache_shards(tickers_to_scan)
+            # (2026-07-24, #76 follow-up) Same bulk-load-once pattern for
+            # market_cap/sector -- see edgar_scan_core.fetch_market_cap_and_sector()'s
+            # docstring for why this replaced a per-ticker live yfinance call.
+            with st.spinner("Loading cached market cap/sector data..."):
+                yahoo_cache, _yahoo_load_errors = _load_yahoo_cache_shards(tickers_to_scan)
         # NOTE: deliberately not st.caption()'d here -- this whole branch
         # is on the run that's about to call st.rerun() a few lines down
         # to hand off to the "scan active" state, so anything printed
@@ -1687,6 +1771,7 @@ if run_screen:
             skip_financials, universe_choice, SCAN_CACHE_PATH,
             facts_cache=facts_cache, force_refresh_facts=force_refresh_facts,
             facts_cache_load_errors=_load_errors,
+            yahoo_cache=yahoo_cache, yahoo_cache_load_errors=_yahoo_load_errors,
         )
         st.rerun()
 
@@ -1746,14 +1831,24 @@ elif _snap["finished_at"] and st.session_state.get('ms_edgar_ingested_finish_ts'
         # The persistent GitHub save already happened inside the
         # background worker itself (exactly once, regardless of how many
         # sessions/tabs are watching) — just reflect its outcome here.
-        _facts_hits   = _snap.get("facts_cache_hits", 0)
-        _facts_misses = _snap.get("facts_cache_misses", 0)
-        if _facts_hits or _facts_misses:
+        _facts_hits       = _snap.get("facts_cache_hits", 0)
+        _facts_stale      = _snap.get("facts_cache_stale", 0)
+        _facts_misses     = _snap.get("facts_cache_misses", 0)
+        _facts_not_cached = _snap.get("facts_cache_not_cached", 0)
+        if _facts_hits or _facts_misses or _facts_not_cached:
             st.caption(
-                f"📦 EDGAR facts cache: {_facts_hits:,} served from cache, "
-                f"{_facts_misses:,} fetched fresh from EDGAR "
-                f"({EDGAR_FACTS_CACHE_MAX_AGE_DAYS}-day freshness window)."
+                f"📦 EDGAR facts cache: {_facts_hits:,} served from cache "
+                f"({_facts_stale:,} stale-but-used, {EDGAR_FACTS_CACHE_MAX_AGE_DAYS}-day freshness "
+                f"window) · {_facts_not_cached:,} not yet cached (skipped)"
+                + (f" · {_facts_misses:,} live-fetched from EDGAR" if _facts_misses else "")
             )
+            if _facts_not_cached and not _facts_misses:
+                st.caption(
+                    "ℹ️ Default mode never fetches EDGAR live — the tickers above weren't "
+                    "cached yet, so they were skipped rather than scored. Use the sidebar's "
+                    "🔄 Refresh EDGAR data button to backfill, or check 'Force fresh EDGAR "
+                    "fetch' under ⚙️ Advanced above to fetch live during the scan itself."
+                )
         _facts_save_failures = _snap.get("facts_cache_save_failures", [])
         if _facts_save_failures:
             st.caption(

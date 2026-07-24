@@ -1205,12 +1205,99 @@ def extract_sections(clean_text: str) -> dict:
     return sections
 
 
+# ── Persistent filing-text cache (2026-07-24, punch list #76 follow-up) ──
+# fetch_10k_sections() downloads and parses a filing's complete
+# submission .txt (up to 15MB, streamed) -- the single most expensive
+# per-ticker operation in the app -- yet had NO caching at all inside
+# itself; the only caching was a plain st.session_state dict at each
+# call site (app_pages/7_Equity_Scout_EDGAR.py, 9_Compare_Stocks_EDGAR.py
+# via fetch_filings_parallel()), meaning every new session, every
+# reboot/redeploy, AND every ticker looked up a second time in a later
+# session re-downloaded and re-parsed the whole filing from scratch.
+#
+# Unlike the EDGAR facts / Yahoo price / superinvestor caches, this is
+# NOT a "scan the whole universe on a schedule" candidate -- filing
+# text is only ever needed for the handful of tickers a user actually
+# asks Claude about (holdings, watchlist, or ad-hoc Equity Scout/Compare
+# Stocks lookups), not the full ~6,000-ticker universe, and downloading
+# every ticker's 10-K text proactively would be enormously wasteful (up
+# to 15MB x 6,000 tickers) for data almost none of which would ever be
+# read. Instead this is a write-through, on-demand persistent cache:
+# check it first (cheap), do the expensive live fetch only on a miss or
+# a genuinely new filing, then persist what was fetched for next time.
+#
+# Keyed by ticker AND accession number (not a time-based freshness
+# window like the other three caches) -- a 10-K is filed annually, and
+# the accession number IS the natural, exact freshness signal: if the
+# cached entry's accession matches the CURRENT latest accession (a
+# cheap metadata lookup, not the expensive download), the cached text
+# is guaranteed current; if a new 10-K has been filed since, the
+# accession won't match and this correctly re-fetches instead of
+# serving stale text past a somewhat-arbitrary day count.
+#
+# Sharded (like the EDGAR/Yahoo caches) purely as a size-safety margin,
+# not because the current volume needs it -- each entry is ~8,000 chars
+# x up to ~8 sections (SECTION_LIMIT) ~= 60-70KB, and only tickers
+# actually looked up ever get cached (likely dozens to low hundreds
+# over time, not thousands) -- but sharding costs nothing to have in
+# place from day one and avoids ever repeating the EDGAR facts cache's
+# 1MB-ceiling mistake if usage grows larger than expected.
+FILING_TEXT_CACHE_NUM_SHARDS = 100
+
+
+def _filing_text_shard_path(ticker: str) -> str:
+    import zlib
+    shard = zlib.crc32(ticker.upper().encode()) % FILING_TEXT_CACHE_NUM_SHARDS
+    return f"filing_text_cache/shard_{shard:03d}.json"
+
+
+def _load_cached_filing(ticker: str, get_json_fn) -> dict:
+    """Cache-only read of one ticker's persisted filing-text entry.
+    Returns {} on a miss or read error -- fetch_10k_sections() decides
+    what to do next (always falls back to a live fetch here, since this
+    is a write-through opportunistic cache, not a strict no-fallback
+    policy like the EDGAR/Yahoo cache-only pages -- there's no
+    background job populating this ahead of time to wait on)."""
+    path = _filing_text_shard_path(ticker)
+    data, _sha, err = get_json_fn(path)
+    if err or not data:
+        return {}
+    return data.get(ticker.upper(), {})
+
+
+def _save_filing_to_cache(ticker: str, accession: str, result: dict, get_json_fn, put_json_fn):
+    """Best-effort persist of one ticker's filing result -- failure here
+    doesn't affect the caller (already has the result in hand), just
+    means the next lookup re-fetches instead of hitting the cache."""
+    path = _filing_text_shard_path(ticker)
+    try:
+        existing, sha, err = get_json_fn(path)
+        if err:
+            return  # don't merge from a failed read -- see
+                     # edgar_scan_core.save_facts_cache_updates()'s
+                     # docstring for why this exact shortcut caused a
+                     # near-total EDGAR cache wipe; same fix applies here.
+        merged = dict(existing) if existing else {}
+        merged[ticker.upper()] = {"accession": accession, **result}
+        put_json_fn(path, merged, sha=sha,
+                    commit_message=f"Filing text cache update — {ticker.upper()} — {accession}")
+    except Exception:
+        pass  # best-effort, see docstring above
+
+
 def fetch_10k_sections(ticker: str) -> dict:
     """
     Main entry point. Fetches the complete submission .txt file from EDGAR
     and extracts 10-K narrative sections for qualitative analysis.
 
     Returns dict: {sections, filing_url, doc_url, filing_date, error}
+
+    Checks the persistent filing-text cache (#76 follow-up) right after
+    resolving the latest 10-K accession number (a cheap metadata call) --
+    if a cached entry exists for this exact accession, returns it
+    immediately without ever downloading the (up to 15MB) complete
+    submission file. On a miss (or a new filing since the cached entry),
+    fetches live as before and persists the result for next time.
     """
     # 1. Resolve ticker -> CIK
     cik, err = get_cik(ticker)
@@ -1223,6 +1310,20 @@ def fetch_10k_sections(ticker: str) -> dict:
     if not accession:
         return {"sections": {}, "filing_url": None,
                 "error": f"10-K accession lookup failed: {err}"}
+
+    # 2b. Persistent cache check (#76 follow-up) -- cheap accession
+    # lookup already done above; only the expensive download below is
+    # actually skipped on a hit.
+    from github_store import github_get_json, github_put_json
+    _cached = _load_cached_filing(ticker, github_get_json)
+    if _cached.get("accession") == accession and _cached.get("sections"):
+        return {
+            "sections":    _cached["sections"],
+            "filing_url":  _cached.get("filing_url"),
+            "doc_url":     _cached.get("doc_url"),
+            "filing_date": _cached.get("filing_date"),
+            "error":       None,
+        }
 
     # 3. Build filing index URL (for display)
     cik_int          = str(int(cik))
@@ -1291,13 +1392,21 @@ def fetch_10k_sections(ticker: str) -> dict:
         return {"sections": {}, "filing_url": index_url,
                 "error": f"Extracted 10-K body ({len(clean_text):,} chars) but could not locate Item sections."}
 
-    return {
+    result = {
         "sections":    sections,
         "filing_url":  index_url,
         "doc_url":     txt_url,
         "filing_date": filing_date,
         "error":       None,
     }
+
+    # Write-through: persist this fresh fetch for next time (#76 follow-up).
+    # Best-effort -- _save_filing_to_cache() swallows its own errors, so a
+    # persistence failure here never affects the result already in hand.
+    from github_store import github_put_json
+    _save_filing_to_cache(ticker, accession, result, github_get_json, github_put_json)
+
+    return result
 
 
 # ── Shared helpers: value formatting + fundamentals fetch ────────────────────

@@ -234,16 +234,119 @@ def build_full_conviction_map() -> dict:
     }
 
 
+# ── Persistent cache (2026-07-24, punch list #76 follow-up) ─────────────
+# Dataroma's full 82-manager scrape takes 30-60s and used to be cached
+# ONLY in st.session_state -- redone from scratch on every new browser
+# session and every app reboot/redeploy. Same GitHub-Contents-API
+# persistence pattern as the EDGAR/Yahoo caches (github_store.py), but a
+# single file rather than sharded: the whole ticker_map is a few hundred
+# KB (~1,600-2,500 holdings total across ~82 managers), comfortably
+# under GitHub's ~1MB Contents API inline-content limit -- see
+# edgar_scan_core.EDGAR_FACTS_CACHE_NUM_SHARDS's docstring for what
+# happens when that assumption breaks; revisit sharding if this file
+# ever approaches 1MB (unlikely -- Dataroma's tracked-manager count and
+# the average portfolio size are both roughly stable over time).
+#
+# Kept to just ticker_map + the two summary counts, NOT the raw
+# per-manager holdings list (build_full_conviction_map()'s "managers"
+# key) -- that duplicates every holding a second time inside each
+# manager's own record for data nothing downstream actually reads back
+# out (confirmed: get_superinvestor_conviction()/
+# get_all_tickers_with_conviction() only ever touch ticker_map and the
+# two counts), so persisting it would roughly double the file for zero
+# benefit.
+SUPERINVESTOR_CACHE_PATH = "superinvestor_data.json"
+
+
+def save_superinvestor_conviction_map(data: dict, get_json_fn, put_json_fn) -> tuple:
+    """
+    Persist the full conviction map to GitHub. get_json_fn(path) ->
+    (data, sha, error), put_json_fn(path, data, sha=..., commit_message=...)
+    -> (ok, message) -- same contracts as
+    github_store.github_get_json()/github_put_json(). Returns (ok, message).
+
+    Unlike the EDGAR/Yahoo shard writes, this isn't an incremental
+    per-ticker merge -- every run produces the COMPLETE map from
+    scratch, so there's no "don't merge from a failed read" hazard the
+    same way (see edgar_scan_core.save_facts_cache_updates()'s
+    docstring for that specific bug). A stale/failed sha read here just
+    means the write below may hit a clean 409 conflict if something
+    else wrote in between, surfaced as an ordinary failure rather than
+    silently corrupting anything.
+    """
+    from datetime import datetime, timezone
+    _existing, sha, _err = get_json_fn(SUPERINVESTOR_CACHE_PATH)
+    payload = {
+        "fetched_at":     datetime.now(timezone.utc).isoformat(),
+        "ticker_map":     data.get("ticker_map", {}),
+        "total_managers": data.get("total_managers", 0),
+        "total_holdings": data.get("total_holdings", 0),
+    }
+    return put_json_fn(
+        SUPERINVESTOR_CACHE_PATH, payload, sha=sha,
+        commit_message=(f"Superinvestor data update — {payload['total_managers']} "
+                         f"managers, {payload['total_holdings']} holdings"),
+    )
+
+
+def load_superinvestor_conviction_map(get_json_fn) -> dict:
+    """
+    Cache-only read of the persistent superinvestor map (#76 follow-up).
+    Returns {} on a genuine miss (never populated yet) or a read error --
+    the caller (get_conviction_data()) decides whether to fall back to a
+    live scrape in that case. NOT a "no live fallback ever" policy like
+    the EDGAR/Yahoo cache-only pages -- Dataroma's scrape is cheap
+    (30-60s, not EDGAR's ~90 minutes) and doesn't have the Streamlit-
+    Cloud reliability problems that motivated the strict no-fallback
+    policy there, so a first-run/cold-cache live scrape stays as a
+    reasonable fallback here (see get_conviction_data()).
+    """
+    data, _sha, err = get_json_fn(SUPERINVESTOR_CACHE_PATH)
+    if err or not data or not data.get("ticker_map"):
+        return {}
+    return {
+        "ticker_map":     data.get("ticker_map", {}),
+        "managers":       [],  # not persisted -- see module note above
+        "total_managers": data.get("total_managers", 0),
+        "total_holdings": data.get("total_holdings", 0),
+        "fetched_at":     data.get("fetched_at"),
+        "error":          None,
+    }
+
+
 def get_conviction_data() -> dict:
-    """Returns cached full conviction map. Builds on first call."""
+    """
+    Returns cached full conviction map. Session-state first (instant on
+    repeat calls within the same session), then the persistent GitHub
+    cache (instant-ish -- one small file read, no scraping) if a
+    background/scheduled run has already populated it, and only falls
+    back to a live 30-60s Dataroma scrape if neither has anything yet
+    (e.g. the very first run before superinvestor_full_scan_cloud.py has
+    ever completed) -- in which case the fresh result is also persisted
+    back to GitHub so the NEXT session/reboot doesn't have to re-scrape.
+    """
     import streamlit as st
-    if "_si_full_map" not in st.session_state:
-        with st.spinner(
-            "📊 Loading complete superinvestor portfolios from Dataroma "
-            "(82 managers — first load ~30-60 seconds, then cached)..."
-        ):
-            st.session_state["_si_full_map"] = build_full_conviction_map()
-    return st.session_state.get("_si_full_map", {})
+    if "_si_full_map" in st.session_state:
+        return st.session_state["_si_full_map"]
+
+    from github_store import github_get_json, github_put_json
+    persisted = load_superinvestor_conviction_map(github_get_json)
+    if persisted.get("ticker_map"):
+        st.session_state["_si_full_map"] = persisted
+        return persisted
+
+    with st.spinner(
+        "📊 Loading complete superinvestor portfolios from Dataroma "
+        "(82 managers — first load ~30-60 seconds, then cached)..."
+    ):
+        fresh = build_full_conviction_map()
+    st.session_state["_si_full_map"] = fresh
+    if fresh.get("ticker_map") and not fresh.get("error"):
+        # Best-effort -- a failed persist here doesn't affect THIS
+        # session (already have it in session_state), just means the
+        # next session/reboot scrapes again instead of reading it back.
+        save_superinvestor_conviction_map(fresh, github_get_json, github_put_json)
+    return fresh
 
 
 def clear_superinvestor_cache():

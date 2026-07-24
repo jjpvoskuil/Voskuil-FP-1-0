@@ -1,0 +1,54 @@
+name: Superinvestor (Dataroma) Cache Refresh
+
+# Keeps the persistent superinvestor conviction cache
+# (superinvestor_data.json) warm outside the Streamlit Cloud app
+# entirely -- same idea as edgar_full_scan.yml/yahoo_price_refresh.yml,
+# applied to Dataroma's ~82 tracked-manager 13F aggregation (punch list
+# #76 follow-up).
+#
+# Much cheaper than the EDGAR/Yahoo jobs: the full scrape only takes
+# 30-60 seconds (not sharded -- see superinvestor_utils.py's module
+# note on SUPERINVESTOR_CACHE_PATH for why one file is enough here),
+# and there's no incremental/freshness-skip logic since 13F filings are
+# quarterly -- every run just does the full scrape and replaces the
+# persisted file outright. Twice a day is generous relative to how
+# often the underlying data actually changes, but the job is cheap
+# enough that there's no real cost to running it more often than
+# strictly necessary, and it keeps the cache consistently fresh-looking
+# without needing to reason about a separate staleness window the way
+# EDGAR/Yahoo need.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 11,23 * * *'   # ~7am and 7pm US Eastern during daylight time
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    # Required: this repo's default Actions token permissions are
+    # read-only (see edgar_full_scan.yml's comment for the same note --
+    # confirmed there via a real 403 before this was added).
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run Dataroma superinvestor scrape
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: python superinvestor_full_scan_cloud.py
+
+      - name: Done
+        run: echo "✅ Superinvestor cache refresh complete"

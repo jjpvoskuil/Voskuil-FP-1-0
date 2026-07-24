@@ -125,20 +125,55 @@ def _facts_cache_entry_fresh(entry: dict) -> bool:
 _facts_cache_tls = threading.local()
 
 
-def _get_facts_maybe_cached(ticker: str, cik: str, facts_cache: dict, force_refresh: bool) -> dict:
+def _get_facts_maybe_cached(ticker: str, cik: str, facts_cache: dict, force_refresh: bool,
+                             cache_only: bool = False) -> dict:
     """
     Cache-aware replacement for a direct fetch_company_facts_with_cik()
     call -- used by fetch_quality_edgar() below. Serves a fresh-enough
     cached entry if one exists and force_refresh isn't set; otherwise
     fetches live from EDGAR as before. Either way, stashes what should
     be persisted (or None, if nothing changed) on _facts_cache_tls for
-    the calling worker to pick up.
+    the calling worker to pick up. Also stashes _facts_cache_tls.status
+    ("fresh" / "stale" / "miss") for callers that want a hit/miss
+    breakdown (Market Screener's cache gut-check, #76 follow-up).
+
+    cache_only (2026-07-24, punch list #76 follow-up): if True, NEVER
+    calls EDGAR live -- matches the rest of the app's "manual sidebar
+    refresh trigger, not a silent live fallback" policy (#76), extended
+    here to Market Screener's default Stage 1 scan (previously the one
+    remaining place that still auto-fetched live on a cache miss,
+    which is what made a normal scan collide with the background
+    refresh jobs writing to the same shards). Two effects:
+      - A present-but-STALE entry is still served (better than
+        excluding the ticker outright -- the daily/twice-daily
+        background jobs keep true staleness rare) instead of falling
+        through to a live re-fetch, unlike the non-cache_only case
+        below where a stale entry is exactly what should trigger a
+        refresh (e.g. edgar_full_scan_cloud.py, whose whole job IS
+        refreshing stale entries -- it never passes cache_only=True,
+        so its behavior here is completely unchanged).
+      - A genuine MISS (nothing cached for this ticker at all) returns
+        {"error": "not_cached", "cache_miss": True} instead of
+        fetching live. force_refresh, if set, always wins over
+        cache_only (force_refresh means "ignore the cache entirely,"
+        which is a stronger, explicit, opt-in instruction).
     """
     entry = None if force_refresh else (facts_cache or {}).get(ticker.upper())
-    if entry and _facts_cache_entry_fresh(entry):
-        _facts_cache_tls.update = None
-        return entry["facts"]
+    if entry:
+        fresh = _facts_cache_entry_fresh(entry)
+        if fresh or cache_only:
+            _facts_cache_tls.update = None
+            _facts_cache_tls.status = "fresh" if fresh else "stale"
+            return entry["facts"]
+        # Stale AND not cache_only -- falls through to a live re-fetch,
+        # exactly as before this parameter existed.
 
+    if cache_only and not force_refresh:
+        _facts_cache_tls.update = None
+        _facts_cache_tls.status = "miss"
+        return {"error": "not_cached", "cache_miss": True}
+
+    _facts_cache_tls.status = "miss" if not force_refresh else None
     facts = fetch_company_facts_with_cik(ticker, cik)
     # Don't cache a fetch failure -- that would "poison" the cache for
     # up to 7 days on what's very likely a transient EDGAR/network
@@ -295,14 +330,41 @@ def get_cached_facts_readonly(ticker: str, get_json_fn) -> dict:
     }
 
 
-def fetch_market_cap_and_sector(ticker: str):
+def fetch_market_cap_and_sector(ticker: str, yahoo_cache: dict = None, cache_only: bool = False):
     """
     Shared market cap / GICS sector lookup — used by both the standard
     and bank/insurer alt-scoring paths in fetch_quality_edgar() so a
     ticker's market-cap-tier and Sector filters work identically either
     way. fast_info covers market cap cheaply; sector requires the fuller
     .info call, which is slower.
+
+    (2026-07-24, punch list #76 follow-up) yahoo_cache/cache_only: this
+    function used to ALWAYS make its own live, uncached yfinance call --
+    for every single Stage 1 ticker (up to ~6,000 for the full
+    universe), even after EDGAR facts moved to cache-only. That
+    duplicated data the twice-daily Yahoo background job already
+    persists (market_cap and sector are both fields on every cached
+    entry -- see fetch_price_and_market_cap_live()). If yahoo_cache is
+    given (see yahoo_scan_core.load_yahoo_cache_shards(), same shape --
+    {TICKER: {"fetched_at": iso, "data": {...}}}), a present entry
+    (fresh OR stale -- stale beats a blank filter, same reasoning as
+    every other #76 cache-only path) is used instead of a live call.
+    cache_only additionally suppresses the live-fetch fallback entirely
+    on a genuine miss, returning (None, "Unknown") -- same shape a live
+    failure already produced, so no caller needs new handling. Default
+    behavior (no yahoo_cache passed) is unchanged for safety/back-compat,
+    though nothing calls it that way today.
     """
+    if yahoo_cache is not None:
+        entry = yahoo_cache.get(ticker.upper())
+        if entry and entry.get("data"):
+            data = entry["data"]
+            return data.get("market_cap"), data.get("sector") or "Unknown"
+        if cache_only:
+            return None, "Unknown"
+        # yahoo_cache given but this ticker isn't in it, and cache_only
+        # wasn't set -- fall through to a live fetch below.
+
     market_cap = None
     sector     = "Unknown"
     try:
@@ -319,7 +381,8 @@ def fetch_market_cap_and_sector(ticker: str):
 
 
 def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
-                         facts_cache: dict = None, force_refresh: bool = False) -> dict:
+                         facts_cache: dict = None, force_refresh: bool = False,
+                         cache_only: bool = False, yahoo_cache: dict = None) -> dict:
     """
     Fetches fundamentals from EDGAR Company Facts using a pre-resolved CIK
     (no redundant ticker->CIK lookup per call — see get_ticker_cik_map()).
@@ -331,6 +394,21 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
     optional and default to "no cache, always fetch live" so this
     function still works exactly as before for any caller that doesn't
     pass them (e.g. the Equity Scout debug panel further up this file).
+
+    cache_only (2026-07-24, #76 follow-up): passed straight through to
+    _get_facts_maybe_cached() -- see that function's docstring. A
+    genuine cache miss under cache_only returns {"_status":
+    "not_cached", "ticker": ticker} here (a distinct, non-error status
+    -- NOT lumped in with "fetch_failed", since nothing actually failed,
+    the ticker just isn't cached yet and this call was told not to fetch
+    it live). Default False preserves exact prior behavior for any
+    caller that doesn't pass it.
+
+    yahoo_cache (2026-07-24, #76 follow-up): passed straight through to
+    fetch_market_cap_and_sector() -- a pre-loaded Yahoo price cache dict
+    (see yahoo_scan_core.load_yahoo_cache_shards()) so market_cap/sector
+    also come from the persistent cache instead of a second, separate
+    live yfinance call per ticker. Same cache_only flag governs both.
     Returns the price-independent fields plus the Buffett/Munger funnel
     checklist breakdown (evaluate_buffett_funnel — 10-yr avg ROIC, 10-yr
     avg FCF margin, dual debt-hurdle check, dilution check). Legacy
@@ -350,8 +428,16 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
 
     Does NOT fetch price — that happens only for Stage 1 survivors.
     """
-    facts = _get_facts_maybe_cached(ticker, cik, facts_cache, force_refresh)
+    facts = _get_facts_maybe_cached(ticker, cik, facts_cache, force_refresh, cache_only=cache_only)
     if facts.get("error"):
+        if facts.get("cache_miss"):
+            # (#76 follow-up) cache_only was set and this ticker simply
+            # isn't cached yet -- NOT a fetch failure, nothing was even
+            # attempted. Distinct status so callers (Market Screener's
+            # waterfall/gut-check) don't lump "not yet cached" in with
+            # "EDGAR fetch failed," which would misleadingly suggest a
+            # transient/retryable problem.
+            return {"_status": "not_cached", "ticker": ticker}
         if facts.get("status_code") == 404:
             # Permanent, not transient — this CIK has no XBRL Company Facts at
             # all. Almost always means it's not an operating company filing
@@ -370,7 +456,7 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
     if financial_subtype in ("bank", "insurance"):
         fin_funnel              = evaluate_financial_firm_funnel(facts, financial_subtype)
         fin_score, fin_criteria = score_financial_firm_breakdown(latest, financial_subtype)
-        market_cap, sector      = fetch_market_cap_and_sector(ticker)
+        market_cap, sector      = fetch_market_cap_and_sector(ticker, yahoo_cache=yahoo_cache, cache_only=cache_only)
         long_term_debt          = latest.get("long_term_debt", 0) or 0
         short_term_debt         = latest.get("short_term_debt", 0) or 0
 
@@ -472,7 +558,7 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
     # the market-cap-tier and Sector filters can apply before Stage 2
     # pricing/scoring. See fetch_market_cap_and_sector() for the
     # fast_info/.info cost tradeoff notes.
-    market_cap, sector = fetch_market_cap_and_sector(ticker)
+    market_cap, sector = fetch_market_cap_and_sector(ticker, yahoo_cache=yahoo_cache, cache_only=cache_only)
 
     return {
         "_status":           "evaluated",

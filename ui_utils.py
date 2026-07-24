@@ -1107,10 +1107,12 @@ def scroll_to_element(anchor_id: str):
 
 def render_sidebar_refresh_controls():
     """
-    Sidebar controls to manually trigger the two background data-refresh
+    Sidebar controls to manually trigger the three background data-refresh
     GitHub Actions jobs on demand (punch list #76): "Refresh EDGAR data"
-    (edgar_full_scan.yml, daily schedule otherwise) and "Refresh Yahoo
-    data" (yahoo_price_refresh.yml, twice-daily otherwise). Call once near
+    (edgar_full_scan.yml, daily schedule otherwise), "Refresh Yahoo
+    data" (yahoo_price_refresh.yml, twice-daily otherwise), and "Refresh
+    Superinvestor data" (superinvestor_refresh.yml, twice-daily
+    otherwise -- Dataroma 13F aggregation, #76 follow-up). Call once near
     the top of every page.
 
     Why this exists: once Dashboard/Equity Scout/Compare Stocks/Watchlist
@@ -1166,3 +1168,6 @@ def render_sidebar_refresh_controls():
 
     _fire("Refresh EDGAR data", "_last_edgar_refresh_trigger", "edgar_full_scan.yml")
     _fire("Refresh Yahoo data", "_last_yahoo_refresh_trigger", "yahoo_price_refresh.yml")
+    # (2026-07-24, punch list #76 follow-up) Third background job --
+    # Dataroma superinvestor scrape, same on-demand-trigger pattern.
+    _fire("Refresh Superinvestor data", "_last_si_refresh_trigger", "superinvestor_refresh.yml")
