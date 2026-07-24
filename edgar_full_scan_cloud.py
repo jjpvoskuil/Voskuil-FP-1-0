@@ -219,14 +219,18 @@ def main():
                 print(f"  --> checkpoint: saving {len(facts_cache_updates)} updated tickers to GitHub...")
                 failed = save_facts_cache_updates(dict(facts_cache_updates), gh_get_json, gh_put_json)
                 if failed:
-                    print(f"      ! {len(failed)} shard(s) failed to save: {failed}")
+                    print(f"      ! {len(failed)} shard(s) failed to save:")
+                    for _path, _reason in failed:
+                        print(f"          {_path}: {_reason}")
                 facts_cache_updates.clear()
 
     if facts_cache_updates:
         print(f"\nFinal checkpoint: saving {len(facts_cache_updates)} remaining updated tickers to GitHub...")
         failed = save_facts_cache_updates(dict(facts_cache_updates), gh_get_json, gh_put_json)
         if failed:
-            print(f"  ! {len(failed)} shard(s) failed to save: {failed}")
+            print(f"  ! {len(failed)} shard(s) failed to save:")
+            for _path, _reason in failed:
+                print(f"      {_path}: {_reason}")
 
     elapsed = time.time() - start
     print(f"\n{'='*60}")

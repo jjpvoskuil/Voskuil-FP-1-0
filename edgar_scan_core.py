@@ -147,9 +147,13 @@ def save_facts_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
     commit_message=...) -> (ok, message) -- same contracts as
     github_store.github_get_json()/github_put_json().
 
-    Returns a list of shard paths that failed to save even after
-    retries, so the caller can surface that rather than silently
-    losing data.
+    Returns a list of (path, reason) tuples for any shard that failed
+    to save even after retries, so the caller can surface both what
+    failed AND why -- added 2026-07-24 after a GitHub Actions run
+    dropped 32 of ~38 shard writes with only "X shard(s) failed" and no
+    indication of the actual cause. Backward compatible with anything
+    that only calls len() on the result (the app's own display code
+    does exactly that).
     """
     if not updates:
         return []
@@ -188,7 +192,7 @@ def save_facts_cache_updates(updates: dict, get_json_fn, put_json_fn) -> list:
             if ok:
                 break
         if not ok:
-            failed_shards.append(path)
+            failed_shards.append((path, last_msg))
     return failed_shards
 
 
