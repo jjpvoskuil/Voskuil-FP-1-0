@@ -32,6 +32,29 @@ SEC_BASE      = "https://www.sec.gov"
 HEADERS       = {"User-Agent": "VoskuilFP/1.0 jvoskuil@foxdenholdings.com"}
 SECTION_LIMIT = 8_000
 
+# ── Shared HTTP session (connection pooling) ──────────────────────────────
+# (2026-07-24) Every SEC request used to go through a bare requests.get()
+# call -- no Session, no connection reuse -- meaning each of the ~12,000+
+# requests in a full-universe scan opened a brand-new TCP+TLS connection
+# to data.sec.gov from scratch, instead of reusing a warm keep-alive
+# connection. Standard cost for bulk API scanning, and independently
+# confirmed NOT to be a concurrency problem first: raising Stage 1's
+# worker count from 8 to 20 produced no meaningful throughput change,
+# which pointed away from "not enough requests in flight" and toward
+# per-request connection overhead instead -- more threads just meant
+# more simultaneous fresh-handshake attempts, not more effective reuse
+# of the request budget. requests.Session (and the urllib3 pool it
+# wraps) is thread-safe for concurrent use, so one shared instance
+# across every worker thread is the correct pattern here, not a
+# per-thread session. pool_maxsize set above the current worker count
+# (20) so connection reuse actually has headroom to work with instead
+# of silently falling back to opening new connections beyond the pool.
+_session = requests.Session()
+_session.headers.update(HEADERS)
+_adapter = requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=32)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
+
 # ── Shared SEC rate limiter ─────────────────────────────────────────────
 # SEC's fair-access policy caps requests at ~10/sec per source. The Market
 # Screener's Stage 1 scan fires up to 8 concurrent worker threads, each
@@ -53,7 +76,10 @@ def _sec_get(url: str, timeout: int = 30, max_retries: int = 3):
     Shared GET wrapper for every SEC EDGAR request in this module.
     Paces requests across ALL threads to stay under SEC's fair-access
     rate limit, and retries 429s (rate-limited) with backoff instead of
-    surfacing an immediate failure.
+    surfacing an immediate failure. Uses the shared, connection-pooling
+    _session (see above) instead of a bare requests.get() so repeated
+    requests to data.sec.gov/www.sec.gov reuse warm connections instead
+    of paying a fresh TCP+TLS handshake every single time.
     """
     for attempt in range(max_retries + 1):
         with _rate_lock:
@@ -62,7 +88,7 @@ def _sec_get(url: str, timeout: int = 30, max_retries: int = 3):
                 time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
             _last_request_time[0] = time.monotonic()
 
-        resp = requests.get(url, headers=HEADERS, timeout=timeout)
+        resp = _session.get(url, timeout=timeout)
 
         if resp.status_code == 429 and attempt < max_retries:
             retry_after = resp.headers.get("Retry-After")
