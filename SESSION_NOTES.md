@@ -11,6 +11,79 @@ decisions that still matter. Newest entries at the top.
 
 ---
 
+## Session (cont'd): EDGAR/Yahoo cache reliability — shard-write race found and fixed, error-reason diagnostics, EDGAR moved to daily
+
+Continuation of the same day's work (#69/#76 above). Started from git push auth suddenly failing
+mid-session (`Invalid username or token` — the sandbox's original PAT stopped working; owner
+supplied a replacement, remote updated, push access restored) and ended up finding a real
+data-loss bug that explains most of the session's confusing results.
+
+**Diagnostics added first:** `edgar_full_scan_cloud.py`'s error summary only ever showed a bare
+count (186 on the first real full run). Added grouped, deduplicated error-reason logging
+(`Counter` over normalized messages) plus a `--tickers TICK1,TICK2,...` flag to target specific
+tickers directly instead of a full ~90-minute run, for exactly this kind of debugging.
+
+**Red herring, ruled out:** hypothesized the ~206-212s outlier fetches (10 slowest each run) were
+a single root cause — sparse 20-F filers making dozens of sequential companyconcept fallback
+requests. Didn't hold up: re-running the prior run's specific slow tickers in isolation
+(`--tickers`, 5 workers) came back 0 errors and only 22-54s each, not 200s+; and the *next* full
+run's 10 slowest were a completely different set of tickers. The extreme outliers look
+contention-driven under full 20-worker load, not intrinsic to specific tickers — not chased
+further, logged here so it doesn't get re-litigated from scratch next time it comes up.
+
+**The actual bug, found by re-running the full scan and noticing it wasn't skipping anything it
+should have:** owner ran the EDGAR full scan again (expecting a fast, mostly-cache-hit pass since
+two "full" runs had just finished) and it took ~83 minutes anyway, barely touching cache hits.
+Checked the shard files' own git history directly — tickers showing up as "freshly fetched" in the
+new run had **never existed in the shard file before**, not stale-but-present. Root cause:
+`gh_put_json()` (and the app's own `github_store.github_put_json()`) fetched a *fresh* SHA
+immediately before every write instead of using the SHA from the read that the merged content was
+based on. That defeats GitHub's optimistic-concurrency check — when two processes write the same
+shard around the same time (exactly what happened: the GitHub Actions run, the local bootstrap,
+and briefly the Yahoo run were all explicitly run in parallel this session, believed safe since
+they touch different files/credentials — true for crashes, **false** for this), whichever writes
+last silently overwrites the other's just-saved entries with its own older, already-stale merge.
+No error, no conflict, just quietly lost data. One shard checked had dropped from ~154 entries
+down to 1 survivor. This is almost certainly why the "full" runs earlier this session kept
+reporting near-complete fetch counts (5963, 5806 fetched) that didn't actually stick.
+
+Fixed in both `edgar_scan_core.py`/`edgar_full_scan_cloud.py` and their Yahoo mirrors
+(`yahoo_scan_core.py`/`yahoo_full_scan_cloud.py`), plus `github_store.py` (the live app's own save
+path, since `save_facts_cache_updates()` now always passes `sha=` through to whatever
+`put_json_fn` it's given): the SHA from the original read is threaded through to the write, so a
+conflicting concurrent write now correctly fails (409/422) and falls into the existing 3-attempt
+retry loop (re-read, re-merge, retry) instead of clobbering. Verified with a simulated two-writer
+race in both directions — confirmed the old code drops the second writer's entry, confirmed the
+new code retries and preserves both. Yahoo's cache was checked against its own commit history and
+turned out never to have actually raced (one clean contiguous run, no overlap), so no data was
+lost there in practice — but the bug was real and is now fixed pre-emptively.
+
+**Smaller bug in the diagnostic code itself, found from its own output:** `worker()`'s `no_cik`
+early-return had stayed a 4-tuple after the `error_reason` field was added to every other return
+path, so it hit `ValueError: not enough values to unpack (expected 5, got 4)` on every no-CIK
+ticker — caught by the generic exception handler and miscounted as a real `error` instead of
+`no_cik`. Confirmed directly from the grouped output ("19x not enough values to unpack..."),
+fixed, verified with a mocked no-CIK-ticker run (`no_cik=1, errors=0`).
+
+**Net result once both fixes landed:** a same-day full run had already surfaced the real error
+picture before the fix — 206 reported errors, 185 distinct reasons (i.e. essentially no repeated
+root cause), the bulk being one-off `404`s from the Company Facts API for specific CIKs (likely
+inactive/delisted/no-XBRL-filings entities) plus 2 genuine timeouts, once the ~19 no_cik
+miscounts are set aside. Nothing here looks like a systemic bug worth chasing further right now.
+
+**EDGAR schedule changed from weekly to daily** (`0 6 * * 0` → `0 6 * * *`, owner pasted the YAML
+change) now that the cache is confirmed to hold a genuinely complete, uncorrupted pass and the
+write-race that caused the earlier confusion is fixed. Yahoo's twice-daily schedule (12:00/22:00
+UTC) is unchanged and confirmed still live. Owner's own words on next steps: wait and see how the
+first daily run goes before deciding whether daily is worth keeping (it should now be fast — mostly
+cache hits — rerunning wasn't needed after today's fixes since the cache was already warm and this
+run had no concurrent writer to race against).
+
+Punch list **#76** (cache-only page rewiring + sidebar manual-refresh button + removing Market
+Screener's redundant controls) is still open, untouched this session — today was entirely cache
+*reliability* work, not the page rewiring itself.
+
+
 ## 2026-07-24 — Market Screener full-universe scan: root cause found, moved off Streamlit Cloud into scheduled GitHub Actions jobs (#69)
 
 Started as a display fix (both single- and multi-stage residual income target prices, not just
