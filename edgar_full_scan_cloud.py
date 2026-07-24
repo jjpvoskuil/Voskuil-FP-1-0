@@ -197,11 +197,20 @@ def main():
                 _inflight["current"] -= 1
         update = getattr(_facts_cache_tls, "update", None)
         status = "error" if facts.get("error") else ("fetched" if update else "cache_hit")
-        return ticker, status, update, time.time() - t0
+        # (2026-07-24) First real full-universe run: 186 errors, first
+        # time any run has seen a nonzero error count -- every sample
+        # run (50-200 tickers) came back at exactly 0. Capturing the
+        # actual reason per ticker (previously only counted, never
+        # surfaced -- same class of blind spot as the shard-save
+        # failures earlier today) so the next run says what's actually
+        # failing instead of just how many.
+        error_reason = facts.get("error") if status == "error" else None
+        return ticker, status, update, time.time() - t0, error_reason
 
     facts_cache_updates = {}
     counts = {"no_cik": 0, "cache_hit": 0, "fetched": 0, "error": 0}
     fetch_times = []  # (ticker, seconds) -- only for status == "fetched" (live EDGAR hits, not cache hits)
+    error_details = []  # (ticker, reason) -- for status == "error"
     _inflight_lock = threading.Lock()
     _inflight = {"current": 0, "max": 0}
     done = 0
@@ -215,15 +224,17 @@ def main():
         for future in concurrent.futures.as_completed(futures):
             ticker = futures[future]
             try:
-                _t, status, update, fetch_time = future.result()
+                _t, status, update, fetch_time, error_reason = future.result()
             except Exception as e:
-                status, update, fetch_time = "error", None, None
+                status, update, fetch_time, error_reason = "error", None, None, str(e)
                 print(f"  ! {ticker}: unexpected exception: {e}")
             counts[status] = counts.get(status, 0) + 1
             if update:
                 facts_cache_updates[update["ticker"]] = update["entry"]
             if status == "fetched" and fetch_time is not None:
                 fetch_times.append((ticker, fetch_time))
+            if status == "error":
+                error_details.append((ticker, error_reason or "unknown"))
 
             done += 1
             if done % 100 == 0 or done == len(tickers):
@@ -268,6 +279,22 @@ def main():
         print(f"  10 slowest fetches: " + ", ".join(f"{tk}={t:.1f}s" for tk, t in slowest))
     print(f"  Max concurrent in-flight fetches observed: {_inflight['max']} (of {args.workers} workers)")
     print(f"  Errors:                            {counts['error']}")
+    if error_details:
+        from collections import Counter
+        # Group by a normalized reason prefix rather than the full
+        # message (which often embeds the ticker/CIK/URL and would make
+        # every message look "unique" even when the underlying cause is
+        # identical) -- reveals whether 186 errors is "one root cause,
+        # 186 times" or genuinely 186 different problems.
+        def _normalize(reason):
+            r = str(reason)
+            return r[:80]
+        reason_counts = Counter(_normalize(r) for _t, r in error_details)
+        print(f"  Error reasons (grouped, {len(reason_counts)} distinct):")
+        for reason, count in reason_counts.most_common(10):
+            print(f"      {count:4d}x  {reason}")
+        sample = error_details[:15]
+        print(f"  First {len(sample)} error tickers: " + ", ".join(f"{tk}" for tk, _r in sample))
     print(f"  Finished at:                        {datetime.now(timezone.utc).isoformat()}")
 
 
