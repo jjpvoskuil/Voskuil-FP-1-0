@@ -118,7 +118,16 @@ def main():
     ap.add_argument("--workers", type=int, default=20, help="Concurrent worker threads (default 20, matches the app's Stage 1 pool)")
     ap.add_argument("--sample", type=int, default=None, help="Limit to first N tickers (testing only — omit for a real full run)")
     ap.add_argument("--force-refresh", action="store_true", help="Ignore the 7-day freshness window and refetch every ticker")
+    ap.add_argument("--shard-count", type=int, default=1,
+                     help="Split the universe into this many passes (for staying under GitHub Actions' 6-hour job limit -- "
+                          "e.g. 2 for a two-run split). Default 1 = process the whole universe in one run.")
+    ap.add_argument("--shard-index", type=int, default=0,
+                     help="Which pass this run is (0-based, must be < --shard-count). Ignored if --shard-count is 1.")
     args = ap.parse_args()
+
+    if args.shard_count < 1 or not (0 <= args.shard_index < args.shard_count):
+        print(f"ERROR: --shard-index must be in [0, --shard-count). Got shard-index={args.shard_index}, shard-count={args.shard_count}.")
+        sys.exit(1)
 
     if not GITHUB_TOKEN:
         print("ERROR: GITHUB_TOKEN not set — nothing would get saved. Set it as an env var (or a GitHub Actions secret) and re-run.")
@@ -129,7 +138,17 @@ def main():
     tickers = fetch_full_us_equity_universe(universe="all_us")
     if args.sample:
         tickers = tickers[:args.sample]
-    print(f"  {len(tickers)} tickers in scope")
+    if args.shard_count > 1:
+        # Modulo slicing, not a contiguous chunk -- spreads any tickers
+        # that are unevenly distributed alphabetically (e.g. clusters of
+        # ADR/20-F filers, which are expensive -- see the module
+        # docstring) evenly across passes instead of risking one pass
+        # unluckily getting a disproportionate share of the slow ones.
+        all_count = len(tickers)
+        tickers = tickers[args.shard_index::args.shard_count]
+        print(f"  Shard {args.shard_index + 1}/{args.shard_count}: {len(tickers)} of {all_count} tickers in scope this run")
+    else:
+        print(f"  {len(tickers)} tickers in scope")
 
     print("Loading ticker -> CIK map from SEC EDGAR...")
     ticker_cik_map = get_ticker_cik_map()
