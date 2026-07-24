@@ -665,6 +665,15 @@
       "priority": "Medium",
       "done": true,
       "created": "2026-07-22"
+    },
+    {
+      "id": 76,
+      "title": "Remove manual EDGAR/Yahoo pulls from individual app pages; add sidebar manual-refresh button",
+      "note": "Follow-on from this session's background-refresh build-out. Two scheduled GitHub Actions jobs now keep persistent, GitHub-committed caches warm outside the app entirely: edgar_full_scan_cloud.py (weekly, edgar_facts_cache/shard_*.json, 7-day freshness) and yahoo_full_scan_cloud.py (twice daily, yahoo_price_cache/shard_*.json, 18-hour freshness). Both went in specifically because live full-universe fetches inside the Streamlit Cloud app's own process were unreliable/slow (see SESSION_NOTES.md 2026-07-24 entry for the full investigation) -- moving the expensive part out entirely fixed that.\n\nWhat's NOT done yet: Dashboard, Equity Scout, and Compare Stocks still call fetch_fundamentals_edgar() and fetch_price_and_market_cap() directly on every page load/ticker lookup (live EDGAR + yfinance calls, sec_utils.py), not reading from either persistent cache at all. Market Screener already reads the EDGAR cache (edgar_scan_core.py) but still has its old manual 'force fresh fetch' checkbox/controls, which are now largely redundant given the automated background refresh.\n\nNext steps: (1) rewire Dashboard/Equity Scout/Compare Stocks to read from the persistent caches (cache-only, no automatic live fallback -- owner explicitly prefers a manual trigger over silently falling back to a live fetch on a cache miss/stale entry); (2) build a sidebar control, visible on every page, that triggers the GitHub Actions workflow_dispatch for the EDGAR and/or Yahoo refresh jobs on demand via the GitHub API (repo already has GITHUB_TOKEN in Streamlit secrets, used today for github_store.py's Contents API calls -- workflow_dispatch is a different API call but same credential); (3) remove/simplify Market Screener's now-redundant manual force-refresh controls. Owner wants to start this as a new chat session once the current EDGAR full run + local bootstrap + Yahoo full run have all finished and the caches are confirmed warm (rewiring to cache-only before that would show blank data for anything not yet pulled).",
+      "phase": "API / Infrastructure",
+      "priority": "High",
+      "done": false,
+      "created": "2026-07-24"
     }
   ],
   "phases": [

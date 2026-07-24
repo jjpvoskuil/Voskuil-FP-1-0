@@ -11,6 +11,142 @@ decisions that still matter. Newest entries at the top.
 
 ---
 
+## 2026-07-24 — Market Screener full-universe scan: root cause found, moved off Streamlit Cloud into scheduled GitHub Actions jobs (#69)
+
+Started as a display fix (both single- and multi-stage residual income target prices, not just
+one, shown consistently on Dashboard/Market Screener/Compare Stocks/Watchlist, plus a Dashboard
+readability pass) but turned into a full day chasing why the "All US Common Stocks" (~6,159
+ticker) Stage 1 scan had gotten dramatically slower than owner's memory of it (~10-20 min
+historically, now projecting 2.5+ hours). Two real bugs fixed early: a missing import silently
+breaking Market Screener's own current-price fetch (`_normalize_dividend_yield` used but not
+imported), and a malformed FX ticker (`"USD/SHARESUSD=X"`) from `_pick_unit_observations()`
+treating XBRL compound/ratio unit keys as currency codes.
+
+**Actual root cause, found via `git log -S` archaeology, not more live debugging:** commit
+`e71deb6` (Mon Jul 20, three days before this session) added the shared SEC rate limiter
+(`sec_utils._rate_lock`/`_MIN_REQUEST_INTERVAL`) specifically because the *previous*, unthrottled
+version — up to 8 worker threads firing requests with no pacing — was intermittently blowing past
+SEC's ~10 req/sec fair-access limit, getting 429'd, and (with no retry logic at the time) silently
+dropping those tickers from the results with no indication anything had failed. That's what the
+historical "10-20 min" runs actually were: fast, but some unknown fraction of them were quietly
+incomplete. The rate limiter traded that raw speed for correctness — caps real throughput around
+~250/min system-wide regardless of worker count, which is *why* nothing this session (more
+workers, connection pooling, etc.) could get back to the old numbers. Worth remembering next time
+"it got slower" comes up: check whether a recent commit traded speed for a correctness fix before
+assuming something's newly broken.
+
+**Also fixed:** an over-broad companyconcept fallback (added the same day for ASML, see the prior
+ASML session note) that was firing for *any* sparse-bulk-data ticker, not just genuine 20-F
+foreign filers — up to ~36 wasted requests each. Narrowed to gate on `is_20f_filer` (from the same
+submissions.json call already being made for `sic`, no extra request). This is a real, understood,
+*expected* cost that still shows up for genuine 20-F filers (ABEV/Ambev, ABVX/Abivax confirmed in
+later timing data at 35-40s vs. ~2-5s for everything else) — not a bug, just visible now that
+per-ticker timing instrumentation exists.
+
+**The actual architectural fix, once the ceiling itself (not a bug) was confirmed as the
+constraint:** a standalone local test script (`edgar_speed_test.py`, not part of the app) proved
+the exact same fetch mechanics hit ~242 tickers/min running bare on the owner's machine — near the
+rate limiter's own ~250/min ceiling — vs. ~75-130/min inside the deployed Streamlit Cloud app.
+Same code, same network, just much slower wall-clock when competing with Streamlit's own
+UI/websocket/fragment-rerun work in the same process. Rather than trying to make the in-app scan
+fast, the full-universe fetch moved out of the app's runtime entirely:
+
+- `edgar_scan_core.py` (new) — `fetch_quality_edgar()`, the sharded facts-cache load/save, market
+  cap/sector lookup, and the full-US-equity-universe fetcher, extracted out of
+  `app_pages/8_Market_Screener_EDGAR.py` into a module with zero dependency on an active Streamlit
+  runtime (confirmed: imports and runs fine from a bare `python script.py`, `@st.cache_data`
+  degrades gracefully to per-process memory caching with no server). GitHub Contents API
+  reads/writes are injected as plain callables rather than imported directly, so the app can use
+  its `st.secrets`-backed `github_store.py` while a CI script uses a plain `GITHUB_TOKEN` env var
+  (same pattern already proven in `ms_download_cloud.py`) — no Streamlit dependency in CI at all.
+  The Streamlit page itself now just imports from this module plus two thin wrapper functions;
+  confirmed no behavior change via a repo-wide grep for the moved names before/after.
+- `edgar_full_scan_cloud.py` (new) — standalone script covering the full universe, incremental
+  (skips anything within `EDGAR_FACTS_CACHE_MAX_AGE_DAYS`=7), checkpoints to GitHub every 500
+  newly-fetched tickers rather than only at the end. Supports `--shard-count`/`--shard-index` to
+  split a run across multiple passes (modulo slicing, not contiguous, so any tickers unevenly
+  distributed alphabetically — e.g. clusters of 20-F filers — spread evenly across passes) — added
+  proactively in case a full cold run exceeds GitHub Actions' 6-hour job limit, not yet needed as
+  of this writing.
+- `.github/workflows/edgar_full_scan.yml` (new) — weekly cron (Sundays 06:00 UTC) +
+  `workflow_dispatch` with `force_refresh`/`sample` inputs for manual/test runs. **Owner has to
+  paste workflow YAML changes into GitHub's web UI directly** — the push token available in this
+  sandbox doesn't have the `workflow` OAuth scope GitHub requires to create/update files under
+  `.github/workflows/` via `git push`, confirmed repeatedly this session. Not fixable from this
+  side; just a recurring manual step whenever that specific directory needs to change.
+
+**Debugging the GitHub Actions environment itself, once it was live** (three real, sequential
+findings, each confirmed by live measurement before moving to the next):
+1. First real run: 9.6 tickers/min — slower than even the *in-app* baseline this was meant to
+   beat. Added per-ticker fetch timing + max-in-flight-concurrency instrumentation to the script.
+2. Confirmed 20/20 workers genuinely concurrent (ruled out thread-pool serialization) and *zero*
+   `429`s anywhere in the log (ruled out active SEC-side throttling of GitHub's shared IP range —
+   a real, documented phenomenon researched this session: SEC has blocked entire cloud-provider IP
+   ranges before, per-IP is the enforcement unit, and GitHub-hosted runners share rotating Azure
+   IPs across unrelated jobs from other users). But 32 of ~38 shard *writes* were failing every
+   run, with the failure list only ever showing bare paths, not reasons.
+3. Fixed `save_facts_cache_updates()` to return `(path, reason)` tuples instead of bare paths
+   (backward compatible — the app's own display code only ever called `len()` on the result). Real
+   answer on the next run: `403 "Resource not accessible by integration"` — this repo's default
+   Actions token permissions are read-only. Added an explicit `permissions: contents: write` block
+   scoped to just this job (not the repo-wide default, to avoid touching other workflows' access).
+   This single fix explained *both* mysteries: writes started landing, AND throughput nearly
+   tripled (9.6 → 19.4/min) once the script stopped burning ~7s per failed shard on 3 futile
+   retries with backoff, 32 times a run. The residual ~2x-vs-local latency gap (median ~4.6s/ticker
+   here vs. ~2s locally) remains unexplained and is being treated as a GitHub-Actions-environment
+   characteristic to live with, not a bug to keep chasing.
+
+**Immediate bootstrap path, in parallel with the above:** `edgar_full_scan_cloud.py` never actually
+required GitHub Actions — it just needs `GITHUB_TOKEN`/`GITHUB_REPO` env vars, so it also runs
+directly from the owner's own machine (same credential the Streamlit Cloud app already uses,
+grabbed from its Secrets panel), hitting the full ~242/min local ceiling instead of GitHub's
+slower one. Packaged the 4 files it actually needs (`sec_utils.py`, `edgar_concept_map.py`,
+`edgar_scan_core.py`, `edgar_full_scan_cloud.py` — confirmed minimal via a clean import test) as a
+zip for exactly this. As of this writing, three things are running simultaneously: the scheduled
+GitHub Actions full run, the owner's local bootstrap, and (see below) the new Yahoo Finance full
+run — confirmed safe since they touch different cache files, different external services, and
+different source IPs/credentials, with the shard-write path's SHA-conflict retry logic already
+built to handle any incidental overlap safely.
+
+## Session (cont'd): #76 — Yahoo Finance twice-daily background refresh, mirroring the EDGAR approach
+
+Owner liked the EDGAR background-refresh architecture enough to ask for the same treatment for
+Yahoo Finance (price/market cap/sector/dividend yield — currently fetched live, on every page
+load, by `sec_utils.fetch_price_and_market_cap()`, the single consolidated pricing function used
+by Dashboard/Watchlist/Equity Scout/Market Screener per an earlier session's consolidation).
+
+Built `yahoo_scan_core.py` + `yahoo_full_scan_cloud.py`, structurally identical to the EDGAR
+versions (sharded `yahoo_price_cache/shard_*.json`, same GitHub-write injection pattern, same
+checkpoint/retry/failure-reason-surfacing logic) but with two deliberate differences, both because
+yfinance is *not* an official, rate-documented API the way SEC EDGAR is — it scrapes Yahoo's own
+endpoints, limits are undocumented and stricter in practice (confirmed via research this session),
+and a block would take down live price display across the *whole* app, not just slow one
+background job:
+- `YAHOO_CACHE_MAX_AGE_HOURS` = 18 (not days — price moves far faster than EDGAR fundamentals;
+  sized to comfortably survive a twice-daily schedule even if one run runs late or fails).
+- Pacing starts at ~2 req/sec and 8 default workers (vs. SEC's ~8.3 req/sec and 20) — deliberately
+  conservative until a real run history proves it's safe to tighten, not derived from any
+  documented Yahoo limit (there isn't one).
+
+`.github/workflows/yahoo_price_refresh.yml` (owner pasted directly, same `workflow` scope
+limitation as the EDGAR one) — twice daily, 12:00 and 22:00 UTC (roughly pre-market/post-close).
+First real test (100-ticker sample) came back clean: 0 errors, tight consistent timing (no wild
+outliers the way EDGAR's 20-F filers produce), 44.8 tickers/min — projects to ~2.3 hours for the
+full universe, comfortably inside any scheduling concern. Full run kicked off same session.
+
+**Not done yet, and explicitly why:** Dashboard/Equity Scout/Compare Stocks still call
+`fetch_fundamentals_edgar()`/`fetch_price_and_market_cap()` live on every load — neither page reads
+either persistent cache. Owner wants these rewired to cache-only (confirmed preference: no
+automatic live-fetch fallback on a cache miss/stale entry — instead, a manual refresh button in
+the sidebar, triggerable from any page, that calls the GitHub Actions `workflow_dispatch` API
+on demand). Explicitly holding off on the page rewiring until the in-flight EDGAR full run, local
+bootstrap, and Yahoo full run all finish and the caches are confirmed actually warm — flipping
+Dashboard/Equity Scout/Compare Stocks to cache-only before that would show blank data for anything
+not yet pulled. Logged as punch list **#76** for the next session. See that item's note for the
+full scope (cache-only rewiring + sidebar trigger button + removing Market Screener's now-redundant
+manual force-refresh controls).
+
+
 ## 2026-07-23 — Watchlist page rework: tight table, inline trading, dual-line chart (#68)
 
 Follow-up polish pass on the Watchlist page, per owner request:
