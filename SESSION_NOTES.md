@@ -11,6 +11,53 @@ decisions that still matter. Newest entries at the top.
 
 ---
 
+## Session: Sub-philosophy tags (#5 reframed) + punch list updates
+
+Started from punch list #5 ("Strategy-matched discovery scan: Dividend Aristocrats, commodity
+ETFs, user-defined filters") — before building, flagged that commodity ETFs can't run through the
+existing FCF/ROIC/Debt-FCF funnel at all (no EDGAR fundamentals to score), so literal ETF presets
+weren't the right shape. Owner reframed it during discussion into something better: sub-philosophy
+*tags* layered on top of the core Buffett funnel in Market Screener, feeding into #66
+(diversification tool) as a style/factor diversification axis, not just sector/market-cap.
+
+**Shipped:** `compute_philosophy_tags()` in `sec_utils.py`, called from
+`edgar_scan_core.fetch_quality_edgar()` right alongside `evaluate_buffett_funnel()` — zero new
+EDGAR calls, uses fields already in `CONCEPT_MAP` (cash, long_term_debt, short_term_debt,
+diluted_shares history). Two tags: **Fortress Balance Sheet** (cash > total debt) and **Capital
+Discipline** (shares outstanding down 10%+ over the funnel's existing 5yr dilution-lookback window
+— deliberately stricter than the funnel's own dilution_pass gate, which only requires shares not
+*growing* and would tag almost every survivor if reused as-is). Badges show on Market Screener
+result cards; also flows into CSV export (`philosophy_tags_str`) and the persisted GitHub scan
+cache (new key on each survivor dict — existing cached scans from before this change just won't
+have it until re-scanned, handled gracefully via `.get()` defaults, not a breaking change).
+
+Validated against synthetic cases (net-cash + buyback, net-debt + flat shares, boundary case where
+cash exactly equals debt, sub-threshold share reduction, active dilution, missing data) and spot-
+checked against real cached EDGAR data for AAPL/MSFT/KO/F. Real-data result worth flagging: Ford
+tagged Fortress Balance Sheet (cash $23.4B vs. long_term_debt+short_term_debt only ~$291M in the
+cache) — that's almost certainly Ford Credit's captive financing debt not being captured by the
+`long_term_debt`/`short_term_debt` XBRL concept tags, not a bug in the new tag logic itself. Same
+`total_debt` fields already feed the existing Debt/FCF score and `is_net_creditor` flag elsewhere
+in the app, so this is a pre-existing data characteristic (worth a closer look at auto-finance/
+captive-lender debt tagging generally), not something introduced or fixed this session.
+
+**Not built yet, deliberately deferred:** Dividend Growth tag (needs a new `dividends_paid` EDGAR
+concept, not in `CONCEPT_MAP` yet), Deep Value tag (needs sector-relative valuation comparison),
+a Stage 1 filter on tags (badges only for now, no multiselect filter), tagging for banks/insurers
+(#36's separate alt-scoring path — "net cash"/"buybacks" don't mean the same thing for a leveraged
+balance sheet). Punch list #5's note rewritten to capture all of this; #66's note expanded to
+describe the style-diversification tie-in and the personalization dependency below.
+
+**New punch list item (#77, Medium, API/Infrastructure):** Financial Modeler's inputs (age, plan-
+through age, withdrawal rate, return assumptions, etc.) currently live only in
+`st.session_state` — wiped on every Streamlit Cloud reboot/redeploy, and only populated if you've
+visited that page earlier in the same browser session. Flagged as a hard prerequisite for #66's
+planned personalized diversification (target sub-philosophy exposure driven by horizon/withdrawal
+coverage) — needs a small `financial_profile_data.json` persisted via `github_store.py`, same
+pattern as the punch list/watchlist/scan cache. Not started yet.
+
+---
+
 ## Session (cont'd): EDGAR/Yahoo cache reliability — shard-write race found and fixed, error-reason diagnostics, EDGAR moved to daily
 
 Continuation of the same day's work (#69/#76 above). Started from git push auth suddenly failing

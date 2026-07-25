@@ -54,6 +54,7 @@ from sec_utils import (
     fetch_company_facts_with_cik,
     evaluate_buffett_funnel, FUNNEL_THRESHOLDS,
     evaluate_financial_firm_funnel, score_financial_firm_breakdown,
+    compute_philosophy_tags, PHILOSOPHY_TAG_META,
 )
 
 # (2026-07-24, punch list #76 follow-up) Raised 40 -> 500. Each cached
@@ -520,6 +521,11 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
             "fcf": None, "roic": None, "gross_margin": None, "debt_to_fcf": None,
             "interest_coverage": None, "is_net_creditor": False,
             "owner_earnings": None,
+            # Philosophy tags (#5) not extended to banks/insurers yet --
+            # "net cash position" and "share buybacks" don't mean the
+            # same thing for a leveraged/deposit-funded balance sheet.
+            # See compute_philosophy_tags()'s docstring in sec_utils.py.
+            "philosophy_tags": {"tags": [], "fortress_balance_sheet": {}, "capital_discipline": {}},
             "net_income":         latest.get("net_income"),
             "revenues":           latest.get("revenue"),
             "long_term_debt":     long_term_debt,
@@ -562,6 +568,7 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
         # data, the company just didn't clear the pre-filter.)
 
     funnel = evaluate_buffett_funnel(facts, funnel_thresholds or FUNNEL_THRESHOLDS)
+    philosophy_tags = compute_philosophy_tags(facts)
 
     roic           = latest.get("roic")
     gross_margin   = latest.get("gross_margin")
@@ -632,6 +639,11 @@ def fetch_quality_edgar(ticker: str, cik: str, funnel_thresholds: dict = None,
         "roic_stale":           funnel["roic_stale"],
         "roic_stale_years":     funnel["roic_stale_years"],
         "roic_last_reliable_period": funnel["roic_last_reliable_period"],
+        # ── Sub-philosophy tags (#5) ────────────────────────────────────
+        "philosophy_tags":      philosophy_tags,
+        "philosophy_tags_str":  ", ".join(
+            PHILOSOPHY_TAG_META.get(tag, tag) for tag in philosophy_tags["tags"]
+        ),
         "_latest":           latest,
     }
 

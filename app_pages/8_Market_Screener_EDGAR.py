@@ -16,6 +16,7 @@ from sec_utils import (
     evaluate_financial_firm_funnel, score_financial_firm_breakdown,
     compute_dcf_value, compute_residual_income_value,
     fetch_price_and_market_cap,
+    PHILOSOPHY_TAG_META,
 )
 from edgar_concept_map import FINANCIAL_SIC_CODES, CYCLICAL_SIC_CODES
 from github_store import github_get_json, github_put_json
@@ -2021,6 +2022,12 @@ if 'ms_edgar_results_df' in st.session_state:
                     _badges.append(f"📏 Limited History ({row.get('funnel_years_used','?')}y)")
                 if row.get('roic_stale'):
                     _badges.append(f"🕰️ Stale ROIC (last reliable: {row.get('roic_last_reliable_period','?')}, {row.get('roic_stale_years','?')}y old)")
+                # Sub-philosophy tags (#5) — layered on top of the core
+                # funnel, not part of the pass/fail checklist itself.
+                for _pt in (row.get('philosophy_tags') or {}).get('tags', []):
+                    _pt_label = PHILOSOPHY_TAG_META.get(_pt)
+                    if _pt_label:
+                        _badges.append(_pt_label)
                 if _badges:
                     st.caption(" · ".join(_badges))
                 if _fin_subtype in ("bank", "insurance"):
@@ -2199,6 +2206,7 @@ if 'ms_edgar_results_df' in st.session_state:
                      'debt_to_ni','debt_to_cads','debt_hurdle_cleared',
                      'dilution_passed','dilution_pct_change','limited_history','funnel_years_used',
                      'is_cyclical','is_negative_equity','roic_stale','roic_stale_years','roic_last_reliable_period',
+                     'philosophy_tags_str',
                      'fcf_yield','price_owner_earn','dividend_yield','price','market_cap',
                      'margin_of_safety','intrinsic_value_per_share']
     _export_names = ['Ticker','Name','Sector','Industry','Sub-Industry',
@@ -2207,6 +2215,7 @@ if 'ms_edgar_results_df' in st.session_state:
                       'Debt/Net Income','Debt/CADS','Debt Hurdle Cleared',
                       'Dilution Passed','Shares Chg (5yr)','Limited History','Funnel Years Used',
                       'Cyclical','Negative Equity','Stale ROIC','Stale ROIC Years','ROIC Last Reliable Year',
+                      'Philosophy Tags',
                       'FCF Yield','Price/Owner Earnings','Dividend Yield','Price','Market Cap',
                       'Margin of Safety (DCF)','DCF Intrinsic Value/Share']
     if 'si_holders' in results_df.columns:
@@ -2384,6 +2393,10 @@ else:
     - 🦁 **Superinvestor Conviction** — see how many of 82 tracked value investors hold each result
     - **Net Creditor detection** — companies earning more interest than they pay score full points
     - **Financial firm filtering** — banks/insurers excluded by default (different statement structure)
+    - 🏰🔁 **Philosophy Tags** (#5) — sub-philosophy badges layered on top of the core checklist:
+      **Fortress Balance Sheet** (cash exceeds total debt) and **Capital Discipline** (share count
+      down 10%+ over 5 years — buybacks outpacing issuance, stricter than the checklist's own
+      "didn't dilute" gate). Not yet computed for banks/insurers.
 
     ---
     **Score guide:** 🟢 80+ Strong Buy · 🟡 65-79 Watch · 🟠 45-64 Caution · 🔴 <45 Avoid

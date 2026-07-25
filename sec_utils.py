@@ -2711,6 +2711,123 @@ def evaluate_buffett_funnel(facts: dict, thresholds: dict = None) -> dict:
 
 
 # ═════════════════════════════════════════════════════════════════════
+# Sub-Philosophy Tags (punch list #5)
+#
+# The core Buffett/Munger funnel above (evaluate_buffett_funnel) is one
+# lens: quality compounder (10yr ROIC, 10yr FCF margin, debt hurdle, no
+# dilution). These tags layer additional value sub-styles ON TOP of an
+# already-passed funnel survivor -- badges, not separate gates -- using
+# fields already fetched for Stage 1 (see edgar_concept_map.py's
+# CONCEPT_MAP: "cash", "long_term_debt", "short_term_debt", and
+# "diluted_shares" history are all pulled for every candidate already,
+# so this adds zero new EDGAR calls).
+#
+# Deliberately stricter than the funnel's own pass/fail gates where the
+# two overlap -- e.g. the funnel's dilution_pass only requires shares
+# NOT growing (flat counts pass), which is true for most survivors and
+# wouldn't differentiate anything as a badge. Capital Discipline here
+# requires a real double-digit reduction, so it flags aggressive buyback
+# compounders specifically, not "didn't dilute."
+#
+# Intended to feed #66 (diversification tool) eventually -- tagging
+# survivors by sub-philosophy, not just sector/market-cap, so a
+# portfolio that looks diversified by GICS sector but is entirely
+# "Fortress Balance Sheet" names (or entirely lacking that trait) can
+# be flagged as style-concentrated too.
+#
+# Two tags for now (scope agreed 2026-07-24): Fortress Balance Sheet
+# and Capital Discipline. Dividend Growth and Deep Value were discussed
+# but need a new EDGAR concept (dividends_paid isn't in CONCEPT_MAP yet)
+# or a sector-relative valuation comparison respectively -- left for a
+# follow-up rather than bundled in here.
+#
+# Financial firms (banks/insurers, #36's alt scoring path) are NOT
+# tagged yet -- "net cash position" and "share buybacks" don't mean the
+# same thing for a leveraged balance sheet built on deposits/premiums.
+# edgar_scan_core.fetch_quality_edgar() returns an empty tag set for
+# those rows rather than running this logic against them.
+# ═════════════════════════════════════════════════════════════════════
+
+PHILOSOPHY_TAG_THRESHOLDS = {
+    # Capital Discipline reuses the funnel's own dilution lookback
+    # window (FUNNEL_THRESHOLDS["dilution_lookback_years"] = 5) via the
+    # shared _dilution_check() helper, rather than a second constant
+    # that could quietly drift out of sync with it.
+    "capital_discipline_min_reduction": 0.10,  # shares down >=10% over the lookback window
+}
+
+# Badge label shown in the UI (Market Screener result cards) and
+# reserved for #66's diversification tool. Keyed by the tag string that
+# compute_philosophy_tags() puts in its "tags" list.
+PHILOSOPHY_TAG_META = {
+    "fortress_balance_sheet": "🏰 Fortress Balance Sheet",
+    "capital_discipline":     "🔁 Capital Discipline",
+}
+
+
+def compute_philosophy_tags(facts: dict, thresholds: dict = None) -> dict:
+    """
+    Sub-philosophy badges for an already-fetched fetch_company_facts()-
+    style result (dict with "latest"/"history"/"meta" keys) -- same
+    input shape as evaluate_buffett_funnel(), called right alongside it
+    in edgar_scan_core.fetch_quality_edgar(). No new EDGAR fields
+    required; see module-level comment above.
+
+    Returns a dict (not a bare list) so the UI/export can show the
+    supporting numbers, not just a pass/fail badge:
+      {
+        "tags": ["fortress_balance_sheet", "capital_discipline"],  # only the ones that passed
+        "fortress_balance_sheet": {"passed": bool, "cash", "total_debt", "net_cash"},
+        "capital_discipline":     {"passed": bool, "shares_start", "shares_end",
+                                    "pct_change", "years_compared"},
+      }
+
+    A candidate missing the underlying data (stale cache entry, or a
+    filer that just doesn't report the concept) gets "passed": False
+    rather than raising -- same defensive posture as the funnel above.
+    """
+    t = thresholds or PHILOSOPHY_TAG_THRESHOLDS
+    latest  = facts.get("latest", {})
+    history = facts.get("history", {})
+
+    # ── Fortress Balance Sheet: net cash position ──────────────────────
+    cash = latest.get("cash")
+    ltd  = latest.get("long_term_debt", 0) or 0
+    std  = latest.get("short_term_debt", 0) or 0
+    total_debt = ltd + std
+    fortress_passed = cash is not None and cash > total_debt
+    fortress = {
+        "passed":     fortress_passed,
+        "cash":       cash,
+        "total_debt": total_debt,
+        "net_cash":   (cash - total_debt) if cash is not None else None,
+    }
+
+    # ── Capital Discipline: shares outstanding meaningfully down ──────
+    dil_lookback = FUNNEL_THRESHOLDS.get("dilution_lookback_years", 5)
+    dil = _dilution_check(history.get("diluted_shares", []), dil_lookback)
+    cd_passed = bool(
+        dil["passed"] is True
+        and dil["pct_change"] is not None
+        and dil["pct_change"] <= -t["capital_discipline_min_reduction"]
+    )
+    capital_discipline = {**dil, "passed": cd_passed}
+
+    tags = []
+    if fortress_passed:
+        tags.append("fortress_balance_sheet")
+    if cd_passed:
+        tags.append("capital_discipline")
+
+    return {
+        "tags":                   tags,
+        "fortress_balance_sheet": fortress,
+        "capital_discipline":     capital_discipline,
+    }
+
+
+
+# ═════════════════════════════════════════════════════════════════════
 # Bank / Insurer Alternative Scoring (#36)
 #
 # Standard ROIC/FCF-margin/Debt-FCF/Gross-Margin metrics above describe a

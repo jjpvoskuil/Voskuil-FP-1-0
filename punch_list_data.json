@@ -48,7 +48,7 @@
     {
       "id": 5,
       "title": "Strategy-matched discovery scan",
-      "note": "Scan for stocks matching specific criteria: Dividend Aristocrats, commodity ETFs, and other user-defined discovery filters.",
+      "note": "Reframed 2026-07-24 from a literal 'Dividend Aristocrats/commodity ETF' discovery scan into sub-philosophy tags layered on top of the core Buffett funnel in Market Screener -- ETFs don't file EDGAR fundamentals so they can't run through the existing quant scoring engine at all. Phase 1 SHIPPED 2026-07-24: Fortress Balance Sheet (net cash position) and Capital Discipline (shares outstanding down 10%+ over 5yr, stricter than the funnel's own 'didn't dilute' gate) now show as badges on Stage 1 survivors, computed from data already fetched (no new EDGAR calls) -- see compute_philosophy_tags() in sec_utils.py. Remaining scope, not yet built: Dividend Growth tag (needs a new EDGAR concept, dividends_paid, not in CONCEPT_MAP yet), Deep Value tag (needs sector-relative P/OE or P/B comparison), a Stage 1 filter on tags (currently badges only, no filter), and tagging for banks/insurers (#36's alt scoring path). Feeds #66 -- see that item's note.",
       "phase": "Fund Deep Dive",
       "priority": "High",
       "done": false,
@@ -579,7 +579,7 @@
     {
       "id": 66,
       "title": "Build diversification tool",
-      "note": "When looking at my holdings I want to get a gauge of my diversification/risk.  In equity scout, it would be nice to see when the equity fits into the holdings diversification.  On market screener, it would be good to also include something that lets me see how investment in any of the selctions fits with my holdings and diversification strategy.  Probably need a top level tool to define what my diversification strategy is for assess in all other tools",
+      "note": "Diversification tool for Stage 1 survivors / current holdings. Expanded 2026-07-24: should diversify on two axes, not just sector/market-cap tier -- also sub-philosophy exposure (#5's tags: Fortress Balance Sheet, Capital Discipline, and whatever gets added later), so a portfolio that looks sector-diversified but is all-one-style (or missing a style entirely) gets flagged too. Should also be PERSONALIZED using Financial Modeler's inputs (age, plan-through age, withdrawal rate, return assumptions) once those are persisted -- see the new profile-persistence item below, which is a hard prerequisite for this personalization piece specifically (the sector/style diversification math itself doesn't need it). Longer horizon and looser withdrawal coverage should tolerate more Deep Value/Cyclical-at-Trough-style exposure once those tags exist; tighter coverage or a shorter horizon should tilt the target mix toward Dividend Growth/Fortress Balance Sheet names.",
       "phase": "Data Quality",
       "priority": "High",
       "done": false,
@@ -673,6 +673,15 @@
       "phase": "API / Infrastructure",
       "priority": "High",
       "done": true,
+      "created": "2026-07-24"
+    },
+    {
+      "id": 77,
+      "title": "Persist Financial Modeler profile inputs to GitHub",
+      "note": "Financial Modeler's inputs (age, plan-through age, spouse age/SS, portfolio value, monthly withdrawal, cash buffer, passive/other income, inflation, base/pessimistic/bear return assumptions) currently live only in st.session_state (fp_* keys) -- Streamlit Cloud wipes memory on every reboot/redeploy, and the values only exist at all if you've visited that page earlier in the same browser session. Add a small financial_profile_data.json persisted via github_store.py (same pattern as the punch list, watchlist, and scan cache) so these inputs survive reboots and are readable from any page/session, not just after visiting Financial Modeler first. Identified 2026-07-24 as a hard prerequisite for #66's personalized diversification piece (target sub-philosophy exposure driven by horizon/withdrawal rate).",
+      "phase": "API / Infrastructure",
+      "priority": "Medium",
+      "done": false,
       "created": "2026-07-24"
     }
   ],
